@@ -6,6 +6,7 @@ import { CalendarView } from "@/components/calendar-view"
 import { LinkedinView } from "@/components/linkedin-view"
 import { CrmView } from "@/components/crm-view"
 import { VaultView } from "@/components/vault-view"
+import { SettingsView } from "@/components/settings-view"
 import { Header } from "@/components/header"
 import { FileText } from "lucide-react"
 
@@ -20,6 +21,7 @@ export function DashboardContent({ activeTab }: { activeTab: string }) {
         {activeTab === "LinkedIn" && <LinkedinView />}
         {activeTab === "Relationships" && <CrmView />}
         {activeTab === "Vault" && <VaultView />}
+        {activeTab === "Settings" && <SettingsView />}
 
         {/* Placeholder for other views */}
         {activeTab !== "Home" &&
@@ -27,7 +29,8 @@ export function DashboardContent({ activeTab }: { activeTab: string }) {
           activeTab !== "Calendar" &&
           activeTab !== "LinkedIn" &&
           activeTab !== "Relationships" &&
-          activeTab !== "Vault" && (
+          activeTab !== "Vault" &&
+          activeTab !== "Settings" && (
             <div className="flex flex-col items-center justify-center h-full text-center py-24">
               <div className="size-20 rounded-full bg-muted flex items-center justify-center mb-6">
                 <FileText size={40} className="text-muted-foreground/30" />

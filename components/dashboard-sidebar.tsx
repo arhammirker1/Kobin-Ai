@@ -118,7 +118,12 @@ export function DashboardSidebar({
             <SidebarMenu>
               {extraNav.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton tooltip={item.title} className="px-6 h-11">
+                  <SidebarMenuButton
+                    tooltip={item.title}
+                    className="px-6 h-11"
+                    onClick={() => setActiveTab(item.title)}
+                    isActive={activeTab === item.title}
+                  >
                     <item.icon />
                     <span>{item.title}</span>
                   </SidebarMenuButton>
