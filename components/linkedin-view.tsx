@@ -110,12 +110,12 @@ export function LinkedinView() {
           <Card key={i} className="border-none shadow-sm bg-white overflow-hidden group">
             <CardContent className="p-4 flex flex-col gap-1 relative">
               <div className="absolute -right-2 -bottom-2 opacity-5 group-hover:scale-110 transition-transform">
-                <stat.Icon size={64} />
+                <stat.Icon size={64} className="text-slate-300" />
               </div>
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">{stat.label}</span>
+              <span className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">{stat.label}</span>
               <div className="flex items-baseline gap-2">
-                <span className="text-xl font-bold">{stat.value}</span>
-                <span className="text-[10px] text-emerald-500 font-bold flex items-center gap-0.5">{stat.change}</span>
+                <span className="text-xl font-bold text-slate-900">{stat.value}</span>
+                <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-0.5">{stat.change}</span>
               </div>
             </CardContent>
           </Card>
