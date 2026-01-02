@@ -1,0 +1,601 @@
+"use client"
+
+import { useState, useEffect } from "react"
+import { createClient } from "@/lib/supabase/client"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog"
+import {
+  CheckSquare,
+  Plus,
+  Search,
+  Filter,
+  Clock,
+  Users,
+  ArrowUpRight,
+  MoreHorizontal,
+  CheckCircle2,
+  Calendar,
+  AlertCircle,
+} from "lucide-react"
+import { toast } from "sonner"
+import { format, isThisWeek, isPast, differenceInDays } from "date-fns"
+
+const BUCKETS = ["today", "this-week", "delegated", "backlog"]
+const PRIORITIES = ["low", "medium", "high", "urgent"]
+const STATUSES = ["todo", "in-progress", "blocked", "completed"]
+
+interface Task {
+  id: string
+  user_id: string
+  title: string
+  bucket: string
+  is_completed: boolean
+  priority: string
+  status: string
+  due_date: string | null
+  assignee: string | null
+  linked: string | null
+  created_at: string
+}
+
+export function TaskView() {
+  const [activeBucket, setActiveBucket] = useState("today")
+  const [tasks, setTasks] = useState<Task[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [newTaskTitle, setNewTaskTitle] = useState("")
+  const [searchQuery, setSearchQuery] = useState("")
+  const [priorityFilter, setPriorityFilter] = useState<string | null>(null)
+
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [newTask, setNewTask] = useState({
+    title: "",
+    priority: "medium",
+    status: "todo",
+    deadline: "",
+    assignee: "",
+    linked: "",
+  })
+
+  const supabase = createClient()
+
+  useEffect(() => {
+    fetchTasks()
+  }, [activeBucket])
+
+  const fetchTasks = async () => {
+    if (!supabase) return
+    setIsLoading(true)
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) {
+      setIsLoading(false)
+      return
+    }
+
+    const { data, error } = await supabase
+      .from("tasks")
+      .select("*")
+      .eq("user_id", user.id)
+      .eq("bucket", activeBucket)
+      .order("created_at", { ascending: false })
+
+    if (error) {
+      console.error("[v0] Error fetching tasks:", error)
+      toast.error("Failed to fetch tasks")
+    } else {
+      const sortedTasks = sortTasksByPriorityAndDeadline(data || [])
+      setTasks(sortedTasks)
+    }
+    setIsLoading(false)
+  }
+
+  const sortTasksByPriorityAndDeadline = (tasks: Task[]) => {
+    const priorityWeight = { urgent: 4, high: 3, medium: 2, low: 1 }
+
+    return tasks.sort((a, b) => {
+      // Completed tasks go to bottom
+      if (a.is_completed && !b.is_completed) return 1
+      if (!a.is_completed && b.is_completed) return -1
+
+      // Sort by priority first
+      const priorityDiff =
+        (priorityWeight[b.priority as keyof typeof priorityWeight] || 0) -
+        (priorityWeight[a.priority as keyof typeof priorityWeight] || 0)
+      if (priorityDiff !== 0) return priorityDiff
+
+      // Then sort by deadline (tasks with closer deadlines first)
+      if (a.due_date && b.due_date) {
+        return new Date(a.due_date).getTime() - new Date(b.due_date).getTime()
+      }
+      if (a.due_date && !b.due_date) return -1
+      if (!a.due_date && b.due_date) return 1
+
+      return 0
+    })
+  }
+
+  const handleAddTask = async () => {
+    if (!supabase) return
+    if (!newTask.title.trim()) {
+      toast.error("Please enter a task title")
+      return
+    }
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) return
+
+    const taskData = {
+      user_id: user.id,
+      title: newTask.title,
+      bucket: activeBucket,
+      priority: newTask.priority,
+      status: newTask.status,
+      due_date: newTask.deadline ? new Date(newTask.deadline).toISOString() : null,
+      assignee: newTask.assignee || null,
+      linked: newTask.linked || null,
+      is_completed: false,
+    }
+
+    const { error } = await supabase.from("tasks").insert(taskData)
+
+    if (error) {
+      console.error("[v0] Error adding task:", error)
+      toast.error("Failed to add task")
+    } else {
+      setNewTask({
+        title: "",
+        priority: "medium",
+        status: "todo",
+        deadline: "",
+        assignee: "",
+        linked: "",
+      })
+      setIsDialogOpen(false)
+      fetchTasks()
+      toast.success("Task added successfully")
+    }
+  }
+
+  const toggleTask = async (id: string, is_completed: boolean) => {
+    if (!supabase) return
+    const newStatus = !is_completed ? "completed" : "todo"
+    const { error } = await supabase
+      .from("tasks")
+      .update({ is_completed: !is_completed, status: newStatus })
+      .eq("id", id)
+
+    if (error) {
+      toast.error("Failed to update task")
+    } else {
+      fetchTasks()
+      toast.success(!is_completed ? "Task completed!" : "Task reopened")
+    }
+  }
+
+  const updateTaskStatus = async (id: string, status: string) => {
+    if (!supabase) return
+    const { error } = await supabase.from("tasks").update({ status }).eq("id", id)
+
+    if (error) {
+      toast.error("Failed to update status")
+    } else {
+      fetchTasks()
+      toast.success("Status updated")
+    }
+  }
+
+  const getDeadlineBadge = (due_date: string | null) => {
+    if (!due_date) return null
+
+    const daysUntil = differenceInDays(new Date(due_date), new Date())
+    const isOverdue = isPast(new Date(due_date))
+
+    if (isOverdue) {
+      return (
+        <Badge variant="destructive" className="text-[9px] font-bold uppercase tracking-widest">
+          <AlertCircle size={10} className="mr-1" />
+          Overdue
+        </Badge>
+      )
+    } else if (daysUntil <= 2) {
+      return (
+        <Badge
+          variant="outline"
+          className="text-[9px] font-bold uppercase tracking-widest bg-orange-100 text-orange-700 border-orange-300"
+        >
+          <Clock size={10} className="mr-1" />
+          {daysUntil}d left
+        </Badge>
+      )
+    }
+
+    return (
+      <Badge variant="outline" className="text-[9px] font-bold uppercase tracking-widest bg-muted/30">
+        <Calendar size={10} className="mr-1" />
+        {format(new Date(due_date), "MMM d")}
+      </Badge>
+    )
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "completed":
+        return "bg-green-100 text-green-700 border-green-300"
+      case "in-progress":
+        return "bg-blue-100 text-blue-700 border-blue-300"
+      case "blocked":
+        return "bg-red-100 text-red-700 border-red-300"
+      default:
+        return "bg-gray-100 text-gray-700 border-gray-300"
+    }
+  }
+
+  const getPriorityColor = (priority: string) => {
+    switch (priority) {
+      case "urgent":
+        return "bg-red-100 text-red-700 border-red-300"
+      case "high":
+        return "bg-orange-100 text-orange-700 border-orange-300"
+      case "medium":
+        return "bg-yellow-100 text-yellow-700 border-yellow-300"
+      default:
+        return "bg-gray-100 text-gray-700 border-gray-300"
+    }
+  }
+
+  const filteredTasks = tasks.filter((task) => {
+    const matchesSearch = task.title.toLowerCase().includes(searchQuery.toLowerCase())
+    const matchesPriority = !priorityFilter || task.priority === priorityFilter
+    return matchesSearch && matchesPriority
+  })
+
+  const thisWeekTasks = tasks.filter(
+    (task) => !task.is_completed && task.due_date && isThisWeek(new Date(task.due_date)),
+  )
+
+  return (
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-3xl font-bold tracking-tight">Tasks & Execution</h1>
+          <p className="text-muted-foreground text-sm">Founder-first task management. No complexity, just momentum.</p>
+        </div>
+        <div className="flex gap-2 w-full md:w-auto">
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="gap-2 shadow-sm font-bold">
+                <Plus size={18} />
+                Add Task
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[500px]">
+              <DialogHeader>
+                <DialogTitle>Add New Task</DialogTitle>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="title">Task Title</Label>
+                  <Input
+                    id="title"
+                    placeholder="What needs to be done?"
+                    value={newTask.title}
+                    onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="priority">Priority</Label>
+                    <Select value={newTask.priority} onValueChange={(v) => setNewTask({ ...newTask, priority: v })}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PRIORITIES.map((p) => (
+                          <SelectItem key={p} value={p} className="capitalize">
+                            {p}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="status">Status</Label>
+                    <Select value={newTask.status} onValueChange={(v) => setNewTask({ ...newTask, status: v })}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {STATUSES.map((s) => (
+                          <SelectItem key={s} value={s} className="capitalize">
+                            {s.replace("-", " ")}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="deadline">Deadline</Label>
+                  <Input
+                    id="deadline"
+                    type="datetime-local"
+                    value={newTask.deadline}
+                    onChange={(e) => setNewTask({ ...newTask, deadline: e.target.value })}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="assignee">Assignee (Optional)</Label>
+                  <Input
+                    id="assignee"
+                    placeholder="Who's responsible?"
+                    value={newTask.assignee}
+                    onChange={(e) => setNewTask({ ...newTask, assignee: e.target.value })}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="linked">Linked To (Optional)</Label>
+                  <Input
+                    id="linked"
+                    placeholder="Related project or goal"
+                    value={newTask.linked}
+                    onChange={(e) => setNewTask({ ...newTask, linked: e.target.value })}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleAddTask}>Create Task</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </div>
+
+      <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+        <Tabs value={activeBucket} onValueChange={setActiveBucket} className="w-auto">
+          <TabsList className="bg-muted/50 p-1 h-11 border">
+            {BUCKETS.map((bucket) => (
+              <TabsTrigger
+                key={bucket}
+                value={bucket}
+                className="px-6 rounded-md data-[state=active]:bg-background data-[state=active]:shadow-sm font-semibold capitalize"
+              >
+                {bucket.replace("-", " ")}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+
+        <div className="flex items-center gap-2 w-full md:w-auto">
+          <div className="relative flex-1 md:w-64">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search tasks..."
+              className="pl-9 bg-white border-muted shadow-none h-10"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+          <Button
+            variant={priorityFilter ? "default" : "outline"}
+            size="icon"
+            className="h-10 w-10 shrink-0 bg-white"
+            onClick={() => setPriorityFilter(priorityFilter ? null : "high")}
+            title="Filter High Priority"
+          >
+            <Filter size={18} />
+          </Button>
+        </div>
+      </div>
+
+      {activeBucket === "this-week" && thisWeekTasks.length > 0 && (
+        <Card className="bg-primary/5 border-primary/20">
+          <CardHeader>
+            <CardTitle className="text-sm font-bold flex items-center gap-2">
+              <Clock size={16} className="text-primary" />
+              This Week's Focus ({thisWeekTasks.length} tasks)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {thisWeekTasks.slice(0, 5).map((task) => (
+              <div
+                key={task.id}
+                className="p-3 rounded-xl bg-background border flex items-center justify-between text-sm"
+              >
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  <Badge
+                    className={`text-[9px] font-bold uppercase tracking-widest ${getPriorityColor(task.priority)}`}
+                  >
+                    {task.priority}
+                  </Badge>
+                  <span className="font-medium truncate">{task.title}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {task.due_date && getDeadlineBadge(task.due_date)}
+                  <Select value={task.status} onValueChange={(v) => updateTaskStatus(task.id, v)}>
+                    <SelectTrigger className="h-8 w-32 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STATUSES.map((s) => (
+                        <SelectItem key={s} value={s} className="text-xs capitalize">
+                          {s.replace("-", " ")}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="grid grid-cols-1 gap-4">
+        {filteredTasks.length > 0 ? (
+          filteredTasks.map((task) => (
+            <Card
+              key={task.id}
+              className={`group hover:border-primary/30 transition-all cursor-pointer shadow-sm ${task.is_completed ? "opacity-60" : ""}`}
+            >
+              <CardContent className="p-4">
+                <div className="flex items-center gap-4">
+                  <div
+                    className={`size-6 rounded border-2 flex items-center justify-center transition-colors shrink-0 ${task.is_completed ? "bg-primary border-primary" : "border-muted-foreground/30 hover:border-primary hover:bg-primary/10"}`}
+                    onClick={() => toggleTask(task.id, task.is_completed)}
+                  >
+                    {task.is_completed ? (
+                      <CheckCircle2 size={14} className="text-white" />
+                    ) : (
+                      <CheckSquare size={14} className="text-transparent" />
+                    )}
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-3 mb-1 flex-wrap">
+                      <h3
+                        className={`font-bold text-sm truncate group-hover:text-primary transition-colors ${task.is_completed ? "line-through" : ""}`}
+                      >
+                        {task.title}
+                      </h3>
+                      <Badge
+                        className={`text-[9px] font-bold uppercase tracking-widest ${getPriorityColor(task.priority)}`}
+                      >
+                        {task.priority}
+                      </Badge>
+                      {task.due_date && getDeadlineBadge(task.due_date)}
+                    </div>
+                    <div className="flex items-center gap-4 text-xs text-muted-foreground font-medium flex-wrap">
+                      {task.linked && (
+                        <span className="flex items-center gap-1.5">
+                          <ArrowUpRight size={12} className="text-primary" />
+                          Linked to: <span className="text-foreground">{task.linked}</span>
+                        </span>
+                      )}
+                      {task.assignee && (
+                        <span className="flex items-center gap-1.5">
+                          <Users size={12} className="text-primary" />
+                          Assigned: <span className="text-foreground">{task.assignee}</span>
+                        </span>
+                      )}
+                      <span className="flex items-center gap-1.5">
+                        <Clock size={12} className="text-primary" />
+                        Status:{" "}
+                        <Select value={task.status} onValueChange={(v) => updateTaskStatus(task.id, v)}>
+                          <SelectTrigger className="h-6 w-28 text-xs border-0 p-0 font-medium text-foreground">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {STATUSES.map((s) => (
+                              <SelectItem key={s} value={s} className="text-xs capitalize">
+                                {s.replace("-", " ")}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button variant="ghost" size="icon" className="size-8 opacity-0 group-hover:opacity-100">
+                      <MoreHorizontal size={16} />
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        ) : (
+          <div className="flex flex-col items-center justify-center py-24 text-center border-2 border-dashed rounded-3xl bg-muted/10">
+            <div className="size-16 rounded-full bg-muted flex items-center justify-center mb-4">
+              <CheckSquare size={32} className="text-muted-foreground/50" />
+            </div>
+            <h3 className="font-bold text-lg">Clean Slate</h3>
+            <p className="text-muted-foreground max-w-[240px] mt-1 italic">
+              "What's the one thing that will move the needle today?"
+            </p>
+            <Button
+              className="mt-6 gap-2 font-bold bg-transparent"
+              variant="outline"
+              onClick={() => setIsDialogOpen(true)}
+            >
+              <Plus size={18} />
+              Add New Task
+            </Button>
+          </div>
+        )}
+      </div>
+
+      <div className="pt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Card className="bg-primary/5 border-primary/20">
+          <CardHeader>
+            <CardTitle className="text-sm font-bold flex items-center gap-2">
+              <Clock size={16} className="text-primary" />
+              Smart Nudges
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {tasks
+              .filter((t) => t.due_date && isPast(new Date(t.due_date)) && !t.is_completed)
+              .slice(0, 2)
+              .map((task) => (
+                <div
+                  key={task.id}
+                  className="p-3 rounded-xl bg-background border flex items-center justify-between text-sm"
+                >
+                  <span className="font-medium">{task.title} is overdue</span>
+                  <Button
+                    size="sm"
+                    variant="link"
+                    className="text-xs h-auto p-0 text-primary font-bold"
+                    onClick={() => updateTaskStatus(task.id, "in-progress")}
+                  >
+                    Start Now
+                  </Button>
+                </div>
+              ))}
+            {tasks.filter((t) => t.due_date && isPast(new Date(t.due_date)) && !t.is_completed).length === 0 && (
+              <div className="p-3 rounded-xl bg-background border text-sm text-center text-muted-foreground">
+                All caught up! No overdue tasks.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="border-emerald-100 bg-emerald-50/30">
+          <CardHeader>
+            <CardTitle className="text-sm font-bold flex items-center gap-2">Execution Velocity</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-end justify-between">
+              <div className="space-y-1">
+                <span className="text-2xl font-bold text-emerald-700">
+                  {tasks.length > 0 ? Math.round((tasks.filter((t) => t.is_completed).length / tasks.length) * 100) : 0}
+                  %
+                </span>
+                <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Completion Rate</p>
+              </div>
+              <div className="flex items-center gap-1">
+                {[4, 8, 12, 6, 10, 14, 9].map((h, i) => (
+                  <div key={i} className="w-3 rounded-t-sm bg-emerald-200" style={{ height: `${h * 2}px` }} />
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  )
+}
