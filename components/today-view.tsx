@@ -22,6 +22,7 @@ import {
 } from "lucide-react"
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
+import { cn } from "@/utils/cn"
 
 export function TodayView() {
   const [upcomingMeetings, setUpcomingMeetings] = useState<any[]>([])
@@ -207,7 +208,7 @@ export function TodayView() {
           <Card className="lg:col-span-4 border-none shadow-none bg-transparent">
             <CardContent className="p-0 space-y-6">
               <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 rounded-2xl bg-white border shadow-sm flex flex-col gap-1 relative overflow-hidden group">
+                <div className="p-4 rounded-2xl bg-card border-primary/20 border shadow-sm flex flex-col gap-1 relative overflow-hidden group">
                   <div className="absolute -right-2 -bottom-2 opacity-5 group-hover:scale-110 transition-transform">
                     <Linkedin size={64} />
                   </div>
@@ -221,7 +222,7 @@ export function TodayView() {
                     </span>
                   </div>
                 </div>
-                <div className="p-4 rounded-2xl bg-white border shadow-sm flex flex-col gap-1 relative overflow-hidden group">
+                <div className="p-4 rounded-2xl bg-card border-primary/20 border shadow-sm flex flex-col gap-1 relative overflow-hidden group">
                   <div className="absolute -right-2 -bottom-2 opacity-5 group-hover:scale-110 transition-transform">
                     <Users size={64} />
                   </div>
@@ -242,21 +243,21 @@ export function TodayView() {
                 <div className="grid grid-cols-1 gap-2">
                   <Button
                     variant="outline"
-                    className="justify-start h-12 px-4 bg-white hover:bg-primary hover:text-primary-foreground transition-all group border-primary/10 shadow-sm"
+                    className="justify-start h-12 px-4 bg-card hover:bg-primary hover:text-primary-foreground transition-all group border-primary/10 shadow-sm"
                   >
                     <Plus size={18} className="mr-3 text-primary group-hover:text-primary-foreground" />
                     <span className="font-medium">Capture Note</span>
                   </Button>
                   <Button
                     variant="outline"
-                    className="justify-start h-12 px-4 bg-white hover:bg-primary hover:text-primary-foreground transition-all group border-primary/10 shadow-sm"
+                    className="justify-start h-12 px-4 bg-card hover:bg-primary hover:text-primary-foreground transition-all group border-primary/10 shadow-sm"
                   >
                     <Linkedin size={18} className="mr-3 text-primary group-hover:text-primary-foreground" />
                     <span className="font-medium">Schedule LinkedIn</span>
                   </Button>
                   <Button
                     variant="outline"
-                    className="justify-start h-12 px-4 bg-white hover:bg-primary hover:text-primary-foreground transition-all group border-primary/10 shadow-sm"
+                    className="justify-start h-12 px-4 bg-card hover:bg-primary hover:text-primary-foreground transition-all group border-primary/10 shadow-sm"
                   >
                     <CheckSquare size={18} className="mr-3 text-primary group-hover:text-primary-foreground" />
                     <span className="font-medium">Log Follow-up</span>
@@ -549,8 +550,4 @@ export function TodayView() {
       </section>
     </div>
   )
-}
-
-function cn(...inputs: any[]) {
-  return inputs.filter(Boolean).join(" ")
 }
