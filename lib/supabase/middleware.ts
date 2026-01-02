@@ -7,7 +7,7 @@ export async function updateSession(request: NextRequest) {
 
   // If Supabase is not configured, allow the request to proceed
   if (!supabaseUrl || !supabaseAnonKey) {
-    console.warn("[v0] Supabase environment variables missing in middleware")
+    console.warn("Supabase environment variables missing in middleware")
     return NextResponse.next({
       request,
     })
@@ -46,7 +46,7 @@ export async function updateSession(request: NextRequest) {
       return NextResponse.redirect(url)
     }
   } catch (error) {
-    console.error("[v0] Auth check failed in middleware:", error)
+    console.error("Auth check failed in middleware:", error)
   }
 
   return supabaseResponse

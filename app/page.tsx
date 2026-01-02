@@ -17,7 +17,7 @@ export default function Page() {
     const supabase = createClient()
 
     if (!supabase) {
-      console.error("[v0] Failed to create Supabase client")
+      console.error("Failed to create Supabase client")
       setIsLoading(false)
       router.push("/login")
       return

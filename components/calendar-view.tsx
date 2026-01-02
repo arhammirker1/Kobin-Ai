@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogT
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { format, addDays, startOfWeek, addHours, startOfDay, parseISO, isSameDay } from "date-fns"
 import { toast } from "sonner"
 
@@ -19,11 +20,6 @@ export function CalendarView() {
   const [editingEvent, setEditingEvent] = useState<any>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone)
-  const [startHour, setStartHour] = useState(() => {
-    const now = new Date()
-    return now.getHours()
-  })
-  const [endHour, setEndHour] = useState(21)
   const [newEvent, setNewEvent] = useState({
     title: "",
     date: format(new Date(), "yyyy-MM-dd"),
@@ -135,11 +131,9 @@ export function CalendarView() {
 
   const generateTimeSlots = () => {
     const slots = []
-    for (let hour = startHour; hour <= endHour; hour++) {
+    for (let hour = 0; hour < 24; hour++) {
       slots.push({ hour, minute: 0 })
-      if (hour < endHour) {
-        slots.push({ hour, minute: 30 })
-      }
+      slots.push({ hour, minute: 30 })
     }
     return slots
   }
@@ -210,40 +204,8 @@ export function CalendarView() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="startHour">Start Hour</Label>
-                    <Select value={startHour.toString()} onValueChange={(v) => setStartHour(Number.parseInt(v))}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {Array.from({ length: 24 }, (_, i) => (
-                          <SelectItem key={i} value={i.toString()}>
-                            {format(addHours(startOfDay(new Date()), i), "h a")}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="endHour">End Hour</Label>
-                    <Select value={endHour.toString()} onValueChange={(v) => setEndHour(Number.parseInt(v))}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {Array.from({ length: 24 }, (_, i) => (
-                          <SelectItem key={i} value={i.toString()} disabled={i <= startHour}>
-                            {format(addHours(startOfDay(new Date()), i), "h a")}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
                 <p className="text-xs text-muted-foreground">
-                  Adjust the visible time range for your calendar. The default start time is based on your current hour.
+                  The calendar now displays all 24 hours. Scroll to view different times throughout the day.
                 </p>
               </div>
               <DialogFooter>
@@ -399,79 +361,77 @@ export function CalendarView() {
         </div>
       </div>
 
-      <div className="grid grid-cols-8 border rounded-lg overflow-hidden bg-card">
-        <div className="border-r bg-muted/20">
-          <div className="h-12 border-b" />
-          {timeSlots.map((slot, idx) => (
-            <div
-              key={idx}
-              className="border-b p-2 text-xs text-muted-foreground text-right font-medium"
-              style={{ height: `${slotHeight}px` }}
-            >
-              {slot.minute === 0 && format(addHours(startOfDay(new Date()), slot.hour), "h:mm a")}
+      <ScrollArea className="h-[calc(100vh-220px)]">
+        <div className="grid grid-cols-8 border rounded-lg overflow-hidden bg-card">
+          <div className="border-r bg-muted/20">
+            <div className="h-12 border-b sticky top-0 bg-muted/20 z-20" />
+            {timeSlots.map((slot, idx) => (
+              <div
+                key={idx}
+                className="border-b p-2 text-xs text-muted-foreground text-right font-medium"
+                style={{ height: `${slotHeight}px` }}
+              >
+                {slot.minute === 0 && format(addHours(startOfDay(new Date()), slot.hour), "h:mm a")}
+              </div>
+            ))}
+          </div>
+
+          {weekDays.map((day) => (
+            <div key={day.toString()} className="border-r last:border-r-0">
+              <div
+                className={`h-12 border-b p-2 text-center flex flex-col justify-center sticky top-0 z-20 ${isSameDay(day, new Date()) ? "bg-primary/5" : "bg-card"}`}
+              >
+                <span className="text-xs uppercase font-semibold text-muted-foreground">{format(day, "EEE")}</span>
+                <span className={`text-sm font-bold ${isSameDay(day, new Date()) ? "text-primary" : ""}`}>
+                  {format(day, "d")}
+                </span>
+              </div>
+              <div className="relative" style={{ height: `${totalHeight}px` }}>
+                {timeSlots.map((slot, idx) => (
+                  <div key={idx} className="border-b border-muted/30" style={{ height: `${slotHeight}px` }} />
+                ))}
+                {events
+                  .filter((e) => isSameDay(parseISO(e.start_time), day))
+                  .map((event) => {
+                    const start = parseISO(event.start_time)
+                    const end = parseISO(event.end_time)
+                    const startHourDecimal = start.getHours() + start.getMinutes() / 60
+                    const duration = (end.getTime() - start.getTime()) / (1000 * 60 * 60)
+
+                    const slotsFromStart = startHourDecimal * 2
+                    const top = slotsFromStart * slotHeight
+                    const calculatedHeight = duration * 2 * slotHeight
+                    const height = Math.max(80, calculatedHeight)
+
+                    return (
+                      <div
+                        key={event.id}
+                        onClick={() => openEditDialog(event)}
+                        className="absolute inset-x-1 rounded-md p-2 text-xs font-medium border shadow-sm z-10 overflow-hidden flex flex-col cursor-pointer hover:shadow-md hover:ring-2 hover:ring-primary/50 transition-all group"
+                        style={{
+                          top: `${Math.max(0, top)}px`,
+                          height: `${height}px`,
+                          backgroundColor: event.type === "deal" ? "hsl(var(--primary) / 0.1)" : "hsl(var(--muted))",
+                          borderColor: "hsl(var(--primary))",
+                          color: "hsl(var(--foreground))",
+                        }}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="truncate font-bold text-sm flex-1">{event.title}</div>
+                          <Edit2 className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                        </div>
+                        <div className="flex items-center gap-1 opacity-70 mt-1">
+                          <Clock className="h-3 w-3 flex-shrink-0" />
+                          <span className="text-[10px]">{format(start, "h:mm a")}</span>
+                        </div>
+                      </div>
+                    )
+                  })}
+              </div>
             </div>
           ))}
         </div>
-
-        {weekDays.map((day) => (
-          <div key={day.toString()} className="border-r last:border-r-0">
-            <div
-              className={`h-12 border-b p-2 text-center flex flex-col justify-center ${isSameDay(day, new Date()) ? "bg-primary/5" : ""}`}
-            >
-              <span className="text-xs uppercase font-semibold text-muted-foreground">{format(day, "EEE")}</span>
-              <span className={`text-sm font-bold ${isSameDay(day, new Date()) ? "text-primary" : ""}`}>
-                {format(day, "d")}
-              </span>
-            </div>
-            <div className="relative" style={{ height: `${totalHeight}px` }}>
-              {timeSlots.map((slot, idx) => (
-                <div key={idx} className="border-b border-muted/30" style={{ height: `${slotHeight}px` }} />
-              ))}
-              {events
-                .filter((e) => isSameDay(parseISO(e.start_time), day))
-                .map((event) => {
-                  const start = parseISO(event.start_time)
-                  const end = parseISO(event.end_time)
-                  const startHourDecimal = start.getHours() + start.getMinutes() / 60
-                  const duration = (end.getTime() - start.getTime()) / (1000 * 60 * 60)
-
-                  const slotsFromStart = (startHourDecimal - startHour) * 2
-                  const top = slotsFromStart * slotHeight
-                  const calculatedHeight = duration * 2 * slotHeight
-                  const height = Math.max(80, calculatedHeight)
-
-                  if (startHourDecimal < startHour || startHourDecimal > endHour) {
-                    return null
-                  }
-
-                  return (
-                    <div
-                      key={event.id}
-                      onClick={() => openEditDialog(event)}
-                      className="absolute inset-x-1 rounded-md p-2 text-xs font-medium border shadow-sm z-10 overflow-hidden flex flex-col cursor-pointer hover:shadow-md hover:ring-2 hover:ring-primary/50 transition-all group"
-                      style={{
-                        top: `${Math.max(0, top)}px`,
-                        height: `${height}px`,
-                        backgroundColor: event.type === "deal" ? "hsl(var(--primary) / 0.1)" : "hsl(var(--muted))",
-                        borderColor: "hsl(var(--primary))",
-                        color: "hsl(var(--foreground))",
-                      }}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="truncate font-bold text-sm flex-1">{event.title}</div>
-                        <Edit2 className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
-                      </div>
-                      <div className="flex items-center gap-1 opacity-70 mt-1">
-                        <Clock className="h-3 w-3 flex-shrink-0" />
-                        <span className="text-[10px]">{format(start, "h:mm a")}</span>
-                      </div>
-                    </div>
-                  )
-                })}
-            </div>
-          </div>
-        ))}
-      </div>
+      </ScrollArea>
 
       <div className="text-xs text-muted-foreground text-center">Timezone: {timezone.replace(/_/g, " ")}</div>
     </div>
