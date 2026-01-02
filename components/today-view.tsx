@@ -3,6 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { format } from "date-fns"
 import {
   Pin,
   CalendarIcon,
@@ -19,8 +20,87 @@ import {
   MessageSquare,
   Send,
 } from "lucide-react"
+import { useEffect, useState } from "react"
+import { createClient } from "@/lib/supabase/client"
 
 export function TodayView() {
+  const [upcomingMeetings, setUpcomingMeetings] = useState<any[]>([])
+  const [priorities, setPriorities] = useState<any[]>([])
+  const [activeTasks, setActiveTasks] = useState<any[]>([])
+
+  const supabase = createClient()
+
+  useEffect(() => {
+    fetchUpcomingMeetings()
+    fetchActiveTasks()
+  }, [])
+
+  const fetchUpcomingMeetings = async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) return
+
+    const { data: events, error } = await supabase
+      .from("events")
+      .select(
+        `
+        id,
+        title,
+        start_time,
+        end_time,
+        type,
+        meeting_link,
+        purpose,
+        relationship_id,
+        relationships (
+          full_name,
+          company,
+          tags
+        )
+      `,
+      )
+      .eq("user_id", user.id)
+      .gte("start_time", new Date().toISOString())
+      .lte("start_time", new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString())
+      .order("start_time", { ascending: true })
+
+    if (!error && events) {
+      setUpcomingMeetings(events)
+
+      const meetingPriorities = events
+        .filter((e: any) => e.relationships?.tags?.includes("follow-up") || e.relationships?.tags?.includes("urgent"))
+        .slice(0, 3)
+        .map((e: any, idx: number) => ({
+          title: `${e.title} - ${e.purpose || "Meeting"}`,
+          tag: e.type === "deal" ? "Deal" : "Meeting",
+          time: "1 hour",
+          isUrgent: true,
+        }))
+
+      setPriorities(meetingPriorities)
+    }
+  }
+
+  const fetchActiveTasks = async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) return
+
+    const { data: tasks, error } = await supabase
+      .from("tasks")
+      .select("*")
+      .eq("user_id", user.id)
+      .eq("status", "in-progress")
+      .order("priority", { ascending: false })
+      .limit(5)
+
+    if (!error && tasks) {
+      setActiveTasks(tasks)
+    }
+  }
+
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
       <section>
@@ -55,43 +135,71 @@ export function TodayView() {
               </Button>
             </CardHeader>
             <CardContent className="space-y-4 relative">
-              {[
-                { title: "Review Series A Pitch Deck with Advisors", tag: "Strategy", time: "1 hour" },
-                { title: "Finalize LinkedIn hiring post for Lead Engineer", tag: "Hiring", time: "30 mins" },
-                { title: "Prepare for Board Meeting tomorrow", tag: "Finance", time: "2 hours" },
-              ].map((p, i) => (
-                <div
-                  key={i}
-                  className="flex items-start justify-between p-4 rounded-xl bg-background border shadow-sm hover:shadow-md transition-all group cursor-pointer"
-                >
-                  <div className="flex items-start gap-4">
-                    <div className="mt-1 size-6 rounded-full border-2 border-primary/30 flex items-center justify-center text-xs font-bold text-primary transition-all group-hover:bg-primary group-hover:border-primary group-hover:text-primary-foreground">
-                      {i + 1}
-                    </div>
-                    <div className="space-y-1.5">
-                      <p className="font-semibold text-sm leading-tight group-hover:text-primary transition-colors">
-                        {p.title}
-                      </p>
-                      <div className="flex items-center gap-3">
-                        <Badge variant="secondary" className="text-[10px] h-5 font-medium px-2 bg-secondary/80">
-                          {p.tag}
-                        </Badge>
-                        <span className="text-[10px] text-muted-foreground flex items-center gap-1 font-medium">
-                          <Clock size={10} />
-                          Est. {p.time}
-                        </span>
+              {priorities.length > 0
+                ? priorities.map((p, i) => (
+                    <div
+                      key={i}
+                      className="flex items-start justify-between p-4 rounded-xl bg-background border shadow-sm hover:shadow-md transition-all group cursor-pointer"
+                    >
+                      <div className="flex items-start gap-4">
+                        <div className="mt-1 size-6 rounded-full border-2 border-primary/30 flex items-center justify-center text-xs font-bold text-primary transition-all group-hover:bg-primary group-hover:border-primary group-hover:text-primary-foreground">
+                          {i + 1}
+                        </div>
+                        <div className="space-y-1.5">
+                          <p className="font-semibold text-sm leading-tight group-hover:text-primary transition-colors">
+                            {p.title}
+                          </p>
+                          <div className="flex items-center gap-3">
+                            <Badge variant="secondary" className="text-[10px] h-5 font-medium px-2 bg-secondary/80">
+                              {p.tag}
+                            </Badge>
+                            {p.isUrgent && (
+                              <Badge variant="destructive" className="text-[10px] h-5 font-medium px-2">
+                                Urgent
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-8 opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
-                    <Pin size={14} className="text-muted-foreground rotate-45" />
-                  </Button>
-                </div>
-              ))}
+                  ))
+                : [
+                    { title: "Review Series A Pitch Deck with Advisors", tag: "Strategy", time: "1 hour" },
+                    { title: "Finalize LinkedIn hiring post for Lead Engineer", tag: "Hiring", time: "30 mins" },
+                    { title: "Prepare for Board Meeting tomorrow", tag: "Finance", time: "2 hours" },
+                  ].map((p, i) => (
+                    <div
+                      key={i}
+                      className="flex items-start justify-between p-4 rounded-xl bg-background border shadow-sm hover:shadow-md transition-all group cursor-pointer"
+                    >
+                      <div className="flex items-start gap-4">
+                        <div className="mt-1 size-6 rounded-full border-2 border-primary/30 flex items-center justify-center text-xs font-bold text-primary transition-all group-hover:bg-primary group-hover:border-primary group-hover:text-primary-foreground">
+                          {i + 1}
+                        </div>
+                        <div className="space-y-1.5">
+                          <p className="font-semibold text-sm leading-tight group-hover:text-primary transition-colors">
+                            {p.title}
+                          </p>
+                          <div className="flex items-center gap-3">
+                            <Badge variant="secondary" className="text-[10px] h-5 font-medium px-2 bg-secondary/80">
+                              {p.tag}
+                            </Badge>
+                            <span className="text-[10px] text-muted-foreground flex items-center gap-1 font-medium">
+                              <Clock size={10} />
+                              Est. {p.time}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <Pin size={14} className="text-muted-foreground rotate-45" />
+                      </Button>
+                    </div>
+                  ))}
             </CardContent>
           </Card>
 
@@ -189,94 +297,164 @@ export function TodayView() {
               </CardTitle>
               <div className="flex items-center gap-2">
                 <Badge variant="outline" className="font-normal border-emerald-200 text-emerald-600 bg-emerald-50">
-                  Google Calendar Synced
+                  {upcomingMeetings.length} Today
                 </Badge>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              {[
-                {
-                  time: "10:00 AM",
-                  title: "Sync with Product Team",
-                  type: "Internal",
-                  attendees: ["AL", "MK", "JD"],
-                  link: true,
-                },
-                {
-                  time: "01:30 PM",
-                  title: "Sales Demo - Acme Corp",
-                  type: "Deal",
-                  attendees: ["SJ", "JD"],
-                  link: true,
-                },
-                {
-                  time: "03:00 PM",
-                  title: "Weekly Reflection",
-                  type: "Deep Work",
-                  attendees: ["JD"],
-                  link: false,
-                },
-              ].map((m, i) => (
-                <div
-                  key={i}
-                  className="flex gap-4 p-4 rounded-xl hover:bg-muted/50 transition-all cursor-pointer group border border-transparent hover:border-border"
-                >
-                  <div className="flex flex-col items-center gap-1 text-sm font-bold text-muted-foreground tabular-nums whitespace-nowrap min-w-[70px]">
-                    {m.time.split(" ")[0]}
-                    <span className="text-[10px] font-medium opacity-60 uppercase">{m.time.split(" ")[1]}</span>
-                  </div>
-                  <div className="w-px bg-border group-hover:bg-primary/30 transition-colors" />
-                  <div className="flex-1 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <p className="font-bold text-sm tracking-tight group-hover:text-primary transition-colors">
-                        {m.title}
-                      </p>
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          "text-[9px] h-4 font-bold uppercase tracking-widest",
-                          m.type === "Deal"
-                            ? "bg-amber-50 text-amber-600 border-amber-200"
-                            : "bg-muted text-muted-foreground",
-                        )}
+              {upcomingMeetings.length > 0
+                ? upcomingMeetings.map((m, i) => {
+                    const startTime = new Date(m.start_time)
+                    const formattedTime = format(startTime, "h:mm")
+                    const period = format(startTime, "a")
+                    const hasFollowUpTag = m.relationships?.tags?.includes("follow-up")
+
+                    return (
+                      <div
+                        key={i}
+                        className="flex gap-4 p-4 rounded-xl hover:bg-muted/50 transition-all cursor-pointer group border border-transparent hover:border-border"
                       >
-                        {m.type}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="flex -space-x-1.5 overflow-hidden">
-                        {m.attendees.map((a, j) => (
-                          <div
-                            key={j}
-                            className="inline-block size-6 rounded-full border-2 border-background bg-secondary text-[10px] flex items-center justify-center font-bold"
+                        <div className="flex flex-col items-center gap-1 text-sm font-bold text-muted-foreground tabular-nums whitespace-nowrap min-w-[70px]">
+                          {formattedTime}
+                          <span className="text-[10px] font-medium opacity-60 uppercase">{period}</span>
+                        </div>
+                        <div className="w-px bg-border group-hover:bg-primary/30 transition-colors" />
+                        <div className="flex-1 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <p className="font-bold text-sm tracking-tight group-hover:text-primary transition-colors">
+                              {m.title}
+                            </p>
+                            <div className="flex gap-1">
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  "text-[9px] h-4 font-bold uppercase tracking-widest",
+                                  m.type === "deal"
+                                    ? "bg-amber-50 text-amber-600 border-amber-200"
+                                    : "bg-muted text-muted-foreground",
+                                )}
+                              >
+                                {m.type}
+                              </Badge>
+                              {hasFollowUpTag && (
+                                <Badge variant="destructive" className="text-[9px] h-4 font-bold uppercase">
+                                  Follow-up
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                          {m.purpose && <p className="text-xs text-muted-foreground line-clamp-1">{m.purpose}</p>}
+                          <div className="flex items-center justify-between">
+                            {m.relationships && (
+                              <div className="text-xs font-medium text-muted-foreground">
+                                with {m.relationships.full_name}
+                                {m.relationships.company && ` (${m.relationships.company})`}
+                              </div>
+                            )}
+                            <div className="flex items-center gap-2">
+                              {m.meeting_link && (
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="size-8 text-primary hover:bg-primary/10"
+                                  onClick={() => window.open(m.meeting_link, "_blank")}
+                                >
+                                  <Video size={14} />
+                                </Button>
+                              )}
+                              <ChevronRight
+                                size={16}
+                                className="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })
+                : [
+                    {
+                      time: "10:00 AM",
+                      title: "Sync with Product Team",
+                      type: "Internal",
+                      attendees: ["AL", "MK", "JD"],
+                      link: true,
+                    },
+                    {
+                      time: "01:30 PM",
+                      title: "Sales Demo - Acme Corp",
+                      type: "Deal",
+                      attendees: ["SJ", "JD"],
+                      link: true,
+                    },
+                    {
+                      time: "03:00 PM",
+                      title: "Weekly Reflection",
+                      type: "Deep Work",
+                      attendees: ["JD"],
+                      link: false,
+                    },
+                  ].map((m, i) => (
+                    <div
+                      key={i}
+                      className="flex gap-4 p-4 rounded-xl hover:bg-muted/50 transition-all cursor-pointer group border border-transparent hover:border-border"
+                    >
+                      <div className="flex flex-col items-center gap-1 text-sm font-bold text-muted-foreground tabular-nums whitespace-nowrap min-w-[70px]">
+                        {m.time.split(" ")[0]}
+                        <span className="text-[10px] font-medium opacity-60 uppercase">{m.time.split(" ")[1]}</span>
+                      </div>
+                      <div className="w-px bg-border group-hover:bg-primary/30 transition-colors" />
+                      <div className="flex-1 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="font-bold text-sm tracking-tight group-hover:text-primary transition-colors">
+                            {m.title}
+                          </p>
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "text-[9px] h-4 font-bold uppercase tracking-widest",
+                              m.type === "Deal"
+                                ? "bg-amber-50 text-amber-600 border-amber-200"
+                                : "bg-muted text-muted-foreground",
+                            )}
                           >
-                            {a}
+                            {m.type}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div className="flex -space-x-1.5 overflow-hidden">
+                            {m.attendees.map((a, j) => (
+                              <div
+                                key={j}
+                                className="inline-block size-6 rounded-full border-2 border-background bg-secondary text-[10px] flex items-center justify-center font-bold"
+                              >
+                                {a}
+                              </div>
+                            ))}
+                            {m.attendees.length > 3 && (
+                              <div className="inline-block size-6 rounded-full border-2 border-background bg-muted text-[10px] flex items-center justify-center font-bold">
+                                +{m.attendees.length - 3}
+                              </div>
+                            )}
                           </div>
-                        ))}
-                        {m.attendees.length > 3 && (
-                          <div className="inline-block size-6 rounded-full border-2 border-background bg-muted text-[10px] flex items-center justify-center font-bold">
-                            +{m.attendees.length - 3}
+                          <div className="flex items-center gap-2">
+                            {m.link && (
+                              <Button size="icon" variant="ghost" className="size-8 text-primary hover:bg-primary/10">
+                                <Video size={14} />
+                              </Button>
+                            )}
+                            <Button size="icon" variant="ghost" className="size-8 text-muted-foreground">
+                              <FileText size={14} />
+                            </Button>
+                            <ChevronRight
+                              size={16}
+                              className="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                            />
                           </div>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {m.link && (
-                          <Button size="icon" variant="ghost" className="size-8 text-primary hover:bg-primary/10">
-                            <Video size={14} />
-                          </Button>
-                        )}
-                        <Button size="icon" variant="ghost" className="size-8 text-muted-foreground">
-                          <FileText size={14} />
-                        </Button>
-                        <ChevronRight
-                          size={16}
-                          className="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-                        />
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </div>
-              ))}
+                  ))}
             </CardContent>
           </Card>
 
@@ -293,30 +471,69 @@ export function TodayView() {
                 <div className="flex items-center justify-between px-1">
                   <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">In Progress</h4>
                   <Badge variant="outline" className="text-[9px] font-bold">
-                    3 Active
+                    {activeTasks.length} Active
                   </Badge>
                 </div>
                 <div className="space-y-2">
-                  {[
-                    { title: "Approve marketing assets", category: "Marketing", progress: 65 },
-                    { title: "Review legal docs for partnership", category: "Legal", progress: 30 },
-                  ].map((task, i) => (
-                    <div
-                      key={i}
-                      className="p-3 rounded-xl bg-muted/30 border border-transparent hover:border-border transition-all"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-semibold">{task.title}</span>
-                        <span className="text-[10px] font-bold text-primary">{task.progress}%</span>
-                      </div>
-                      <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden">
+                  {activeTasks.length > 0
+                    ? activeTasks.map((task, i) => {
+                        const progress = task.is_completed ? 100 : 50
+
+                        return (
+                          <div
+                            key={task.id}
+                            className="p-3 rounded-xl bg-muted/30 border border-transparent hover:border-border transition-all cursor-pointer"
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm font-semibold">{task.title}</span>
+                              <div className="flex items-center gap-2">
+                                {task.priority && (
+                                  <Badge
+                                    variant="outline"
+                                    className={cn(
+                                      "text-[9px] font-bold uppercase h-4",
+                                      task.priority === "urgent"
+                                        ? "bg-red-50 text-red-600 border-red-200"
+                                        : task.priority === "high"
+                                          ? "bg-orange-50 text-orange-600 border-orange-200"
+                                          : "bg-muted text-muted-foreground",
+                                    )}
+                                  >
+                                    {task.priority}
+                                  </Badge>
+                                )}
+                                <span className="text-[10px] font-bold text-primary">{progress}%</span>
+                              </div>
+                            </div>
+                            <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-primary rounded-full transition-all duration-500"
+                                style={{ width: `${progress}%` }}
+                              />
+                            </div>
+                          </div>
+                        )
+                      })
+                    : [
+                        { title: "Approve marketing assets", category: "Marketing", progress: 65 },
+                        { title: "Review legal docs for partnership", category: "Legal", progress: 30 },
+                      ].map((task, i) => (
                         <div
-                          className="h-full bg-primary rounded-full transition-all duration-500"
-                          style={{ width: `${task.progress}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))}
+                          key={i}
+                          className="p-3 rounded-xl bg-muted/30 border border-transparent hover:border-border transition-all"
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-sm font-semibold">{task.title}</span>
+                            <span className="text-[10px] font-bold text-primary">{task.progress}%</span>
+                          </div>
+                          <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-primary rounded-full transition-all duration-500"
+                              style={{ width: `${task.progress}%` }}
+                            />
+                          </div>
+                        </div>
+                      ))}
                 </div>
               </div>
 
