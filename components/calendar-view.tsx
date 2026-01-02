@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { format, addDays, startOfWeek, addHours, startOfDay, parseISO, isSameDay } from "date-fns"
+import { format, addDays, startOfWeek, parseISO, isSameDay } from "date-fns"
 import { toast } from "sonner"
 
 export function CalendarView() {
@@ -129,6 +129,10 @@ export function CalendarView() {
     setIsEditDialogOpen(true)
   }
 
+  const generateHours = () => {
+    return Array.from({ length: 24 }, (_, hour) => hour)
+  }
+
   const generateTimeSlots = () => {
     const slots = []
     for (let hour = 0; hour < 24; hour++) {
@@ -138,12 +142,14 @@ export function CalendarView() {
     return slots
   }
 
+  const hours = generateHours()
   const timeSlots = generateTimeSlots()
   const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 })
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
 
   const slotHeight = 60
-  const totalHeight = timeSlots.length * slotHeight
+  const hourHeight = slotHeight * 2 // 120px per hour
+  const totalHeight = hours.length * hourHeight
 
   const commonTimezones = [
     "America/New_York",
@@ -365,13 +371,13 @@ export function CalendarView() {
         <div className="grid grid-cols-8 border rounded-lg overflow-hidden bg-card">
           <div className="border-r bg-muted/20">
             <div className="h-12 border-b sticky top-0 bg-muted/20 z-20" />
-            {timeSlots.map((slot, idx) => (
+            {hours.map((hour) => (
               <div
-                key={idx}
-                className="border-b p-2 text-xs text-muted-foreground text-right font-medium"
-                style={{ height: `${slotHeight}px` }}
+                key={hour}
+                className="border-b text-xs text-muted-foreground text-right pr-2 pt-1"
+                style={{ height: `${hourHeight}px` }}
               >
-                {format(addHours(startOfDay(new Date()), slot.hour), "h:mm a")}
+                {hour === 0 ? "12 AM" : hour < 12 ? `${hour} AM` : hour === 12 ? "12 PM" : `${hour - 12} PM`}
               </div>
             ))}
           </div>
