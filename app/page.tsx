@@ -11,13 +11,14 @@ export default function Page() {
   const [activeTab, setActiveTab] = useState("Home")
   const [isLoading, setIsLoading] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [userType, setUserType] = useState<string | null>(null)
   const router = useRouter()
 
   useEffect(() => {
     const supabase = createClient()
 
     if (!supabase) {
-      console.error("Failed to create Supabase client")
+      console.error("[v0] Failed to create Supabase client")
       setIsLoading(false)
       router.push("/login")
       return
@@ -30,6 +31,14 @@ export default function Page() {
         } = await supabase.auth.getUser()
 
         if (user) {
+          const { data: profile } = await supabase.from("profiles").select("user_type").eq("id", user.id).single()
+
+          if (profile?.user_type === "team_member") {
+            router.push("/team-dashboard")
+            return
+          }
+
+          setUserType(profile?.user_type || "founder")
           setIsAuthenticated(true)
         } else {
           router.push("/login")

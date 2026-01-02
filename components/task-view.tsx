@@ -4,25 +4,12 @@ import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog"
-import {
-  CheckSquare,
-  Plus,
-  Search,
-  Filter,
-  Clock,
-  Users,
-  ArrowUpRight,
-  MoreHorizontal,
-  CheckCircle2,
-  Calendar,
-  AlertCircle,
-} from "lucide-react"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Plus, Trash2, CheckCircle2, Clock, AlertTriangle, Filter } from "lucide-react"
 import { toast } from "sonner"
 import { format, isThisWeek, isPast, differenceInDays } from "date-fns"
 
@@ -39,26 +26,33 @@ interface Task {
   priority: string
   status: string
   due_date: string | null
-  assignee: string | null
+  assigned_to: string | null
   linked: string | null
   created_at: string
 }
 
-export function TaskView() {
-  const [activeBucket, setActiveBucket] = useState("today")
-  const [tasks, setTasks] = useState<Task[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [newTaskTitle, setNewTaskTitle] = useState("")
-  const [searchQuery, setSearchQuery] = useState("")
-  const [priorityFilter, setPriorityFilter] = useState<string | null>(null)
+interface TeamMember {
+  id: string
+  user_id: string
+  position: string
+  profile: {
+    full_name: string
+  }
+}
 
+export function TaskView() {
+  const [tasks, setTasks] = useState<Task[]>([])
+  const [activeBucket, setActiveBucket] = useState("today")
+  const [activeFilter, setActiveFilter] = useState("all")
+  const [isLoading, setIsLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
   const [newTask, setNewTask] = useState({
     title: "",
     priority: "medium",
     status: "todo",
     deadline: "",
-    assignee: "",
+    assigned_to: "",
     linked: "",
   })
 
@@ -66,7 +60,33 @@ export function TaskView() {
 
   useEffect(() => {
     fetchTasks()
+    fetchTeamMembers()
   }, [activeBucket])
+
+  const fetchTeamMembers = async () => {
+    if (!supabase) return
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) return
+
+    const { data, error } = await supabase
+      .from("team_members")
+      .select(`
+        id,
+        user_id,
+        position,
+        profile:profiles!team_members_user_id_fkey(full_name)
+      `)
+      .eq("founder_id", user.id)
+      .eq("is_active", true)
+
+    if (error) {
+      console.error("[v0] Error fetching team members:", error)
+    } else {
+      setTeamMembers(data || [])
+    }
+  }
 
   const fetchTasks = async () => {
     if (!supabase) return
@@ -82,7 +102,7 @@ export function TaskView() {
     const { data, error } = await supabase
       .from("tasks")
       .select("*")
-      .eq("user_id", user.id)
+      .or(`user_id.eq.${user.id},created_by.eq.${user.id}`)
       .eq("bucket", activeBucket)
       .order("created_at", { ascending: false })
 
@@ -135,12 +155,13 @@ export function TaskView() {
 
     const taskData = {
       user_id: user.id,
+      created_by: user.id,
       title: newTask.title,
       bucket: activeBucket,
       priority: newTask.priority,
       status: newTask.status,
       due_date: newTask.deadline ? new Date(newTask.deadline).toISOString() : null,
-      assignee: newTask.assignee || null,
+      assigned_to: newTask.assigned_to || null,
       linked: newTask.linked || null,
       is_completed: false,
     }
@@ -156,7 +177,7 @@ export function TaskView() {
         priority: "medium",
         status: "todo",
         deadline: "",
-        assignee: "",
+        assigned_to: "",
         linked: "",
       })
       setIsDialogOpen(false)
@@ -202,7 +223,7 @@ export function TaskView() {
     if (isOverdue) {
       return (
         <Badge variant="destructive" className="text-[9px] font-bold uppercase tracking-widest">
-          <AlertCircle size={10} className="mr-1" />
+          <AlertTriangle size={10} className="mr-1" />
           Overdue
         </Badge>
       )
@@ -220,7 +241,7 @@ export function TaskView() {
 
     return (
       <Badge variant="outline" className="text-[9px] font-bold uppercase tracking-widest bg-muted/30">
-        <Calendar size={10} className="mr-1" />
+        <Clock size={10} className="mr-1" />
         {format(new Date(due_date), "MMM d")}
       </Badge>
     )
@@ -253,8 +274,8 @@ export function TaskView() {
   }
 
   const filteredTasks = tasks.filter((task) => {
-    const matchesSearch = task.title.toLowerCase().includes(searchQuery.toLowerCase())
-    const matchesPriority = !priorityFilter || task.priority === priorityFilter
+    const matchesSearch = task.title.toLowerCase().includes(newTask.title.toLowerCase())
+    const matchesPriority = !newTask.priority || task.priority === newTask.priority
     return matchesSearch && matchesPriority
   })
 
@@ -333,13 +354,20 @@ export function TaskView() {
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="assignee">Assignee (Optional)</Label>
-                  <Input
-                    id="assignee"
-                    placeholder="Who's responsible?"
-                    value={newTask.assignee}
-                    onChange={(e) => setNewTask({ ...newTask, assignee: e.target.value })}
-                  />
+                  <Label htmlFor="assigned_to">Assign To (Optional)</Label>
+                  <Select value={newTask.assigned_to} onValueChange={(v) => setNewTask({ ...newTask, assigned_to: v })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select team member" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="unassigned">Unassigned</SelectItem>
+                      {teamMembers.map((member) => (
+                        <SelectItem key={member.user_id} value={member.user_id}>
+                          {member.profile.full_name} - {member.position}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="linked">Linked To (Optional)</Label>
@@ -363,35 +391,21 @@ export function TaskView() {
       </div>
 
       <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
-        <Tabs value={activeBucket} onValueChange={setActiveBucket} className="w-auto">
-          <TabsList className="bg-muted/50 p-1 h-11 border">
-            {BUCKETS.map((bucket) => (
-              <TabsTrigger
-                key={bucket}
-                value={bucket}
-                className="px-6 rounded-md data-[state=active]:bg-background data-[state=active]:shadow-sm font-semibold capitalize"
-              >
-                {bucket.replace("-", " ")}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-
         <div className="flex items-center gap-2 w-full md:w-auto">
           <div className="relative flex-1 md:w-64">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Filter className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search tasks..."
               className="pl-9 bg-white border-muted shadow-none h-10"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={newTask.title}
+              onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
             />
           </div>
           <Button
-            variant={priorityFilter ? "default" : "outline"}
+            variant={activeFilter === "high" ? "default" : "outline"}
             size="icon"
             className="h-10 w-10 shrink-0 bg-white"
-            onClick={() => setPriorityFilter(priorityFilter ? null : "high")}
+            onClick={() => setActiveFilter(activeFilter === "high" ? "all" : "high")}
             title="Filter High Priority"
           >
             <Filter size={18} />
@@ -458,7 +472,7 @@ export function TaskView() {
                     {task.is_completed ? (
                       <CheckCircle2 size={14} className="text-white" />
                     ) : (
-                      <CheckSquare size={14} className="text-transparent" />
+                      <Plus size={14} className="text-transparent" />
                     )}
                   </div>
 
@@ -479,18 +493,21 @@ export function TaskView() {
                     <div className="flex items-center gap-4 text-xs text-muted-foreground font-medium flex-wrap">
                       {task.linked && (
                         <span className="flex items-center gap-1.5">
-                          <ArrowUpRight size={12} className="text-primary" />
+                          <Plus size={12} className="text-primary" />
                           Linked to: <span className="text-foreground">{task.linked}</span>
                         </span>
                       )}
-                      {task.assignee && (
+                      {task.assigned_to && (
                         <span className="flex items-center gap-1.5">
-                          <Users size={12} className="text-primary" />
-                          Assigned: <span className="text-foreground">{task.assignee}</span>
+                          <Plus size={12} className="text-primary" />
+                          Assigned:{" "}
+                          <span className="text-foreground">
+                            {teamMembers.find((m) => m.user_id === task.assigned_to)?.profile.full_name}
+                          </span>
                         </span>
                       )}
                       <span className="flex items-center gap-1.5">
-                        <Clock size={12} className="text-primary" />
+                        <Plus size={12} className="text-primary" />
                         Status:{" "}
                         <Select value={task.status} onValueChange={(v) => updateTaskStatus(task.id, v)}>
                           <SelectTrigger className="h-6 w-28 text-xs border-0 p-0 font-medium text-foreground">
@@ -510,7 +527,7 @@ export function TaskView() {
 
                   <div className="flex items-center gap-2">
                     <Button variant="ghost" size="icon" className="size-8 opacity-0 group-hover:opacity-100">
-                      <MoreHorizontal size={16} />
+                      <Trash2 size={16} />
                     </Button>
                   </div>
                 </div>
@@ -520,7 +537,7 @@ export function TaskView() {
         ) : (
           <div className="flex flex-col items-center justify-center py-24 text-center border-2 border-dashed rounded-3xl bg-muted/10">
             <div className="size-16 rounded-full bg-muted flex items-center justify-center mb-4">
-              <CheckSquare size={32} className="text-muted-foreground/50" />
+              <Plus size={32} className="text-muted-foreground/50" />
             </div>
             <h3 className="font-bold text-lg">Clean Slate</h3>
             <p className="text-muted-foreground max-w-[240px] mt-1 italic">
