@@ -5,7 +5,8 @@ import { useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
+import { Input, Textarea } from "@/components/ui/input"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
   Search,
   Plus,
@@ -27,6 +28,9 @@ export function VaultView() {
   const [notes, setNotes] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
+  const [editingNote, setEditingNote] = useState<any>(null)
+  const [editTitle, setEditTitle] = useState("")
+  const [editContent, setEditContent] = useState("")
 
   const supabase = createClient()
 
@@ -73,6 +77,45 @@ export function VaultView() {
     } else {
       fetchNotes()
       toast.success(isDecision ? "Decision logged" : "Note captured")
+    }
+  }
+
+  const handleEditNote = (note: any) => {
+    setEditingNote(note)
+    setEditTitle(note.title)
+    setEditContent(note.content)
+  }
+
+  const handleSaveNote = async () => {
+    if (!editingNote) return
+
+    const { error } = await supabase
+      .from("vault_notes")
+      .update({
+        title: editTitle,
+        content: editContent,
+      })
+      .eq("id", editingNote.id)
+
+    if (error) {
+      console.error("[v0] Error updating note:", error)
+      toast.error("Failed to update note")
+    } else {
+      toast.success("Note updated")
+      setEditingNote(null)
+      fetchNotes()
+    }
+  }
+
+  const handleDeleteNote = async (noteId: string) => {
+    const { error } = await supabase.from("vault_notes").delete().eq("id", noteId)
+
+    if (error) {
+      console.error("[v0] Error deleting note:", error)
+      toast.error("Failed to delete note")
+    } else {
+      toast.success("Note deleted")
+      fetchNotes()
     }
   }
 
@@ -139,6 +182,7 @@ export function VaultView() {
               .map((note) => (
                 <Card
                   key={note.id}
+                  onClick={() => handleEditNote(note)}
                   className="group hover:border-primary/30 transition-all cursor-pointer shadow-sm overflow-hidden flex flex-col"
                 >
                   <CardContent className="p-5 flex-1 space-y-3">
@@ -203,7 +247,7 @@ export function VaultView() {
               {filteredNotes
                 .filter((n) => n.is_decision)
                 .map((d) => (
-                  <div key={d.id} className="space-y-2 group cursor-pointer">
+                  <div key={d.id} className="space-y-2 group cursor-pointer" onClick={() => handleEditNote(d)}>
                     <div className="flex items-start justify-between">
                       <h5 className="text-sm font-bold group-hover:text-primary transition-colors tracking-tight">
                         {d.title}
@@ -249,7 +293,7 @@ export function VaultView() {
                 <FileText size={20} />
               </div>
               <div className="flex flex-col">
-                <span className="text-xl font-bold text-emerald-700">142</span>
+                <span className="text-xl font-bold text-emerald-700">{notes.length}</span>
                 <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">
                   Knowledge Points
                 </span>
@@ -273,6 +317,54 @@ export function VaultView() {
           </div>
         </div>
       </div>
+
+      {/* Dialog for editing notes */}
+      <Dialog open={!!editingNote} onOpenChange={() => setEditingNote(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Note</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Title</label>
+              <Input
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                placeholder="Note title..."
+                className="w-full"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Content</label>
+              <Textarea
+                value={editContent}
+                onChange={(e) => setEditContent(e.target.value)}
+                placeholder="Start typing your knowledge entry..."
+                className="w-full min-h-[200px]"
+              />
+            </div>
+            <div className="flex justify-between gap-2">
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  if (editingNote) {
+                    handleDeleteNote(editingNote.id)
+                    setEditingNote(null)
+                  }
+                }}
+              >
+                Delete Note
+              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setEditingNote(null)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleSaveNote}>Save Changes</Button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

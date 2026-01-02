@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
+import { SidebarTrigger } from "@/components/ui/sidebar"
 
 export function Header() {
   const router = useRouter()
@@ -45,9 +46,10 @@ export function Header() {
   }
 
   return (
-    <header className="h-16 border-b flex items-center justify-between px-6 md:px-8 bg-background/80 backdrop-blur-md sticky top-0 z-10">
-      <div className="flex items-center gap-4 flex-1 max-w-md">
-        <div className="relative w-full">
+    <header className="h-16 border-b flex items-center justify-between px-4 md:px-8 bg-background/80 backdrop-blur-md sticky top-0 z-10">
+      <div className="flex items-center gap-3 md:gap-4">
+        <SidebarTrigger className="md:hidden" />
+        <div className="relative w-full max-w-md">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Quick search... (⌘K)"
@@ -61,17 +63,17 @@ export function Header() {
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 md:gap-3">
         <Button variant="outline" size="sm" className="hidden md:flex gap-2 bg-transparent">
           <Timer size={16} />
-          Focus Mode
+          <span className="hidden lg:inline">Focus Mode</span>
         </Button>
         <Button size="sm" className="gap-2">
           <Plus size={16} />
-          New Action
+          <span className="hidden sm:inline">New Action</span>
         </Button>
-        <div className="w-px h-4 bg-border mx-1" />
-        {userName && <span className="text-sm font-medium text-muted-foreground hidden md:inline">{userName}</span>}
+        <div className="w-px h-4 bg-border mx-1 hidden md:block" />
+        {userName && <span className="text-sm font-medium text-muted-foreground hidden lg:inline">{userName}</span>}
         <Button variant="ghost" size="icon" onClick={handleSignOut} title="Sign Out">
           <LogOut size={18} />
         </Button>

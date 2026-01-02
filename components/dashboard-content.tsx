@@ -7,13 +7,13 @@ import { LinkedinView } from "@/components/linkedin-view"
 import { CrmView } from "@/components/crm-view"
 import { VaultView } from "@/components/vault-view"
 import { Header } from "@/components/header"
-import { FileText } from "lucide-react" // Import FileText from lucide-react
+import { FileText } from "lucide-react"
 
 export function DashboardContent({ activeTab }: { activeTab: string }) {
   return (
-    <div className="flex flex-col min-h-full">
+    <div className="flex flex-col min-h-full w-full">
       <Header />
-      <div className="flex-1 p-6 md:p-8 max-w-[1400px] mx-auto w-full">
+      <div className="flex-1 p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto w-full">
         {activeTab === "Home" && <TodayView />}
         {activeTab === "Tasks" && <TaskView />}
         {activeTab === "Calendar" && <CalendarView />}
