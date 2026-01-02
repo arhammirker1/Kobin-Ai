@@ -371,7 +371,7 @@ export function CalendarView() {
                 className="border-b p-2 text-xs text-muted-foreground text-right font-medium"
                 style={{ height: `${slotHeight}px` }}
               >
-                {slot.minute === 0 && format(addHours(startOfDay(new Date()), slot.hour), "h:mm a")}
+                {format(addHours(startOfDay(new Date()), slot.hour), "h:mm a")}
               </div>
             ))}
           </div>
