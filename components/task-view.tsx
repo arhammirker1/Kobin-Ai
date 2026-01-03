@@ -22,7 +22,7 @@ import {
 import { toast } from "react-hot-toast"
 import { format, isThisWeek, isPast, differenceInDays } from "date-fns"
 import useSWR from "swr"
-import { Plus, Clock, Filter, Trash2, Pencil, CheckCircle2, Link } from "lucide-react"
+import { Plus, Clock, Filter, Trash2, Pencil, CheckCircle2, Link, Activity } from "lucide-react"
 
 const BUCKETS = ["today", "this-week", "delegated", "backlog"]
 const PRIORITIES = ["low", "medium", "high", "urgent"]
@@ -109,6 +109,31 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
       return sortTasksByPriorityAndDeadline(data || [])
     },
     { revalidateOnFocus: true },
+  )
+
+  const { data: allTasks } = useSWR("all-tasks-stats", async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) return []
+    const founderId = permissions?.founder_id || user.id
+    const { data } = await supabase
+      .from("tasks")
+      .select("status")
+      .or(`user_id.eq.${founderId},created_by.eq.${founderId}`)
+    return data || []
+  })
+
+  const taskStats = (allTasks || []).reduce(
+    (acc, task) => {
+      const s = task.status.toLowerCase()
+      if (s === "in-progress") acc.inProgress++
+      else if (s === "blocked") acc.blocked++
+      else if (s === "completed") acc.completed++
+      else if (s === "todo") acc.todo++
+      return acc
+    },
+    { inProgress: 0, blocked: 0, completed: 0, todo: 0 },
   )
 
   const fetchTeamMembers = async () => {
@@ -604,6 +629,45 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
             </DialogContent>
           </Dialog>
         </div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card className="border-primary/10 bg-card/50">
+          <CardContent className="p-4 flex flex-col gap-1">
+            <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">In Progress</span>
+            <div className="flex items-center justify-between">
+              <span className="text-2xl font-bold">{taskStats.inProgress}</span>
+              <Activity size={16} className="text-blue-500 opacity-50" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-primary/10 bg-card/50">
+          <CardContent className="p-4 flex flex-col gap-1">
+            <span className="text-[10px] text-red-400 font-bold uppercase tracking-wider">Blocked</span>
+            <div className="flex items-center justify-between">
+              <span className="text-2xl font-bold text-red-400">{taskStats.blocked}</span>
+              <Activity size={16} className="text-red-500 opacity-50" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-primary/10 bg-card/50">
+          <CardContent className="p-4 flex flex-col gap-1">
+            <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">Completed</span>
+            <div className="flex items-center justify-between">
+              <span className="text-2xl font-bold text-emerald-400">{taskStats.completed}</span>
+              <Activity size={16} className="text-emerald-500 opacity-50" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-primary/10 bg-card/50">
+          <CardContent className="p-4 flex flex-col gap-1">
+            <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Total Todo</span>
+            <div className="flex items-center justify-between">
+              <span className="text-2xl font-bold">{taskStats.todo}</span>
+              <Activity size={16} className="text-muted-foreground opacity-30" />
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">

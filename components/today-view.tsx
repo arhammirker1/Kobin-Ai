@@ -5,12 +5,10 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { format } from "date-fns"
 import {
-  Pin,
   CalendarIcon,
   Zap,
   Clock,
   ChevronRight,
-  TrendingUp,
   Linkedin,
   CheckSquare,
   Users,
@@ -19,21 +17,35 @@ import {
   Plus,
   MessageSquare,
   Send,
+  Activity,
 } from "lucide-react"
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { cn } from "@/utils/cn"
+import { cn } from "@/lib/utils"
+import { differenceInHours } from "date-fns"
 
 export function TodayView() {
   const [upcomingMeetings, setUpcomingMeetings] = useState<any[]>([])
   const [priorities, setPriorities] = useState<any[]>([])
+  const [taskStats, setTaskStats] = useState({
+    inProgress: 0,
+    blocked: 0,
+    completed: 0,
+    todo: 0,
+  })
+  const [realStats, setRealStats] = useState({
+    leads: 0,
+    posts: 0,
+  })
   const [activeTasks, setActiveTasks] = useState<any[]>([])
 
   const supabase = createClient()
 
   useEffect(() => {
     fetchUpcomingMeetings()
-    fetchActiveTasks()
+    fetchTopPriorities()
+    fetchTaskStats()
+    fetchRealStats()
   }, [])
 
   const fetchUpcomingMeetings = async () => {
@@ -83,7 +95,7 @@ export function TodayView() {
     }
   }
 
-  const fetchActiveTasks = async () => {
+  const fetchTopPriorities = async () => {
     const {
       data: { user },
     } = await supabase.auth.getUser()
@@ -93,13 +105,91 @@ export function TodayView() {
       .from("tasks")
       .select("*")
       .eq("user_id", user.id)
-      .eq("status", "in-progress")
-      .order("priority", { ascending: false })
-      .limit(5)
+      .neq("status", "completed")
+      .order("due_date", { ascending: true })
 
     if (!error && tasks) {
-      setActiveTasks(tasks)
+      const priorityWeight: Record<string, number> = { urgent: 4, high: 3, medium: 2, low: 1 }
+
+      const sortedPriorities = tasks
+        .sort((a, b) => {
+          const now = new Date()
+          const aDue = a.due_date ? new Date(a.due_date) : null
+          const bDue = b.due_date ? new Date(b.due_date) : null
+
+          if (aDue && bDue) {
+            const aHours = differenceInHours(aDue, now)
+            const bHours = differenceInHours(bDue, now)
+
+            if (aHours < 24 || bHours < 24) {
+              return aHours - bHours
+            }
+          }
+
+          const pA = priorityWeight[a.priority.toLowerCase()] || 0
+          const pB = priorityWeight[b.priority.toLowerCase()] || 0
+          if (pA !== pB) return pB - pA
+
+          return 0
+        })
+        .slice(0, 3)
+        .map((t) => ({
+          title: t.title,
+          tag: t.priority,
+          status: t.status,
+          due_date: t.due_date,
+          isUrgent:
+            t.priority.toLowerCase() === "urgent" ||
+            (t.due_date && differenceInHours(new Date(t.due_date), new Date()) < 5),
+        }))
+
+      setPriorities(sortedPriorities)
     }
+  }
+
+  const fetchTaskStats = async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) return
+
+    const { data, error } = await supabase.from("tasks").select("status").eq("user_id", user.id)
+
+    if (!error && data) {
+      const stats = data.reduce(
+        (acc, task) => {
+          const s = task.status.toLowerCase()
+          if (s === "in-progress") acc.inProgress++
+          else if (s === "blocked") acc.blocked++
+          else if (s === "completed") acc.completed++
+          else if (s === "todo") acc.todo++
+          return acc
+        },
+        { inProgress: 0, blocked: 0, completed: 0, todo: 0 },
+      )
+      setTaskStats(stats)
+    }
+  }
+
+  const fetchRealStats = async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) return
+
+    const [leadsRes, postsRes] = await Promise.all([
+      supabase
+        .from("relationships")
+        .select("id", { count: "exact" })
+        .eq("user_id", user.id)
+        .eq("relationship_type", "lead"),
+      supabase.from("linkedin_posts").select("id", { count: "exact" }).eq("user_id", user.id).eq("status", "Published"),
+    ])
+
+    setRealStats({
+      leads: leadsRes.count || 0,
+      posts: postsRes.count || 0,
+    })
   }
 
   return (
@@ -118,7 +208,7 @@ export function TodayView() {
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Today's Priorities */}
-          <Card className="lg:col-span-8 border-primary/20 bg-primary/5 overflow-hidden relative">
+          <Card className="lg:col-span-8 border-primary/20 bg-card/50 overflow-hidden relative">
             <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
               <Zap size={120} className="text-primary" />
             </div>
@@ -140,10 +230,10 @@ export function TodayView() {
                 ? priorities.map((p, i) => (
                     <div
                       key={i}
-                      className="flex items-start justify-between p-4 rounded-xl bg-background border shadow-sm hover:shadow-md transition-all group cursor-pointer"
+                      className="flex items-start justify-between p-4 rounded-xl bg-background/50 border border-border shadow-sm hover:border-primary/50 transition-all group cursor-pointer"
                     >
                       <div className="flex items-start gap-4">
-                        <div className="mt-1 size-6 rounded-full border-2 border-primary/30 flex items-center justify-center text-xs font-bold text-primary transition-all group-hover:bg-primary group-hover:border-primary group-hover:text-primary-foreground">
+                        <div className="mt-1 size-6 rounded-full border-2 border-primary/30 flex items-center justify-center text-xs font-bold text-primary transition-all group-hover:bg-primary group-hover:text-primary-foreground">
                           {i + 1}
                         </div>
                         <div className="space-y-1.5">
@@ -151,13 +241,32 @@ export function TodayView() {
                             {p.title}
                           </p>
                           <div className="flex items-center gap-3">
-                            <Badge variant="secondary" className="text-[10px] h-5 font-medium px-2 bg-secondary/80">
+                            <Badge
+                              variant="secondary"
+                              className={cn(
+                                "text-[10px] h-5 font-bold uppercase tracking-widest",
+                                p.tag.toLowerCase() === "urgent" && "bg-red-500/10 text-red-500 border-red-500/20",
+                                p.tag.toLowerCase() === "high" &&
+                                  "bg-orange-500/10 text-orange-500 border-orange-500/20",
+                              )}
+                            >
                               {p.tag}
                             </Badge>
-                            {p.isUrgent && (
-                              <Badge variant="destructive" className="text-[10px] h-5 font-medium px-2">
-                                Urgent
-                              </Badge>
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                "text-[10px] h-5 font-medium px-2 bg-muted/50",
+                                p.status === "blocked" && "text-red-400 border-red-400/30",
+                                p.status === "in-progress" && "text-blue-400 border-blue-400/30",
+                              )}
+                            >
+                              {p.status.replace("-", " ")}
+                            </Badge>
+                            {p.due_date && (
+                              <span className="text-[10px] text-muted-foreground flex items-center gap-1 font-medium">
+                                <Clock size={10} />
+                                {differenceInHours(new Date(p.due_date), new Date())}h left
+                              </span>
                             )}
                           </div>
                         </div>
@@ -165,16 +274,31 @@ export function TodayView() {
                     </div>
                   ))
                 : [
-                    { title: "Review Series A Pitch Deck with Advisors", tag: "Strategy", time: "1 hour" },
-                    { title: "Finalize LinkedIn hiring post for Lead Engineer", tag: "Hiring", time: "30 mins" },
-                    { title: "Prepare for Board Meeting tomorrow", tag: "Finance", time: "2 hours" },
+                    {
+                      title: "Review Series A Pitch Deck with Advisors",
+                      tag: "Strategy",
+                      status: "todo",
+                      due_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+                    },
+                    {
+                      title: "Finalize LinkedIn hiring post for Lead Engineer",
+                      tag: "Hiring",
+                      status: "in-progress",
+                      due_date: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(),
+                    },
+                    {
+                      title: "Prepare for Board Meeting tomorrow",
+                      tag: "Finance",
+                      status: "blocked",
+                      due_date: new Date(Date.now() + 18 * 60 * 60 * 1000).toISOString(),
+                    },
                   ].map((p, i) => (
                     <div
                       key={i}
-                      className="flex items-start justify-between p-4 rounded-xl bg-background border shadow-sm hover:shadow-md transition-all group cursor-pointer"
+                      className="flex items-start justify-between p-4 rounded-xl bg-background/50 border border-border shadow-sm hover:border-primary/50 transition-all group cursor-pointer"
                     >
                       <div className="flex items-start gap-4">
-                        <div className="mt-1 size-6 rounded-full border-2 border-primary/30 flex items-center justify-center text-xs font-bold text-primary transition-all group-hover:bg-primary group-hover:border-primary group-hover:text-primary-foreground">
+                        <div className="mt-1 size-6 rounded-full border-2 border-primary/30 flex items-center justify-center text-xs font-bold text-primary transition-all group-hover:bg-primary group-hover:text-primary-foreground">
                           {i + 1}
                         </div>
                         <div className="space-y-1.5">
@@ -182,54 +306,94 @@ export function TodayView() {
                             {p.title}
                           </p>
                           <div className="flex items-center gap-3">
-                            <Badge variant="secondary" className="text-[10px] h-5 font-medium px-2 bg-secondary/80">
+                            <Badge
+                              variant="secondary"
+                              className={cn(
+                                "text-[10px] h-5 font-bold uppercase tracking-widest",
+                                p.tag.toLowerCase() === "urgent" && "bg-red-500/10 text-red-500 border-red-500/20",
+                                p.tag.toLowerCase() === "high" &&
+                                  "bg-orange-500/10 text-orange-500 border-orange-500/20",
+                              )}
+                            >
                               {p.tag}
                             </Badge>
-                            <span className="text-[10px] text-muted-foreground flex items-center gap-1 font-medium">
-                              <Clock size={10} />
-                              Est. {p.time}
-                            </span>
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                "text-[10px] h-5 font-medium px-2 bg-muted/50",
+                                p.status === "blocked" && "text-red-400 border-red-400/30",
+                                p.status === "in-progress" && "text-blue-400 border-blue-400/30",
+                              )}
+                            >
+                              {p.status.replace("-", " ")}
+                            </Badge>
+                            {p.due_date && (
+                              <span className="text-[10px] text-muted-foreground flex items-center gap-1 font-medium">
+                                <Clock size={10} />
+                                {differenceInHours(new Date(p.due_date), new Date())}h left
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-8 opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <Pin size={14} className="text-muted-foreground rotate-45" />
-                      </Button>
                     </div>
                   ))}
             </CardContent>
           </Card>
 
-          {/* Quick Stats / Action Bar */}
+          {/* Quick Stats / Progress Panel */}
           <Card className="lg:col-span-4 border-none shadow-none bg-transparent">
             <CardContent className="p-0 space-y-6">
+              <div className="space-y-3">
+                <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest px-1 flex items-center gap-2">
+                  <Activity size={12} className="text-primary" />
+                  Execution Pipeline
+                </h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-4 rounded-xl bg-card border border-border shadow-sm flex flex-col gap-1">
+                    <span className="text-[10px] text-muted-foreground font-bold uppercase">In Progress</span>
+                    <span className="text-2xl font-bold">{taskStats.inProgress}</span>
+                  </div>
+                  <div className="p-4 rounded-xl bg-card border border-border shadow-sm flex flex-col gap-1">
+                    <span className="text-[10px] text-red-400 font-bold uppercase">Blocked</span>
+                    <span className="text-2xl font-bold text-red-400">{taskStats.blocked}</span>
+                  </div>
+                  <div className="p-4 rounded-xl bg-card border border-border shadow-sm flex flex-col gap-1">
+                    <span className="text-[10px] text-emerald-400 font-bold uppercase">Completed</span>
+                    <span className="text-2xl font-bold text-emerald-400">{taskStats.completed}</span>
+                  </div>
+                  <div className="p-4 rounded-xl bg-card border border-border shadow-sm flex flex-col gap-1">
+                    <span className="text-[10px] text-muted-foreground font-bold uppercase">Total Todo</span>
+                    <span className="text-2xl font-bold">{taskStats.todo}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Real Analytics Overview */}
               <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 rounded-2xl bg-card border-primary/20 border shadow-sm flex flex-col gap-1 relative overflow-hidden group">
+                <div className="p-4 rounded-2xl bg-card border border-primary/20 shadow-sm flex flex-col gap-1 relative overflow-hidden group">
                   <div className="absolute -right-2 -bottom-2 opacity-5 group-hover:scale-110 transition-transform">
                     <Linkedin size={64} />
                   </div>
-                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">
-                    Engagement
-                  </span>
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">Updates</span>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-2xl font-bold">12.4k</span>
-                    <span className="text-[10px] text-emerald-500 font-bold flex items-center gap-0.5">
-                      <TrendingUp size={10} /> +12%
-                    </span>
+                    <span className="text-2xl font-bold">{realStats.posts}</span>
+                    <Badge
+                      variant="secondary"
+                      className="text-[9px] h-4 font-bold bg-primary/10 text-primary border-none"
+                    >
+                      Live
+                    </Badge>
                   </div>
                 </div>
-                <div className="p-4 rounded-2xl bg-card border-primary/20 border shadow-sm flex flex-col gap-1 relative overflow-hidden group">
+                <div className="p-4 rounded-2xl bg-card border border-primary/20 shadow-sm flex flex-col gap-1 relative overflow-hidden group">
                   <div className="absolute -right-2 -bottom-2 opacity-5 group-hover:scale-110 transition-transform">
                     <Users size={64} />
                   </div>
                   <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">Leads</span>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-2xl font-bold">42</span>
-                    <Badge className="text-[9px] h-4 bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-none font-bold">
+                    <span className="text-2xl font-bold">{realStats.leads}</span>
+                    <Badge className="text-[9px] h-4 bg-emerald-500/10 text-emerald-400 border-none font-bold">
                       Active
                     </Badge>
                   </div>
