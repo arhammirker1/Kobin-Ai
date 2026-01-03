@@ -22,6 +22,7 @@ import {
 import { toast } from "react-hot-toast"
 import { format, isThisWeek, isPast, differenceInDays } from "date-fns"
 import useSWR from "swr"
+import { Plus, Clock, Filter, Trash2, Pencil, CheckCircle2, Link } from "lucide-react"
 
 const BUCKETS = ["today", "this-week", "delegated", "backlog"]
 const PRIORITIES = ["low", "medium", "high", "urgent"]
@@ -327,6 +328,7 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
       return (
         <Badge variant="destructive" className="text-[9px] font-bold uppercase tracking-widest">
           {/* Overdue icon */}
+          <Clock size={10} className="mr-1" />
           Overdue
         </Badge>
       )
@@ -337,6 +339,7 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
           className="text-[9px] font-bold uppercase tracking-widest bg-orange-100 text-orange-700 border-orange-300"
         >
           {/* Clock icon */}
+          <Clock size={10} className="mr-1" />
           {daysUntil}d left
         </Badge>
       )
@@ -345,6 +348,7 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
     return (
       <Badge variant="outline" className="text-[9px] font-bold uppercase tracking-widest bg-muted/30">
         {/* Clock icon */}
+        <Clock size={10} className="mr-1" />
         {format(new Date(due_date), "MMM d")}
       </Badge>
     )
@@ -399,6 +403,7 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
               <DialogTrigger asChild>
                 <Button className="gap-2 shadow-sm font-bold" onClick={() => fetchTeamMembers()}>
                   {/* Plus icon */}
+                  <Plus size={18} />
                   Add Task
                 </Button>
               </DialogTrigger>
@@ -605,6 +610,7 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
         <div className="flex items-center gap-2 w-full md:w-auto">
           <div className="relative flex-1 md:w-64">
             {/* Filter icon */}
+            <Filter className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search tasks..."
               className="pl-9 bg-white border-muted shadow-none h-10"
@@ -620,6 +626,7 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
             title="Filter High Priority"
           >
             {/* Filter icon */}
+            <Filter size={18} />
           </Button>
         </div>
       </div>
@@ -629,6 +636,7 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
           <CardHeader>
             <CardTitle className="text-sm font-bold flex items-center gap-2">
               {/* Clock icon */}
+              <Clock size={16} />
               This Week's Focus ({thisWeekTasks.length} tasks)
             </CardTitle>
           </CardHeader>
@@ -679,13 +687,11 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                     className={`size-6 rounded border-2 flex items-center justify-center transition-colors shrink-0 ${task.is_completed ? "bg-primary border-primary" : "border-muted-foreground/30 hover:border-primary hover:bg-primary/10"}`}
                     onClick={() => toggleTask(task.id, task.is_completed)}
                   >
-                    {task.is_completed
-                      ? {
-                          /* CheckCircle2 icon */
-                        }
-                      : {
-                          /* Plus icon */
-                        }}
+                    {task.is_completed ? (
+                      <CheckCircle2 size={16} className="text-primary-foreground" />
+                    ) : (
+                      <div className="size-2 rounded-full bg-muted-foreground/30" />
+                    )}
                   </div>
 
                   <div className="flex-1 min-w-0">
@@ -705,7 +711,8 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                     <div className="flex items-center gap-4 text-xs text-muted-foreground font-medium flex-wrap">
                       {task.linked && (
                         <span className="flex items-center gap-1.5">
-                          {/* Plus icon */}
+                          {/* Link icon */}
+                          <Link size={12} />
                           Linked to: <span className="text-foreground">{task.linked}</span>
                         </span>
                       )}
@@ -720,7 +727,6 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                       )}
                       {permissions?.can_update_task_status && (
                         <span className="flex items-center gap-1.5">
-                          {/* Plus icon */}
                           Status:{" "}
                           <Select value={task.status} onValueChange={(v) => updateTaskStatus(task.id, v)}>
                             <SelectTrigger className="h-6 w-28 text-xs border-0 p-0 font-medium text-foreground">
@@ -751,6 +757,7 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                       }}
                     >
                       {/* Trash2 icon */}
+                      <Trash2 size={16} />
                     </Button>
                     <Button
                       variant="ghost"
@@ -762,6 +769,7 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                       }}
                     >
                       {/* Pencil icon */}
+                      <Pencil size={16} />
                     </Button>
                   </div>
                 </div>
