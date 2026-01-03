@@ -187,9 +187,16 @@ export function TeamView() {
     }
 
     try {
-      // Delete from auth users (cascade will handle team_members table)
-      const { error: authError } = await supabase.auth.admin.deleteUser(userId)
-      if (authError) throw authError
+      const response = await fetch("/api/delete-team-member", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, memberId }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.message || "Failed to delete team member")
+      }
 
       toast({
         title: "Success",
@@ -197,11 +204,11 @@ export function TeamView() {
       })
 
       fetchTeamMembers()
-    } catch (error) {
+    } catch (error: any) {
       console.error("[v0] Error deleting team member:", error)
       toast({
         title: "Error",
-        description: "Failed to delete team member",
+        description: error.message || "Failed to delete team member",
         variant: "destructive",
       })
     }

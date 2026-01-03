@@ -9,10 +9,11 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Plus, Trash2, CheckCircle2, Clock, AlertTriangle, Filter } from "lucide-react"
+import { Plus, Trash2, CheckCircle2, Clock, AlertTriangle, Filter, MoreVertical } from "lucide-react"
 import { toast } from "sonner"
 import { format, isThisWeek, isPast, differenceInDays } from "date-fns"
 import useSWR from "swr"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 
 const BUCKETS = ["today", "this-week", "delegated", "backlog"]
 const PRIORITIES = ["low", "medium", "high", "urgent"]
@@ -231,6 +232,30 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
     } else {
       mutateTasks() // revalidate
       toast.success("Status updated")
+    }
+  }
+
+  const handleDeleteTask = async (id: string) => {
+    if (!supabase) return
+
+    if (!confirm("Are you sure you want to delete this task?")) return
+
+    const previousTasks = tasks
+    if (tasks) {
+      mutateTasks(
+        tasks.filter((t) => t.id !== id),
+        false,
+      )
+    }
+
+    const { error } = await supabase.from("tasks").delete().eq("id", id)
+
+    if (error) {
+      mutateTasks(previousTasks, false)
+      toast.error("Failed to delete task")
+    } else {
+      mutateTasks() // revalidate
+      toast.success("Task deleted")
     }
   }
 
@@ -556,6 +581,22 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                     <Button variant="ghost" size="icon" className="size-8 opacity-0 group-hover:opacity-100">
                       <Trash2 size={16} />
                     </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                          <MoreVertical size={14} className="text-muted-foreground" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive cursor-pointer"
+                          onClick={() => handleDeleteTask(task.id)}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Delete Task
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
               </CardContent>
