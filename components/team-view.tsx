@@ -413,12 +413,12 @@ export function TeamView() {
                 <div className="flex items-start justify-between">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                      <CardTitle>{member.profile.full_name}</CardTitle>
+                      <CardTitle>{member.profile?.full_name ?? "Unnamed User"}</CardTitle>
                       <Badge variant={member.is_active ? "default" : "secondary"}>
                         {member.is_active ? "Active" : "Inactive"}
                       </Badge>
                     </div>
-                    <CardDescription>{member.profile.email}</CardDescription>
+                    <CardDescription>{member.profile?.email ?? "No email"}</CardDescription>
                     <p className="text-sm text-muted-foreground">{member.position}</p>
                   </div>
                   <div className="flex gap-2">
@@ -463,7 +463,7 @@ export function TeamView() {
             <DialogHeader>
               <DialogTitle>Edit Team Member</DialogTitle>
               <DialogDescription>
-                Update permissions and settings for {selectedMember.profile.full_name}
+                Update permissions and settings for {selectedMember.profile?.full_name ?? "this user"}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-6">

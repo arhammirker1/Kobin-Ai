@@ -56,10 +56,15 @@ export async function POST(request: Request) {
     const newUserId = createdUser.user.id
 
     // 3️⃣ ADMIN CLIENT — UPDATE PROFILE
-    await supabaseAdmin.from("profiles").update({
-      user_type: "team_member",
-      created_by: user.id,
-    }).eq("id", newUserId)
+    await supabaseAdmin
+  .from("profiles")
+  .upsert({
+    id: newUserId,
+    full_name,
+    email,
+    user_type: "team_member",
+    created_by: user.id,
+  })
 
     // 4️⃣ ADMIN CLIENT — INSERT TEAM MEMBER
     await supabaseAdmin.from("team_members").insert({
