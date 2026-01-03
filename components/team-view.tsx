@@ -98,7 +98,7 @@ export function TeamView() {
         .from("team_members")
         .select(`
           *,
-          profile:profiles!team_members_user_id_fkey(full_name, email)
+          profile:profiles!team_members_user_id_profiles_fkey(full_name, email)
         `)
         .eq("founder_id", user.id)
         .order("created_at", { ascending: false })
