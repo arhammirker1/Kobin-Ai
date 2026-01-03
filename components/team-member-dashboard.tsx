@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { useRouter } from "next/navigation"
 import { LogOut, Home, Calendar, CheckSquare, Linkedin, Users, FileText, Settings, LayoutDashboard } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
@@ -25,7 +26,6 @@ import { LinkedinView } from "@/components/linkedin-view"
 import { CrmView } from "@/components/crm-view"
 import { VaultView } from "@/components/vault-view"
 import { SettingsView } from "@/components/settings-view"
-import { TaskView } from "@/components/task-view"
 import useSWR, { mutate } from "swr"
 
 interface TeamMemberPermissions {
@@ -259,13 +259,53 @@ export function TeamMemberDashboard({ permissions }: { permissions: TeamMemberPe
               </div>
             )}
             {activeTab === "Tasks" && permissions.can_view_tasks && (
-              <TaskView
-                permissions={{
-                  can_create_tasks: permissions.can_create_tasks,
-                  can_update_task_status: permissions.can_update_task_status,
-                  founder_id: permissions.founder_id,
-                }}
-              />
+              <div className="space-y-6">
+                <div className="grid gap-4">
+                  {tasksLoading ? (
+                    <p>Loading tasks...</p>
+                  ) : tasks?.length === 0 ? (
+                    <Card>
+                      <CardContent className="py-12 text-center">No tasks assigned.</CardContent>
+                    </Card>
+                  ) : (
+                    tasks?.map((task) => (
+                      <Card key={task.id}>
+                        <CardHeader className="py-4 flex flex-row items-center justify-between">
+                          <CardTitle className="text-base">{task.title}</CardTitle>
+                          <Badge variant={task.status === "completed" ? "secondary" : "default"}>{task.status}</Badge>
+                        </CardHeader>
+                        {permissions.can_update_task_status && (
+                          <CardContent className="pb-4 pt-0">
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                variant={task.status === "todo" ? "default" : "outline"}
+                                onClick={() => handleUpdateTaskStatus(task.id, "todo")}
+                              >
+                                To Do
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant={task.status === "in-progress" ? "default" : "outline"}
+                                onClick={() => handleUpdateTaskStatus(task.id, "in-progress")}
+                              >
+                                In Progress
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant={task.status === "completed" ? "default" : "outline"}
+                                onClick={() => handleUpdateTaskStatus(task.id, "completed")}
+                              >
+                                Completed
+                              </Button>
+                            </div>
+                          </CardContent>
+                        )}
+                      </Card>
+                    ))
+                  )}
+                </div>
+              </div>
             )}
             {/* Dynamic rendering for other views if permissions allow */}
             {activeTab === "Calendar" && permissions.can_view_calendar && <CalendarView />}
