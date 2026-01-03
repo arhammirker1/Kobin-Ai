@@ -76,7 +76,7 @@ export function TaskView() {
         id,
         user_id,
         position,
-        profile:profiles!team_members_user_id_fkey(full_name)
+        profile:profiles!team_members_user_id_profiles_fkey(full_name)
       `)
       .eq("founder_id", user.id)
       .eq("is_active", true)
@@ -360,10 +360,10 @@ export function TaskView() {
                       <SelectValue placeholder="Select team member" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="unassigned">Unassigned</SelectItem>
+                      <SelectItem value="">Unassigned</SelectItem>
                       {teamMembers.map((member) => (
                         <SelectItem key={member.user_id} value={member.user_id}>
-                          {member.profile.full_name} - {member.position}
+                          {member.profile?.full_name ?? "Unnamed"} - {member.position}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -502,7 +502,7 @@ export function TaskView() {
                           <Plus size={12} className="text-primary" />
                           Assigned:{" "}
                           <span className="text-foreground">
-                            {teamMembers.find((m) => m.user_id === task.assigned_to)?.profile.full_name}
+                            {teamMembers.find((m) => m.user_id === task.assigned_to)?.profile?.full_name ?? "Unassigned"}
                           </span>
                         </span>
                       )}
