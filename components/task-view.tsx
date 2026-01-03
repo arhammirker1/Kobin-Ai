@@ -1,4 +1,4 @@
-"use client"
+\"use client"
 
 import { useState } from "react"
 import { createClient } from "@/lib/supabase/client"
@@ -42,7 +42,15 @@ interface TeamMember {
   }
 }
 
-export function TaskView() {
+interface TaskViewProps {
+  permissions?: {
+    can_create_tasks: boolean
+    can_update_task_status: boolean
+    founder_id?: string
+  }
+}
+
+export function TaskView({ permissions }: TaskViewProps = {}) {
   const supabase = createClient()
   const [activeBucket, setActiveBucket] = useState("today")
   const [activeFilter, setActiveFilter] = useState("all")
@@ -68,12 +76,20 @@ export function TaskView() {
         data: { user },
       } = await supabase.auth.getUser()
       if (!user) return []
-      const { data, error } = await supabase
-        .from("tasks")
-        .select("*")
-        .or(`user_id.eq.${user.id},created_by.eq.${user.id}`)
-        .eq("bucket", activeBucket)
-        .order("created_at", { ascending: false })
+
+      const query = supabase.from("tasks").select("*").eq("bucket", activeBucket)
+
+      if (permissions?.founder_id) {
+        // Team member view: Show tasks created by founder, assigned to them, or created by them
+        query.or(
+          `user_id.eq.${permissions.founder_id},assigned_to.eq.${user.id},created_by.eq.${user.id},user_id.eq.${user.id}`,
+        )
+      } else {
+        // Founder view
+        query.or(`user_id.eq.${user.id},created_by.eq.${user.id}`)
+      }
+
+      const { data, error } = await query.order("created_at", { ascending: false })
       if (error) throw error
       return sortTasksByPriorityAndDeadline(data || [])
     },
@@ -87,6 +103,8 @@ export function TaskView() {
     } = await supabase.auth.getUser()
     if (!user) return
 
+    const founderId = permissions?.founder_id || user.id
+
     const { data, error } = await supabase
       .from("team_members")
       .select(`
@@ -95,7 +113,7 @@ export function TaskView() {
         position,
         profile:profiles!team_members_user_id_profiles_fkey(full_name)
       `)
-      .eq("founder_id", user.id)
+      .eq("founder_id", founderId)
       .eq("is_active", true)
 
     if (error) {
@@ -143,7 +161,7 @@ export function TaskView() {
     if (!user) return
 
     const taskData = {
-      user_id: user.id,
+      user_id: permissions?.founder_id || user.id,
       created_by: user.id,
       title: newTask.title,
       bucket: activeBucket,
@@ -197,13 +215,15 @@ export function TaskView() {
   const updateTaskStatus = async (id: string, status: string) => {
     if (!supabase) return
 
+    const isCompleted = status === "completed"
+
     const previousTasks = tasks
     if (tasks) {
-      const updatedTasks = tasks.map((t) => (t.id === id ? { ...t, status } : t))
+      const updatedTasks = tasks.map((t) => (t.id === id ? { ...t, status, is_completed: isCompleted } : t))
       mutateTasks(updatedTasks, false)
     }
 
-    const { error } = await supabase.from("tasks").update({ status }).eq("id", id)
+    const { error } = await supabase.from("tasks").update({ status, is_completed: isCompleted }).eq("id", id)
 
     if (error) {
       mutateTasks(previousTasks, false)
@@ -291,102 +311,107 @@ export function TaskView() {
           <p className="text-muted-foreground text-sm">Founder-first task management. No complexity, just momentum.</p>
         </div>
         <div className="flex gap-2 w-full md:w-auto">
-          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-            <DialogTrigger asChild>
-              <Button className="gap-2 shadow-sm font-bold">
-                <Plus size={18} />
-                Add Task
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[500px]">
-              <DialogHeader>
-                <DialogTitle>Add New Task</DialogTitle>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="title">Task Title</Label>
-                  <Input
-                    id="title"
-                    placeholder="What needs to be done?"
-                    value={newTask.title}
-                    onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="priority">Priority</Label>
-                    <Select value={newTask.priority} onValueChange={(v) => setNewTask({ ...newTask, priority: v })}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {PRIORITIES.map((p) => (
-                          <SelectItem key={p} value={p} className="capitalize">
-                            {p}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="status">Status</Label>
-                    <Select value={newTask.status} onValueChange={(v) => setNewTask({ ...newTask, status: v })}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {STATUSES.map((s) => (
-                          <SelectItem key={s} value={s} className="capitalize">
-                            {s.replace("-", " ")}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="deadline">Deadline</Label>
-                  <Input
-                    id="deadline"
-                    type="datetime-local"
-                    value={newTask.deadline}
-                    onChange={(e) => setNewTask({ ...newTask, deadline: e.target.value })}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="assigned_to">Assign To (Optional)</Label>
-                  <Select value={newTask.assigned_to} onValueChange={(v) => setNewTask({ ...newTask, assigned_to: v })}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select team member" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={UNASSIGNED}>Unassigned</SelectItem>
-                      {teamMembers.map((member) => (
-                        <SelectItem key={member.user_id} value={member.user_id}>
-                          {member.profile?.full_name ?? "Unnamed"} - {member.position}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="linked">Linked To (Optional)</Label>
-                  <Input
-                    id="linked"
-                    placeholder="Related project or goal"
-                    value={newTask.linked}
-                    onChange={(e) => setNewTask({ ...newTask, linked: e.target.value })}
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
-                  Cancel
+          {(permissions?.can_create_tasks ?? true) && (
+            <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+              <DialogTrigger asChild>
+                <Button className="gap-2 shadow-sm font-bold" onClick={() => fetchTeamMembers()}>
+                  <Plus size={18} />
+                  Add Task
                 </Button>
-                <Button onClick={handleAddTask}>Create Task</Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[500px]">
+                <DialogHeader>
+                  <DialogTitle>Add New Task</DialogTitle>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="title">Task Title</Label>
+                    <Input
+                      id="title"
+                      placeholder="What needs to be done?"
+                      value={newTask.title}
+                      onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                      <Label htmlFor="priority">Priority</Label>
+                      <Select value={newTask.priority} onValueChange={(v) => setNewTask({ ...newTask, priority: v })}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PRIORITIES.map((p) => (
+                            <SelectItem key={p} value={p} className="capitalize">
+                              {p}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="status">Status</Label>
+                      <Select value={newTask.status} onValueChange={(v) => setNewTask({ ...newTask, status: v })}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {STATUSES.map((s) => (
+                            <SelectItem key={s} value={s} className="capitalize">
+                              {s.replace("-", " ")}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="deadline">Deadline</Label>
+                    <Input
+                      id="deadline"
+                      type="datetime-local"
+                      value={newTask.deadline}
+                      onChange={(e) => setNewTask({ ...newTask, deadline: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="assigned_to">Assign To (Optional)</Label>
+                    <Select
+                      value={newTask.assigned_to}
+                      onValueChange={(v) => setNewTask({ ...newTask, assigned_to: v })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select team member" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={UNASSIGNED}>Unassigned</SelectItem>
+                        {teamMembers.map((member) => (
+                          <SelectItem key={member.user_id} value={member.user_id}>
+                            {member.profile?.full_name ?? "Unnamed"} - {member.position}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="linked">Linked To (Optional)</Label>
+                    <Input
+                      id="linked"
+                      placeholder="Related project or goal"
+                      value={newTask.linked}
+                      onChange={(e) => setNewTask({ ...newTask, linked: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleAddTask}>Create Task</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
         </div>
       </div>
 
@@ -506,22 +531,24 @@ export function TaskView() {
                           </span>
                         </span>
                       )}
-                      <span className="flex items-center gap-1.5">
-                        <Plus size={12} className="text-primary" />
-                        Status:{" "}
-                        <Select value={task.status} onValueChange={(v) => updateTaskStatus(task.id, v)}>
-                          <SelectTrigger className="h-6 w-28 text-xs border-0 p-0 font-medium text-foreground">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {STATUSES.map((s) => (
-                              <SelectItem key={s} value={s} className="text-xs capitalize">
-                                {s.replace("-", " ")}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </span>
+                      {permissions?.can_update_task_status && (
+                        <span className="flex items-center gap-1.5">
+                          <Plus size={12} className="text-primary" />
+                          Status:{" "}
+                          <Select value={task.status} onValueChange={(v) => updateTaskStatus(task.id, v)}>
+                            <SelectTrigger className="h-6 w-28 text-xs border-0 p-0 font-medium text-foreground">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {STATUSES.map((s) => (
+                                <SelectItem key={s} value={s} className="text-xs capitalize">
+                                  {s.replace("-", " ")}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -543,14 +570,16 @@ export function TaskView() {
             <p className="text-muted-foreground max-w-[240px] mt-1 italic">
               "What's the one thing that will move the needle today?"
             </p>
-            <Button
-              className="mt-6 gap-2 font-bold bg-transparent"
-              variant="outline"
-              onClick={() => setIsDialogOpen(true)}
-            >
-              <Plus size={18} />
-              Add New Task
-            </Button>
+            {(permissions?.can_create_tasks ?? true) && (
+              <Button
+                className="mt-6 gap-2 font-bold bg-transparent"
+                variant="outline"
+                onClick={() => setIsDialogOpen(true)}
+              >
+                <Plus size={18} />
+                Add New Task
+              </Button>
+            )}
           </div>
         )}
       </div>
