@@ -16,6 +16,7 @@ import { format, isThisWeek, isPast, differenceInDays } from "date-fns"
 const BUCKETS = ["today", "this-week", "delegated", "backlog"]
 const PRIORITIES = ["low", "medium", "high", "urgent"]
 const STATUSES = ["todo", "in-progress", "blocked", "completed"]
+const UNASSIGNED = "__unassigned__"
 
 interface Task {
   id: string
@@ -161,7 +162,10 @@ export function TaskView() {
       priority: newTask.priority,
       status: newTask.status,
       due_date: newTask.deadline ? new Date(newTask.deadline).toISOString() : null,
-      assigned_to: newTask.assigned_to || null,
+      assigned_to:
+       newTask.assigned_to === UNASSIGNED
+         ? null
+         : newTask.assigned_to || null,
       linked: newTask.linked || null,
       is_completed: false,
     }
@@ -360,7 +364,7 @@ export function TaskView() {
                       <SelectValue placeholder="Select team member" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Unassigned</SelectItem>
+                      <SelectItem value={UNASSIGNED}>Unassigned</SelectItem>
                       {teamMembers.map((member) => (
                         <SelectItem key={member.user_id} value={member.user_id}>
                           {member.profile?.full_name ?? "Unnamed"} - {member.position}
@@ -498,9 +502,8 @@ export function TaskView() {
                         </span>
                       )}
                       {task.assigned_to && (
-                        <span className="flex items-center gap-1.5">
-                          <Plus size={12} className="text-primary" />
-                          Assigned:{" "}
+                        <span className="flex items-center gap-1.5">                   
+                          Assigned:
                           <span className="text-foreground">
                             {teamMembers.find((m) => m.user_id === task.assigned_to)?.profile?.full_name ?? "Unassigned"}
                           </span>
