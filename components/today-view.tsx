@@ -4,21 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { format } from "date-fns"
-import {
-  CalendarIcon,
-  Zap,
-  Clock,
-  ChevronRight,
-  Linkedin,
-  CheckSquare,
-  Users,
-  Video,
-  FileText,
-  Plus,
-  MessageSquare,
-  Send,
-  Activity,
-} from "lucide-react"
+import { CalendarIcon, Zap, Clock, ChevronRight, Linkedin, CheckSquare, Users, Video, Plus, MessageSquare, Send, Activity, Inbox } from "lucide-react"
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
@@ -153,7 +139,10 @@ export function TodayView() {
     } = await supabase.auth.getUser()
     if (!user) return
 
-    const { data, error } = await supabase.from("tasks").select("status").eq("user_id", user.id)
+    const { data, error } = await supabase
+      .from("tasks")
+      .select("status, title, priority, is_completed")
+      .eq("user_id", user.id)
 
     if (!error && data) {
       const stats = data.reduce(
@@ -168,6 +157,7 @@ export function TodayView() {
         { inProgress: 0, blocked: 0, completed: 0, todo: 0 },
       )
       setTaskStats(stats)
+      setActiveTasks(data.filter((t: any) => t.status === "in-progress" || t.status === "blocked").slice(0, 5))
     }
   }
 
@@ -226,118 +216,63 @@ export function TodayView() {
               </Button>
             </CardHeader>
             <CardContent className="space-y-4 relative">
-              {priorities.length > 0
-                ? priorities.map((p, i) => (
-                    <div
-                      key={i}
-                      className="flex items-start justify-between p-4 rounded-xl bg-background/50 border border-border shadow-sm hover:border-primary/50 transition-all group cursor-pointer"
-                    >
-                      <div className="flex items-start gap-4">
-                        <div className="mt-1 size-6 rounded-full border-2 border-primary/30 flex items-center justify-center text-xs font-bold text-primary transition-all group-hover:bg-primary group-hover:text-primary-foreground">
-                          {i + 1}
-                        </div>
-                        <div className="space-y-1.5">
-                          <p className="font-semibold text-sm leading-tight group-hover:text-primary transition-colors">
-                            {p.title}
-                          </p>
-                          <div className="flex items-center gap-3">
-                            <Badge
-                              variant="secondary"
-                              className={cn(
-                                "text-[10px] h-5 font-bold uppercase tracking-widest",
-                                p.tag.toLowerCase() === "urgent" && "bg-red-500/10 text-red-500 border-red-500/20",
-                                p.tag.toLowerCase() === "high" &&
-                                  "bg-orange-500/10 text-orange-500 border-orange-500/20",
-                              )}
-                            >
-                              {p.tag}
-                            </Badge>
-                            <Badge
-                              variant="outline"
-                              className={cn(
-                                "text-[10px] h-5 font-medium px-2 bg-muted/50",
-                                p.status === "blocked" && "text-red-400 border-red-400/30",
-                                p.status === "in-progress" && "text-blue-400 border-blue-400/30",
-                              )}
-                            >
-                              {p.status.replace("-", " ")}
-                            </Badge>
-                            {p.due_date && (
-                              <span className="text-[10px] text-muted-foreground flex items-center gap-1 font-medium">
-                                <Clock size={10} />
-                                {differenceInHours(new Date(p.due_date), new Date())}h left
-                              </span>
+              {priorities.length > 0 ? (
+                priorities.map((p, i) => (
+                  <div
+                    key={i}
+                    className="flex items-start justify-between p-4 rounded-xl bg-background/50 border border-border shadow-sm hover:border-primary/50 transition-all group cursor-pointer"
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="mt-1 size-6 rounded-full border-2 border-primary/30 flex items-center justify-center text-xs font-bold text-primary transition-all group-hover:bg-primary group-hover:text-primary-foreground">
+                        {i + 1}
+                      </div>
+                      <div className="space-y-1.5">
+                        <p className="font-semibold text-sm leading-tight group-hover:text-primary transition-colors">
+                          {p.title}
+                        </p>
+                        <div className="flex items-center gap-3">
+                          <Badge
+                            variant="secondary"
+                            className={cn(
+                              "text-[10px] h-5 font-bold uppercase tracking-widest",
+                              p.tag.toLowerCase() === "urgent" && "bg-red-500/10 text-red-500 border-red-500/20",
+                              p.tag.toLowerCase() === "high" && "bg-orange-500/10 text-orange-500 border-orange-500/20",
                             )}
-                          </div>
+                          >
+                            {p.tag}
+                          </Badge>
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "text-[10px] h-5 font-medium px-2 bg-muted/50",
+                              p.status === "blocked" && "text-red-400 border-red-400/30",
+                              p.status === "in-progress" && "text-blue-400 border-blue-400/30",
+                            )}
+                          >
+                            {p.status.replace("-", " ")}
+                          </Badge>
+                          {p.due_date && (
+                            <span className="text-[10px] text-muted-foreground flex items-center gap-1 font-medium">
+                              <Clock size={10} />
+                              {differenceInHours(new Date(p.due_date), new Date())}h left
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
-                  ))
-                : [
-                    {
-                      title: "Review Series A Pitch Deck with Advisors",
-                      tag: "Strategy",
-                      status: "todo",
-                      due_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-                    },
-                    {
-                      title: "Finalize LinkedIn hiring post for Lead Engineer",
-                      tag: "Hiring",
-                      status: "in-progress",
-                      due_date: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(),
-                    },
-                    {
-                      title: "Prepare for Board Meeting tomorrow",
-                      tag: "Finance",
-                      status: "blocked",
-                      due_date: new Date(Date.now() + 18 * 60 * 60 * 1000).toISOString(),
-                    },
-                  ].map((p, i) => (
-                    <div
-                      key={i}
-                      className="flex items-start justify-between p-4 rounded-xl bg-background/50 border border-border shadow-sm hover:border-primary/50 transition-all group cursor-pointer"
-                    >
-                      <div className="flex items-start gap-4">
-                        <div className="mt-1 size-6 rounded-full border-2 border-primary/30 flex items-center justify-center text-xs font-bold text-primary transition-all group-hover:bg-primary group-hover:text-primary-foreground">
-                          {i + 1}
-                        </div>
-                        <div className="space-y-1.5">
-                          <p className="font-semibold text-sm leading-tight group-hover:text-primary transition-colors">
-                            {p.title}
-                          </p>
-                          <div className="flex items-center gap-3">
-                            <Badge
-                              variant="secondary"
-                              className={cn(
-                                "text-[10px] h-5 font-bold uppercase tracking-widest",
-                                p.tag.toLowerCase() === "urgent" && "bg-red-500/10 text-red-500 border-red-500/20",
-                                p.tag.toLowerCase() === "high" &&
-                                  "bg-orange-500/10 text-orange-500 border-orange-500/20",
-                              )}
-                            >
-                              {p.tag}
-                            </Badge>
-                            <Badge
-                              variant="outline"
-                              className={cn(
-                                "text-[10px] h-5 font-medium px-2 bg-muted/50",
-                                p.status === "blocked" && "text-red-400 border-red-400/30",
-                                p.status === "in-progress" && "text-blue-400 border-blue-400/30",
-                              )}
-                            >
-                              {p.status.replace("-", " ")}
-                            </Badge>
-                            {p.due_date && (
-                              <span className="text-[10px] text-muted-foreground flex items-center gap-1 font-medium">
-                                <Clock size={10} />
-                                {differenceInHours(new Date(p.due_date), new Date())}h left
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                  </div>
+                ))
+              ) : (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                  <div className="size-16 rounded-full bg-muted/50 flex items-center justify-center mb-4">
+                    <Zap size={32} className="text-muted-foreground/30" />
+                  </div>
+                  <h3 className="text-base font-semibold mb-2">No urgent priorities right now</h3>
+                  <p className="text-sm text-muted-foreground max-w-xs">
+                    Create tasks with due dates and priorities to see your top 3 focus items here.
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -467,106 +402,21 @@ export function TodayView() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              {upcomingMeetings.length > 0
-                ? upcomingMeetings.map((m, i) => {
-                    const startTime = new Date(m.start_time)
-                    const formattedTime = format(startTime, "h:mm")
-                    const period = format(startTime, "a")
-                    const hasFollowUpTag = m.relationships?.tags?.includes("follow-up")
+              {upcomingMeetings.length > 0 ? (
+                upcomingMeetings.map((m, i) => {
+                  const startTime = new Date(m.start_time)
+                  const formattedTime = format(startTime, "h:mm")
+                  const period = format(startTime, "a")
+                  const hasFollowUpTag = m.relationships?.tags?.includes("follow-up")
 
-                    return (
-                      <div
-                        key={i}
-                        className="flex gap-4 p-4 rounded-xl hover:bg-muted/50 transition-all cursor-pointer group border border-transparent hover:border-border"
-                      >
-                        <div className="flex flex-col items-center gap-1 text-sm font-bold text-muted-foreground tabular-nums whitespace-nowrap min-w-[70px]">
-                          {formattedTime}
-                          <span className="text-[10px] font-medium opacity-60 uppercase">{period}</span>
-                        </div>
-                        <div className="w-px bg-border group-hover:bg-primary/30 transition-colors" />
-                        <div className="flex-1 space-y-2">
-                          <div className="flex items-center justify-between">
-                            <p className="font-bold text-sm tracking-tight group-hover:text-primary transition-colors">
-                              {m.title}
-                            </p>
-                            <div className="flex gap-1">
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  "text-[9px] h-4 font-bold uppercase tracking-widest",
-                                  m.type === "deal"
-                                    ? "bg-amber-50 text-amber-600 border-amber-200"
-                                    : "bg-muted text-muted-foreground",
-                                )}
-                              >
-                                {m.type}
-                              </Badge>
-                              {hasFollowUpTag && (
-                                <Badge variant="destructive" className="text-[9px] h-4 font-bold uppercase">
-                                  Follow-up
-                                </Badge>
-                              )}
-                            </div>
-                          </div>
-                          {m.purpose && <p className="text-xs text-muted-foreground line-clamp-1">{m.purpose}</p>}
-                          <div className="flex items-center justify-between">
-                            {m.relationships && (
-                              <div className="text-xs font-medium text-muted-foreground">
-                                with {m.relationships.full_name}
-                                {m.relationships.company && ` (${m.relationships.company})`}
-                              </div>
-                            )}
-                            <div className="flex items-center gap-2">
-                              {m.meeting_link && (
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className="size-8 text-primary hover:bg-primary/10"
-                                  onClick={() => window.open(m.meeting_link, "_blank")}
-                                >
-                                  <Video size={14} />
-                                </Button>
-                              )}
-                              <ChevronRight
-                                size={16}
-                                className="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })
-                : [
-                    {
-                      time: "10:00 AM",
-                      title: "Sync with Product Team",
-                      type: "Internal",
-                      attendees: ["AL", "MK", "JD"],
-                      link: true,
-                    },
-                    {
-                      time: "01:30 PM",
-                      title: "Sales Demo - Acme Corp",
-                      type: "Deal",
-                      attendees: ["SJ", "JD"],
-                      link: true,
-                    },
-                    {
-                      time: "03:00 PM",
-                      title: "Weekly Reflection",
-                      type: "Deep Work",
-                      attendees: ["JD"],
-                      link: false,
-                    },
-                  ].map((m, i) => (
+                  return (
                     <div
                       key={i}
                       className="flex gap-4 p-4 rounded-xl hover:bg-muted/50 transition-all cursor-pointer group border border-transparent hover:border-border"
                     >
                       <div className="flex flex-col items-center gap-1 text-sm font-bold text-muted-foreground tabular-nums whitespace-nowrap min-w-[70px]">
-                        {m.time.split(" ")[0]}
-                        <span className="text-[10px] font-medium opacity-60 uppercase">{m.time.split(" ")[1]}</span>
+                        {formattedTime}
+                        <span className="text-[10px] font-medium opacity-60 uppercase">{period}</span>
                       </div>
                       <div className="w-px bg-border group-hover:bg-primary/30 transition-colors" />
                       <div className="flex-1 space-y-2">
@@ -574,43 +424,44 @@ export function TodayView() {
                           <p className="font-bold text-sm tracking-tight group-hover:text-primary transition-colors">
                             {m.title}
                           </p>
-                          <Badge
-                            variant="outline"
-                            className={cn(
-                              "text-[9px] h-4 font-bold uppercase tracking-widest",
-                              m.type === "Deal"
-                                ? "bg-amber-50 text-amber-600 border-amber-200"
-                                : "bg-muted text-muted-foreground",
-                            )}
-                          >
-                            {m.type}
-                          </Badge>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <div className="flex -space-x-1.5 overflow-hidden">
-                            {m.attendees.map((a, j) => (
-                              <div
-                                key={j}
-                                className="inline-block size-6 rounded-full border-2 border-background bg-secondary text-[10px] flex items-center justify-center font-bold"
-                              >
-                                {a}
-                              </div>
-                            ))}
-                            {m.attendees.length > 3 && (
-                              <div className="inline-block size-6 rounded-full border-2 border-background bg-muted text-[10px] flex items-center justify-center font-bold">
-                                +{m.attendees.length - 3}
-                              </div>
+                          <div className="flex gap-1">
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                "text-[9px] h-4 font-bold uppercase tracking-widest",
+                                m.type === "deal"
+                                  ? "bg-amber-50 text-amber-600 border-amber-200"
+                                  : "bg-muted text-muted-foreground",
+                              )}
+                            >
+                              {m.type}
+                            </Badge>
+                            {hasFollowUpTag && (
+                              <Badge variant="destructive" className="text-[9px] h-4 font-bold uppercase">
+                                Follow-up
+                              </Badge>
                             )}
                           </div>
+                        </div>
+                        {m.purpose && <p className="text-xs text-muted-foreground line-clamp-1">{m.purpose}</p>}
+                        <div className="flex items-center justify-between">
+                          {m.relationships && (
+                            <div className="text-xs font-medium text-muted-foreground">
+                              with {m.relationships.full_name}
+                              {m.relationships.company && ` (${m.relationships.company})`}
+                            </div>
+                          )}
                           <div className="flex items-center gap-2">
-                            {m.link && (
-                              <Button size="icon" variant="ghost" className="size-8 text-primary hover:bg-primary/10">
+                            {m.meeting_link && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="size-8 text-primary hover:bg-primary/10"
+                                onClick={() => window.open(m.meeting_link, "_blank")}
+                              >
                                 <Video size={14} />
                               </Button>
                             )}
-                            <Button size="icon" variant="ghost" className="size-8 text-muted-foreground">
-                              <FileText size={14} />
-                            </Button>
                             <ChevronRight
                               size={16}
                               className="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
@@ -619,7 +470,14 @@ export function TodayView() {
                         </div>
                       </div>
                     </div>
-                  ))}
+                  )
+                })
+              ) : (
+                <div className="flex flex-col items-center justify-center py-10 text-center space-y-2 opacity-60">
+                  <CalendarIcon size={24} className="text-muted-foreground" />
+                  <p className="text-sm font-medium">No meetings scheduled today</p>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -640,65 +498,50 @@ export function TodayView() {
                   </Badge>
                 </div>
                 <div className="space-y-2">
-                  {activeTasks.length > 0
-                    ? activeTasks.map((task, i) => {
-                        const progress = task.is_completed ? 100 : 50
+                  {activeTasks.length > 0 ? (
+                    activeTasks.map((task, i) => {
+                      const progress = task.is_completed ? 100 : task.status === "in-progress" ? 50 : 20
 
-                        return (
-                          <div
-                            key={task.id}
-                            className="p-3 rounded-xl bg-muted/30 border border-transparent hover:border-border transition-all cursor-pointer"
-                          >
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-sm font-semibold">{task.title}</span>
-                              <div className="flex items-center gap-2">
-                                {task.priority && (
-                                  <Badge
-                                    variant="outline"
-                                    className={cn(
-                                      "text-[9px] font-bold uppercase h-4",
-                                      task.priority === "urgent"
-                                        ? "bg-red-50 text-red-600 border-red-200"
-                                        : task.priority === "high"
-                                          ? "bg-orange-50 text-orange-600 border-orange-200"
-                                          : "bg-muted text-muted-foreground",
-                                    )}
-                                  >
-                                    {task.priority}
-                                  </Badge>
-                                )}
-                                <span className="text-[10px] font-bold text-primary">{progress}%</span>
-                              </div>
-                            </div>
-                            <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-primary rounded-full transition-all duration-500"
-                                style={{ width: `${progress}%` }}
-                              />
-                            </div>
-                          </div>
-                        )
-                      })
-                    : [
-                        { title: "Approve marketing assets", category: "Marketing", progress: 65 },
-                        { title: "Review legal docs for partnership", category: "Legal", progress: 30 },
-                      ].map((task, i) => (
+                      return (
                         <div
-                          key={i}
-                          className="p-3 rounded-xl bg-muted/30 border border-transparent hover:border-border transition-all"
+                          key={task.id}
+                          className="p-3 rounded-xl bg-muted/30 border border-transparent hover:border-border transition-all cursor-pointer"
                         >
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-sm font-semibold">{task.title}</span>
-                            <span className="text-[10px] font-bold text-primary">{task.progress}%</span>
+                            <div className="flex items-center gap-2">
+                              {task.priority && (
+                                <Badge
+                                  variant="outline"
+                                  className={cn(
+                                    "text-[9px] font-bold uppercase h-4",
+                                    task.priority === "urgent"
+                                      ? "bg-red-50 text-red-600 border-red-200"
+                                      : task.priority === "high"
+                                        ? "bg-orange-50 text-orange-600 border-orange-200"
+                                        : "bg-muted text-muted-foreground",
+                                  )}
+                                >
+                                  {task.priority}
+                                </Badge>
+                              )}
+                              <span className="text-[10px] font-bold text-primary">{progress}%</span>
+                            </div>
                           </div>
                           <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden">
                             <div
                               className="h-full bg-primary rounded-full transition-all duration-500"
-                              style={{ width: `${task.progress}%` }}
+                              style={{ width: `${progress}%` }}
                             />
                           </div>
                         </div>
-                      ))}
+                      )
+                    })
+                  ) : (
+                    <div className="py-8 text-center text-xs text-muted-foreground italic">
+                      No active tasks currently in progress.
+                    </div>
+                  )}
                 </div>
               </div>
 
