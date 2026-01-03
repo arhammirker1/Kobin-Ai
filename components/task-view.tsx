@@ -9,11 +9,10 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Plus, Trash2, CheckCircle2, Clock, AlertTriangle, Filter, MoreVertical } from "lucide-react"
+import { Plus, Trash2, CheckCircle2, Clock, AlertTriangle, Filter, Pencil } from "lucide-react"
 import { toast } from "sonner"
 import { format, isThisWeek, isPast, differenceInDays } from "date-fns"
 import useSWR from "swr"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 
 const BUCKETS = ["today", "this-week", "delegated", "backlog"]
 const PRIORITIES = ["low", "medium", "high", "urgent"]
@@ -56,6 +55,8 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
   const [activeBucket, setActiveBucket] = useState("today")
   const [activeFilter, setActiveFilter] = useState("all")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isEditOpen, setIsEditOpen] = useState(false)
+  const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
   const [newTask, setNewTask] = useState({
     title: "",
@@ -185,6 +186,51 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
       mutateTasks()
       toast.success("Task added successfully")
     }
+  }
+
+  const handleUpdateTask = async () => {
+    if (!supabase || !editingTask) return
+    if (!newTask.title.trim()) {
+      toast.error("Please enter a task title")
+      return
+    }
+
+    const taskData = {
+      title: newTask.title,
+      priority: newTask.priority,
+      status: newTask.status,
+      due_date: newTask.deadline ? new Date(newTask.deadline).toISOString() : null,
+      assigned_to: newTask.assigned_to === UNASSIGNED ? null : newTask.assigned_to || null,
+      linked: newTask.linked || null,
+      is_completed: newTask.status === "completed",
+    }
+
+    const { error } = await supabase.from("tasks").update(taskData).eq("id", editingTask.id)
+
+    if (error) {
+      console.error("[v0] Error updating task:", error)
+      toast.error("Failed to update task")
+    } else {
+      setIsEditOpen(false)
+      setEditingTask(null)
+      setNewTask({ title: "", priority: "medium", status: "todo", deadline: "", assigned_to: "", linked: "" })
+      mutateTasks()
+      toast.success("Task updated successfully")
+    }
+  }
+
+  const handleEditClick = (task: Task) => {
+    setEditingTask(task)
+    setNewTask({
+      title: task.title,
+      priority: task.priority,
+      status: task.status,
+      deadline: task.due_date ? format(new Date(task.due_date), "yyyy-MM-dd'T'HH:mm") : "",
+      assigned_to: task.assigned_to || UNASSIGNED,
+      linked: task.linked || "",
+    })
+    setIsEditOpen(true)
+    fetchTeamMembers()
   }
 
   const toggleTask = async (id: string, is_completed: boolean) => {
@@ -437,6 +483,109 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
               </DialogContent>
             </Dialog>
           )}
+
+          <Dialog
+            open={isEditOpen}
+            onOpenChange={(open) => {
+              setIsEditOpen(open)
+              if (!open) setEditingTask(null)
+            }}
+          >
+            <DialogContent className="sm:max-w-[500px]">
+              <DialogHeader>
+                <DialogTitle>Edit Task</DialogTitle>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="edit-title">Task Title</Label>
+                  <Input
+                    id="edit-title"
+                    placeholder="What needs to be done?"
+                    value={newTask.title}
+                    onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="edit-priority">Priority</Label>
+                    <Select value={newTask.priority} onValueChange={(v) => setNewTask({ ...newTask, priority: v })}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PRIORITIES.map((p) => (
+                          <SelectItem key={p} value={p} className="capitalize">
+                            {p}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="edit-status">Status</Label>
+                    <Select value={newTask.status} onValueChange={(v) => setNewTask({ ...newTask, status: v })}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {STATUSES.map((s) => (
+                          <SelectItem key={s} value={s} className="capitalize">
+                            {s.replace("-", " ")}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="edit-deadline">Deadline</Label>
+                  <Input
+                    id="edit-deadline"
+                    type="datetime-local"
+                    value={newTask.deadline}
+                    onChange={(e) => setNewTask({ ...newTask, deadline: e.target.value })}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="edit-assigned_to">Assign To (Optional)</Label>
+                  <Select value={newTask.assigned_to} onValueChange={(v) => setNewTask({ ...newTask, assigned_to: v })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select team member" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={UNASSIGNED}>Unassigned</SelectItem>
+                      {teamMembers.map((member) => (
+                        <SelectItem key={member.user_id} value={member.user_id}>
+                          {member.profile?.full_name ?? "Unnamed"} - {member.position}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="edit-linked">Linked To (Optional)</Label>
+                  <Input
+                    id="edit-linked"
+                    placeholder="Related project or goal"
+                    value={newTask.linked}
+                    onChange={(e) => setNewTask({ ...newTask, linked: e.target.value })}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setIsEditOpen(false)
+                    setEditingTask(null)
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button onClick={handleUpdateTask}>Save Changes</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
@@ -578,25 +727,28 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <Button variant="ghost" size="icon" className="size-8 opacity-0 group-hover:opacity-100">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive hover:bg-destructive/10"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDeleteTask(task.id)
+                      }}
+                    >
                       <Trash2 size={16} />
                     </Button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <MoreVertical size={14} className="text-muted-foreground" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          className="text-destructive focus:text-destructive cursor-pointer"
-                          onClick={() => handleDeleteTask(task.id)}
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Delete Task
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleEditClick(task)
+                      }}
+                    >
+                      <Pencil size={14} />
+                    </Button>
                   </div>
                 </div>
               </CardContent>
