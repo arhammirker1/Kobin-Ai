@@ -6,8 +6,27 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useRouter } from "next/navigation"
-import { LogOut, User, CheckCircle2, Clock, AlertCircle } from "lucide-react"
+import { LogOut, Home, Calendar, CheckSquare, Linkedin, Users, FileText, Settings, LayoutDashboard } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import {
+  SidebarProvider,
+  Sidebar,
+  SidebarContent,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarGroupContent,
+  SidebarFooter,
+} from "@/components/ui/sidebar"
+import { CalendarView } from "@/components/calendar-view"
+import { LinkedinView } from "@/components/linkedin-view"
+import { CrmView } from "@/components/crm-view"
+import { VaultView } from "@/components/vault-view"
+import { SettingsView } from "@/components/settings-view"
+import useSWR, { mutate } from "swr"
 
 interface TeamMemberPermissions {
   id: string
@@ -41,54 +60,41 @@ interface Profile {
 }
 
 export function TeamMemberDashboard({ permissions }: { permissions: TeamMemberPermissions }) {
-  const [tasks, setTasks] = useState<Task[]>([])
+  const [activeTab, setActiveTab] = useState("Home")
   const [profile, setProfile] = useState<Profile | null>(null)
-  const [loading, setLoading] = useState(true)
   const router = useRouter()
   const { toast } = useToast()
   const supabase = createClient()
 
-  useEffect(() => {
-    fetchData()
-  }, [])
+  const {
+    data: tasks,
+    error: tasksError,
+    isLoading: tasksLoading,
+  } = useSWR(
+    permissions.can_view_tasks ? ["tasks", permissions.user_id] : null,
+    async () => {
+      const { data, error } = await supabase
+        .from("tasks")
+        .select("*")
+        .eq("assigned_to", permissions.user_id)
+        .order("created_at", { ascending: false })
+      if (error) throw error
+      return data as Task[]
+    },
+    { revalidateOnFocus: true, dedupingInterval: 2000 },
+  )
 
-  const fetchData = async () => {
-    try {
+  useEffect(() => {
+    const fetchProfile = async () => {
       const {
         data: { user },
       } = await supabase.auth.getUser()
       if (!user) return
-
-      // Fetch profile
-      const { data: profileData } = await supabase
-        .from("profiles")
-        .select("full_name, email")
-        .eq("id", user.id)
-        .single()
-      setProfile(profileData)
-
-      // Fetch assigned tasks if permission granted
-      if (permissions.can_view_tasks) {
-        const { data: tasksData, error } = await supabase
-          .from("tasks")
-          .select("*")
-          .eq("assigned_to", user.id)
-          .order("created_at", { ascending: false })
-
-        if (error) throw error
-        setTasks(tasksData || [])
-      }
-    } catch (error) {
-      console.error("[v0] Error fetching data:", error)
-      toast({
-        title: "Error",
-        description: "Failed to load dashboard data",
-        variant: "destructive",
-      })
-    } finally {
-      setLoading(false)
+      const { data } = await supabase.from("profiles").select("full_name, email").eq("id", user.id).single()
+      setProfile(data)
     }
-  }
+    fetchProfile()
+  }, [])
 
   const handleSignOut = async () => {
     try {
@@ -114,18 +120,24 @@ export function TeamMemberDashboard({ permissions }: { permissions: TeamMemberPe
       return
     }
 
+    const previousTasks = tasks
+    if (tasks) {
+      const updatedTasks = tasks.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t))
+      mutate(["tasks", permissions.user_id], updatedTasks, false)
+    }
+
     try {
       const { error } = await supabase.from("tasks").update({ status: newStatus }).eq("id", taskId)
-
       if (error) throw error
-
       toast({
         title: "Success",
         description: "Task status updated",
       })
-
-      fetchData()
+      // Revalidate in background
+      mutate(["tasks", permissions.user_id])
     } catch (error) {
+      // Revert on error
+      mutate(["tasks", permissions.user_id], previousTasks, false)
       console.error("[v0] Error updating task:", error)
       toast({
         title: "Error",
@@ -135,172 +147,175 @@ export function TeamMemberDashboard({ permissions }: { permissions: TeamMemberPe
     }
   }
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "completed":
-        return "bg-green-500/10 text-green-600 dark:text-green-400"
-      case "in-progress":
-        return "bg-blue-500/10 text-blue-600 dark:text-blue-400"
-      case "todo":
-        return "bg-slate-500/10 text-slate-600 dark:text-slate-400"
-      default:
-        return "bg-slate-500/10 text-slate-600 dark:text-slate-400"
-    }
-  }
+  const navItems = [
+    { title: "Home", icon: Home, show: true },
+    { title: "Calendar", icon: Calendar, show: permissions.can_view_calendar },
+    { title: "Tasks", icon: CheckSquare, show: permissions.can_view_tasks },
+    { title: "LinkedIn", icon: Linkedin, show: permissions.can_view_linkedin },
+    { title: "Relationships", icon: Users, show: permissions.can_view_relationships },
+    { title: "Vault", icon: FileText, show: permissions.can_view_vault },
+    { title: "Settings", icon: Settings, show: true },
+  ]
 
-  const getPriorityColor = (priority: string) => {
-    switch (priority?.toLowerCase()) {
-      case "high":
-        return "destructive"
-      case "medium":
-        return "secondary"
-      case "low":
-        return "outline"
-      default:
-        return "outline"
-    }
-  }
-
-  if (loading) {
+  if (!profile) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading dashboard...</p>
-        </div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10">
-        <div className="container mx-auto px-6 py-4 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Team Dashboard</h1>
-            <p className="text-sm text-muted-foreground">Welcome back, {profile?.full_name}</p>
-          </div>
-          <Button variant="outline" onClick={handleSignOut}>
-            <LogOut className="mr-2 h-4 w-4" />
-            Sign Out
-          </Button>
-        </div>
-      </header>
-
-      <div className="container mx-auto px-6 py-8 space-y-6">
-        {/* Profile Card */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-4">
-              <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center">
-                <User className="h-6 w-6 text-primary" />
+    <SidebarProvider>
+      <div className="flex min-h-screen w-full bg-background">
+        <Sidebar collapsible="icon">
+          <SidebarHeader className="h-16 flex items-center px-6">
+            <div className="flex items-center gap-2 font-semibold">
+              <div className="size-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground">
+                <LayoutDashboard size={20} />
               </div>
-              <div>
-                <CardTitle>{profile?.full_name}</CardTitle>
-                <CardDescription>{permissions.position}</CardDescription>
-              </div>
+              <span className="group-data-[collapsible=icon]:hidden">Team CC</span>
             </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              <div className="text-sm">
-                <span className="text-muted-foreground">Email:</span>{" "}
-                <span className="font-medium">{profile?.email}</span>
-              </div>
-              <div className="text-sm">
-                <span className="text-muted-foreground">Role:</span> <span className="font-medium">Team Member</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+          </SidebarHeader>
+          <SidebarContent>
+            <SidebarGroup>
+              <SidebarGroupLabel className="px-6">Workspace</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {navItems
+                    .filter((item) => item.show)
+                    .map((item) => (
+                      <SidebarMenuItem key={item.title}>
+                        <SidebarMenuButton
+                          tooltip={item.title}
+                          isActive={activeTab === item.title}
+                          className="px-6 h-11"
+                          onClick={() => setActiveTab(item.title)}
+                        >
+                          <item.icon />
+                          <span>{item.title}</span>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </SidebarContent>
+          <SidebarFooter className="p-4 border-t">
+            <Button variant="ghost" className="w-full justify-start gap-2 px-2" onClick={handleSignOut}>
+              <LogOut size={16} />
+              <span className="group-data-[collapsible=icon]:hidden">Sign Out</span>
+            </Button>
+          </SidebarFooter>
+        </Sidebar>
 
-        {/* My Tasks Section */}
-        {permissions.can_view_tasks ? (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-2xl font-bold">My Tasks</h2>
-                <p className="text-sm text-muted-foreground">Tasks assigned to you</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge variant="outline" className="flex items-center gap-1">
-                  <CheckCircle2 className="h-3 w-3" />
-                  {tasks.filter((t) => t.status === "completed").length} Completed
-                </Badge>
-                <Badge variant="outline" className="flex items-center gap-1">
-                  <Clock className="h-3 w-3" />
-                  {tasks.filter((t) => t.status !== "completed").length} Pending
-                </Badge>
-              </div>
+        <main className="flex-1 overflow-y-auto">
+          <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10 px-8 py-4 flex justify-between items-center">
+            <div>
+              <h2 className="text-xl font-bold">{activeTab}</h2>
+              <p className="text-xs text-muted-foreground">
+                {profile.full_name} • {permissions.position}
+              </p>
             </div>
+          </header>
 
-            {tasks.length === 0 ? (
-              <Card>
-                <CardContent className="py-12 text-center">
-                  <AlertCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                  <h3 className="font-medium mb-2">No tasks assigned yet</h3>
-                  <p className="text-sm text-muted-foreground">Your assigned tasks will appear here</p>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="grid gap-4">
-                {tasks.map((task) => (
-                  <Card key={task.id}>
+          <div className="p-8 max-w-[1400px] mx-auto w-full">
+            {activeTab === "Home" && (
+              <div className="space-y-6">
+                <Card className="bg-primary/5 border-primary/20">
+                  <CardHeader>
+                    <CardTitle>Welcome back, {profile.full_name}</CardTitle>
+                    <CardDescription>Your current role: {permissions.position}</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm">
+                      You have access to:{" "}
+                      {navItems
+                        .filter((i) => i.show)
+                        .map((i) => i.title)
+                        .join(", ")}
+                    </p>
+                  </CardContent>
+                </Card>
+                {/* Minimalist "Today" summary for team members */}
+                <div className="grid md:grid-cols-2 gap-6">
+                  <Card>
                     <CardHeader>
-                      <div className="flex items-start justify-between">
-                        <div className="space-y-2">
-                          <CardTitle className="text-lg">{task.title}</CardTitle>
-                          <div className="flex items-center gap-2">
-                            <Badge variant={getPriorityColor(task.priority)}>{task.priority}</Badge>
-                            <Badge className={getStatusColor(task.status)}>{task.status}</Badge>
-                            {task.bucket && <Badge variant="outline">{task.bucket}</Badge>}
-                          </div>
-                        </div>
-                      </div>
+                      <CardTitle className="text-sm">Assigned Tasks</CardTitle>
                     </CardHeader>
-                    {permissions.can_update_task_status && (
-                      <CardContent>
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            variant={task.status === "todo" ? "default" : "outline"}
-                            onClick={() => handleUpdateTaskStatus(task.id, "todo")}
-                          >
-                            To Do
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant={task.status === "in-progress" ? "default" : "outline"}
-                            onClick={() => handleUpdateTaskStatus(task.id, "in-progress")}
-                          >
-                            In Progress
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant={task.status === "completed" ? "default" : "outline"}
-                            onClick={() => handleUpdateTaskStatus(task.id, "completed")}
-                          >
-                            Completed
-                          </Button>
-                        </div>
-                      </CardContent>
-                    )}
+                    <CardContent className="text-3xl font-bold">
+                      {tasks?.filter((t) => t.status !== "completed").length || 0}
+                    </CardContent>
                   </Card>
-                ))}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-sm">Completed This Week</CardTitle>
+                    </CardHeader>
+                    <CardContent className="text-3xl font-bold">
+                      {tasks?.filter((t) => t.status === "completed").length || 0}
+                    </CardContent>
+                  </Card>
+                </div>
               </div>
             )}
+            {activeTab === "Tasks" && permissions.can_view_tasks && (
+              <div className="space-y-6">
+                <div className="grid gap-4">
+                  {tasksLoading ? (
+                    <p>Loading tasks...</p>
+                  ) : tasks?.length === 0 ? (
+                    <Card>
+                      <CardContent className="py-12 text-center">No tasks assigned.</CardContent>
+                    </Card>
+                  ) : (
+                    tasks?.map((task) => (
+                      <Card key={task.id}>
+                        <CardHeader className="py-4 flex flex-row items-center justify-between">
+                          <CardTitle className="text-base">{task.title}</CardTitle>
+                          <Badge variant={task.status === "completed" ? "secondary" : "default"}>{task.status}</Badge>
+                        </CardHeader>
+                        {permissions.can_update_task_status && (
+                          <CardContent className="pb-4 pt-0">
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                variant={task.status === "todo" ? "default" : "outline"}
+                                onClick={() => handleUpdateTaskStatus(task.id, "todo")}
+                              >
+                                To Do
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant={task.status === "in-progress" ? "default" : "outline"}
+                                onClick={() => handleUpdateTaskStatus(task.id, "in-progress")}
+                              >
+                                In Progress
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant={task.status === "completed" ? "default" : "outline"}
+                                onClick={() => handleUpdateTaskStatus(task.id, "completed")}
+                              >
+                                Completed
+                              </Button>
+                            </div>
+                          </CardContent>
+                        )}
+                      </Card>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+            {/* Dynamic rendering for other views if permissions allow */}
+            {activeTab === "Calendar" && permissions.can_view_calendar && <CalendarView />}
+            {activeTab === "LinkedIn" && permissions.can_view_linkedin && <LinkedinView />}
+            {activeTab === "Relationships" && permissions.can_view_relationships && <CrmView />}
+            {activeTab === "Vault" && permissions.can_view_vault && <VaultView />}
+            {activeTab === "Settings" && <SettingsView />}
           </div>
-        ) : (
-          <Card>
-            <CardContent className="py-12 text-center">
-              <AlertCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="font-medium mb-2">No permissions granted</h3>
-              <p className="text-sm text-muted-foreground">Contact your administrator for access</p>
-            </CardContent>
-          </Card>
-        )}
+        </main>
       </div>
-    </div>
+    </SidebarProvider>
   )
 }

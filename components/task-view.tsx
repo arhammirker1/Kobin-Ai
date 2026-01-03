@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { Plus, Trash2, CheckCircle2, Clock, AlertTriangle, Filter } from "lucide-react"
 import { toast } from "sonner"
 import { format, isThisWeek, isPast, differenceInDays } from "date-fns"
+import useSWR from "swr"
 
 const BUCKETS = ["today", "this-week", "delegated", "backlog"]
 const PRIORITIES = ["low", "medium", "high", "urgent"]
@@ -42,10 +43,9 @@ interface TeamMember {
 }
 
 export function TaskView() {
-  const [tasks, setTasks] = useState<Task[]>([])
+  const supabase = createClient()
   const [activeBucket, setActiveBucket] = useState("today")
   const [activeFilter, setActiveFilter] = useState("all")
-  const [isLoading, setIsLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
   const [newTask, setNewTask] = useState({
@@ -57,12 +57,28 @@ export function TaskView() {
     linked: "",
   })
 
-  const supabase = createClient()
-
-  useEffect(() => {
-    fetchTasks()
-    fetchTeamMembers()
-  }, [activeBucket])
+  const {
+    data: tasks,
+    error: tasksError,
+    mutate: mutateTasks,
+  } = useSWR(
+    ["tasks", activeBucket],
+    async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (!user) return []
+      const { data, error } = await supabase
+        .from("tasks")
+        .select("*")
+        .or(`user_id.eq.${user.id},created_by.eq.${user.id}`)
+        .eq("bucket", activeBucket)
+        .order("created_at", { ascending: false })
+      if (error) throw error
+      return sortTasksByPriorityAndDeadline(data || [])
+    },
+    { revalidateOnFocus: true },
+  )
 
   const fetchTeamMembers = async () => {
     if (!supabase) return
@@ -87,34 +103,6 @@ export function TaskView() {
     } else {
       setTeamMembers(data || [])
     }
-  }
-
-  const fetchTasks = async () => {
-    if (!supabase) return
-    setIsLoading(true)
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) {
-      setIsLoading(false)
-      return
-    }
-
-    const { data, error } = await supabase
-      .from("tasks")
-      .select("*")
-      .or(`user_id.eq.${user.id},created_by.eq.${user.id}`)
-      .eq("bucket", activeBucket)
-      .order("created_at", { ascending: false })
-
-    if (error) {
-      console.error("[v0] Error fetching tasks:", error)
-      toast.error("Failed to fetch tasks")
-    } else {
-      const sortedTasks = sortTasksByPriorityAndDeadline(data || [])
-      setTasks(sortedTasks)
-    }
-    setIsLoading(false)
   }
 
   const sortTasksByPriorityAndDeadline = (tasks: Task[]) => {
@@ -162,10 +150,7 @@ export function TaskView() {
       priority: newTask.priority,
       status: newTask.status,
       due_date: newTask.deadline ? new Date(newTask.deadline).toISOString() : null,
-      assigned_to:
-       newTask.assigned_to === UNASSIGNED
-         ? null
-         : newTask.assigned_to || null,
+      assigned_to: newTask.assigned_to === UNASSIGNED ? null : newTask.assigned_to || null,
       linked: newTask.linked || null,
       is_completed: false,
     }
@@ -176,16 +161,9 @@ export function TaskView() {
       console.error("[v0] Error adding task:", error)
       toast.error("Failed to add task")
     } else {
-      setNewTask({
-        title: "",
-        priority: "medium",
-        status: "todo",
-        deadline: "",
-        assigned_to: "",
-        linked: "",
-      })
+      setNewTask({ title: "", priority: "medium", status: "todo", deadline: "", assigned_to: "", linked: "" })
       setIsDialogOpen(false)
-      fetchTasks()
+      mutateTasks()
       toast.success("Task added successfully")
     }
   }
@@ -193,27 +171,45 @@ export function TaskView() {
   const toggleTask = async (id: string, is_completed: boolean) => {
     if (!supabase) return
     const newStatus = !is_completed ? "completed" : "todo"
+
+    const previousTasks = tasks
+    if (tasks) {
+      const updatedTasks = tasks.map((t) =>
+        t.id === id ? { ...t, is_completed: !is_completed, status: newStatus } : t,
+      )
+      mutateTasks(updatedTasks, false)
+    }
+
     const { error } = await supabase
       .from("tasks")
       .update({ is_completed: !is_completed, status: newStatus })
       .eq("id", id)
 
     if (error) {
+      mutateTasks(previousTasks, false)
       toast.error("Failed to update task")
     } else {
-      fetchTasks()
+      mutateTasks() // revalidate
       toast.success(!is_completed ? "Task completed!" : "Task reopened")
     }
   }
 
   const updateTaskStatus = async (id: string, status: string) => {
     if (!supabase) return
+
+    const previousTasks = tasks
+    if (tasks) {
+      const updatedTasks = tasks.map((t) => (t.id === id ? { ...t, status } : t))
+      mutateTasks(updatedTasks, false)
+    }
+
     const { error } = await supabase.from("tasks").update({ status }).eq("id", id)
 
     if (error) {
+      mutateTasks(previousTasks, false)
       toast.error("Failed to update status")
     } else {
-      fetchTasks()
+      mutateTasks() // revalidate
       toast.success("Status updated")
     }
   }
@@ -277,13 +273,13 @@ export function TaskView() {
     }
   }
 
-  const filteredTasks = tasks.filter((task) => {
+  const filteredTasks = tasks?.filter((task) => {
     const matchesSearch = task.title.toLowerCase().includes(newTask.title.toLowerCase())
     const matchesPriority = !newTask.priority || task.priority === newTask.priority
     return matchesSearch && matchesPriority
   })
 
-  const thisWeekTasks = tasks.filter(
+  const thisWeekTasks = tasks?.filter(
     (task) => !task.is_completed && task.due_date && isThisWeek(new Date(task.due_date)),
   )
 
@@ -417,7 +413,7 @@ export function TaskView() {
         </div>
       </div>
 
-      {activeBucket === "this-week" && thisWeekTasks.length > 0 && (
+      {activeBucket === "this-week" && thisWeekTasks && thisWeekTasks.length > 0 && (
         <Card className="bg-primary/5 border-primary/20">
           <CardHeader>
             <CardTitle className="text-sm font-bold flex items-center gap-2">
@@ -461,7 +457,7 @@ export function TaskView() {
       )}
 
       <div className="grid grid-cols-1 gap-4">
-        {filteredTasks.length > 0 ? (
+        {filteredTasks && filteredTasks.length > 0 ? (
           filteredTasks.map((task) => (
             <Card
               key={task.id}
@@ -502,10 +498,11 @@ export function TaskView() {
                         </span>
                       )}
                       {task.assigned_to && (
-                        <span className="flex items-center gap-1.5">                   
+                        <span className="flex items-center gap-1.5">
                           Assigned:
                           <span className="text-foreground">
-                            {teamMembers.find((m) => m.user_id === task.assigned_to)?.profile?.full_name ?? "Unassigned"}
+                            {teamMembers.find((m) => m.user_id === task.assigned_to)?.profile?.full_name ??
+                              "Unassigned"}
                           </span>
                         </span>
                       )}
@@ -568,7 +565,7 @@ export function TaskView() {
           </CardHeader>
           <CardContent className="space-y-3">
             {tasks
-              .filter((t) => t.due_date && isPast(new Date(t.due_date)) && !t.is_completed)
+              ?.filter((t) => t.due_date && isPast(new Date(t.due_date)) && !t.is_completed)
               .slice(0, 2)
               .map((task) => (
                 <div
@@ -586,7 +583,7 @@ export function TaskView() {
                   </Button>
                 </div>
               ))}
-            {tasks.filter((t) => t.due_date && isPast(new Date(t.due_date)) && !t.is_completed).length === 0 && (
+            {tasks?.filter((t) => t.due_date && isPast(new Date(t.due_date)) && !t.is_completed).length === 0 && (
               <div className="p-3 rounded-xl bg-background border text-sm text-center text-muted-foreground">
                 All caught up! No overdue tasks.
               </div>
@@ -602,7 +599,9 @@ export function TaskView() {
             <div className="flex items-end justify-between">
               <div className="space-y-1">
                 <span className="text-2xl font-bold text-emerald-700">
-                  {tasks.length > 0 ? Math.round((tasks.filter((t) => t.is_completed).length / tasks.length) * 100) : 0}
+                  {tasks?.length > 0
+                    ? Math.round((tasks.filter((t) => t.is_completed).length / tasks.length) * 100)
+                    : 0}
                   %
                 </span>
                 <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Completion Rate</p>
