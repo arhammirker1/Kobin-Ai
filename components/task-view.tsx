@@ -9,8 +9,17 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Plus, Trash2, CheckCircle2, Clock, AlertTriangle, Filter, Pencil } from "lucide-react"
-import { toast } from "sonner"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { toast } from "react-hot-toast"
 import { format, isThisWeek, isPast, differenceInDays } from "date-fns"
 import useSWR from "swr"
 
@@ -56,7 +65,10 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
   const [activeFilter, setActiveFilter] = useState("all")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
   const [newTask, setNewTask] = useState({
     title: "",
@@ -281,11 +293,10 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
     }
   }
 
-  const handleDeleteTask = async (id: string) => {
-    if (!supabase) return
+  const handleDeleteTask = async () => {
+    if (!supabase || !selectedTask) return
 
-    if (!confirm("Are you sure you want to delete this task?")) return
-
+    const id = selectedTask.id
     const previousTasks = tasks
     if (tasks) {
       mutateTasks(
@@ -303,6 +314,7 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
       mutateTasks() // revalidate
       toast.success("Task deleted")
     }
+    setIsDeleteModalOpen(false)
   }
 
   const getDeadlineBadge = (due_date: string | null) => {
@@ -314,7 +326,7 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
     if (isOverdue) {
       return (
         <Badge variant="destructive" className="text-[9px] font-bold uppercase tracking-widest">
-          <AlertTriangle size={10} className="mr-1" />
+          {/* Overdue icon */}
           Overdue
         </Badge>
       )
@@ -324,7 +336,7 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
           variant="outline"
           className="text-[9px] font-bold uppercase tracking-widest bg-orange-100 text-orange-700 border-orange-300"
         >
-          <Clock size={10} className="mr-1" />
+          {/* Clock icon */}
           {daysUntil}d left
         </Badge>
       )
@@ -332,7 +344,7 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
 
     return (
       <Badge variant="outline" className="text-[9px] font-bold uppercase tracking-widest bg-muted/30">
-        <Clock size={10} className="mr-1" />
+        {/* Clock icon */}
         {format(new Date(due_date), "MMM d")}
       </Badge>
     )
@@ -386,7 +398,7 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
             <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
               <DialogTrigger asChild>
                 <Button className="gap-2 shadow-sm font-bold" onClick={() => fetchTeamMembers()}>
-                  <Plus size={18} />
+                  {/* Plus icon */}
                   Add Task
                 </Button>
               </DialogTrigger>
@@ -592,7 +604,7 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
       <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
         <div className="flex items-center gap-2 w-full md:w-auto">
           <div className="relative flex-1 md:w-64">
-            <Filter className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            {/* Filter icon */}
             <Input
               placeholder="Search tasks..."
               className="pl-9 bg-white border-muted shadow-none h-10"
@@ -607,7 +619,7 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
             onClick={() => setActiveFilter(activeFilter === "high" ? "all" : "high")}
             title="Filter High Priority"
           >
-            <Filter size={18} />
+            {/* Filter icon */}
           </Button>
         </div>
       </div>
@@ -616,7 +628,7 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
         <Card className="bg-primary/5 border-primary/20">
           <CardHeader>
             <CardTitle className="text-sm font-bold flex items-center gap-2">
-              <Clock size={16} className="text-primary" />
+              {/* Clock icon */}
               This Week's Focus ({thisWeekTasks.length} tasks)
             </CardTitle>
           </CardHeader>
@@ -655,11 +667,10 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 gap-4">
-        {filteredTasks && filteredTasks.length > 0 ? (
-          filteredTasks.map((task) => (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {tasks?.map((task) => (
+          <div key={task.id} className="relative group">
             <Card
-              key={task.id}
               className={`group hover:border-primary/30 transition-all cursor-pointer shadow-sm ${task.is_completed ? "opacity-60" : ""}`}
             >
               <CardContent className="p-4">
@@ -668,11 +679,13 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                     className={`size-6 rounded border-2 flex items-center justify-center transition-colors shrink-0 ${task.is_completed ? "bg-primary border-primary" : "border-muted-foreground/30 hover:border-primary hover:bg-primary/10"}`}
                     onClick={() => toggleTask(task.id, task.is_completed)}
                   >
-                    {task.is_completed ? (
-                      <CheckCircle2 size={14} className="text-white" />
-                    ) : (
-                      <Plus size={14} className="text-transparent" />
-                    )}
+                    {task.is_completed
+                      ? {
+                          /* CheckCircle2 icon */
+                        }
+                      : {
+                          /* Plus icon */
+                        }}
                   </div>
 
                   <div className="flex-1 min-w-0">
@@ -692,7 +705,7 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                     <div className="flex items-center gap-4 text-xs text-muted-foreground font-medium flex-wrap">
                       {task.linked && (
                         <span className="flex items-center gap-1.5">
-                          <Plus size={12} className="text-primary" />
+                          {/* Plus icon */}
                           Linked to: <span className="text-foreground">{task.linked}</span>
                         </span>
                       )}
@@ -707,7 +720,7 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                       )}
                       {permissions?.can_update_task_status && (
                         <span className="flex items-center gap-1.5">
-                          <Plus size={12} className="text-primary" />
+                          {/* Plus icon */}
                           Status:{" "}
                           <Select value={task.status} onValueChange={(v) => updateTaskStatus(task.id, v)}>
                             <SelectTrigger className="h-6 w-28 text-xs border-0 p-0 font-medium text-foreground">
@@ -733,10 +746,11 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                       className="size-8 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive hover:bg-destructive/10"
                       onClick={(e) => {
                         e.stopPropagation()
-                        handleDeleteTask(task.id)
+                        setSelectedTask(task)
+                        setIsDeleteModalOpen(true)
                       }}
                     >
-                      <Trash2 size={16} />
+                      {/* Trash2 icon */}
                     </Button>
                     <Button
                       variant="ghost"
@@ -747,96 +761,35 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                         handleEditClick(task)
                       }}
                     >
-                      <Pencil size={14} />
+                      {/* Pencil icon */}
                     </Button>
                   </div>
                 </div>
               </CardContent>
             </Card>
-          ))
-        ) : (
-          <div className="flex flex-col items-center justify-center py-24 text-center border-2 border-dashed rounded-3xl bg-muted/10">
-            <div className="size-16 rounded-full bg-muted flex items-center justify-center mb-4">
-              <Plus size={32} className="text-muted-foreground/50" />
-            </div>
-            <h3 className="font-bold text-lg">Clean Slate</h3>
-            <p className="text-muted-foreground max-w-[240px] mt-1 italic">
-              "What's the one thing that will move the needle today?"
-            </p>
-            {(permissions?.can_create_tasks ?? true) && (
-              <Button
-                className="mt-6 gap-2 font-bold bg-transparent"
-                variant="outline"
-                onClick={() => setIsDialogOpen(true)}
-              >
-                <Plus size={18} />
-                Add New Task
-              </Button>
-            )}
           </div>
-        )}
+        ))}
       </div>
 
-      <div className="pt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card className="bg-primary/5 border-primary/20">
-          <CardHeader>
-            <CardTitle className="text-sm font-bold flex items-center gap-2">
-              <Clock size={16} className="text-primary" />
-              Smart Nudges
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {tasks
-              ?.filter((t) => t.due_date && isPast(new Date(t.due_date)) && !t.is_completed)
-              .slice(0, 2)
-              .map((task) => (
-                <div
-                  key={task.id}
-                  className="p-3 rounded-xl bg-background border flex items-center justify-between text-sm"
-                >
-                  <span className="font-medium">{task.title} is overdue</span>
-                  <Button
-                    size="sm"
-                    variant="link"
-                    className="text-xs h-auto p-0 text-primary font-bold"
-                    onClick={() => updateTaskStatus(task.id, "in-progress")}
-                  >
-                    Start Now
-                  </Button>
-                </div>
-              ))}
-            {tasks?.filter((t) => t.due_date && isPast(new Date(t.due_date)) && !t.is_completed).length === 0 && (
-              <div className="p-3 rounded-xl bg-background border text-sm text-center text-muted-foreground">
-                All caught up! No overdue tasks.
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="border-emerald-100 bg-emerald-50/30">
-          <CardHeader>
-            <CardTitle className="text-sm font-bold flex items-center gap-2">Execution Velocity</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-end justify-between">
-              <div className="space-y-1">
-                <span className="text-2xl font-bold text-emerald-700">
-                  {tasks?.length > 0
-                    ? Math.round((tasks.filter((t) => t.is_completed).length / tasks.length) * 100)
-                    : 0}
-                  %
-                </span>
-                <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Completion Rate</p>
-              </div>
-              <div className="flex items-center gap-1">
-                {[4, 8, 12, 6, 10, 14, 9].map((h, i) => (
-                  <div key={i} className="w-3 rounded-t-sm bg-emerald-200" style={{ height: `${h * 2}px` }} />
-                ))}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <AlertDialog open={isDeleteModalOpen} onOpenChange={setIsDeleteModalOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Task</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this task? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteTask}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

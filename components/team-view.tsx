@@ -20,6 +20,16 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import { UserPlus, Edit, Trash2, Mail, Lock, Briefcase } from "lucide-react"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 interface TeamMember {
   id: string
@@ -61,6 +71,7 @@ export function TeamView() {
   const [loading, setLoading] = useState(true)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null)
   const { toast } = useToast()
   const supabase = createClient()
@@ -182,10 +193,6 @@ export function TeamView() {
   }
 
   const handleDeleteTeamMember = async (userId: string, memberId: string) => {
-    if (!confirm("Are you sure you want to delete this team member? This action cannot be undone.")) {
-      return
-    }
-
     try {
       const response = await fetch("/api/delete-team-member", {
         method: "POST",
@@ -203,6 +210,7 @@ export function TeamView() {
         description: "Team member deleted successfully",
       })
 
+      setDeleteDialogOpen(false)
       fetchTeamMembers()
     } catch (error: any) {
       console.error("[v0] Error deleting team member:", error)
@@ -217,6 +225,11 @@ export function TeamView() {
   const openEditDialog = (member: TeamMember) => {
     setSelectedMember(member)
     setEditDialogOpen(true)
+  }
+
+  const openDeleteDialog = (member: TeamMember) => {
+    setSelectedMember(member)
+    setDeleteDialogOpen(true)
   }
 
   return (
@@ -435,7 +448,8 @@ export function TeamView() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => handleDeleteTeamMember(member.user_id, member.id)}
+                      className="text-destructive hover:bg-destructive/10 bg-transparent"
+                      onClick={() => openDeleteDialog(member)}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -465,65 +479,88 @@ export function TeamView() {
       )}
 
       {selectedMember && (
-        <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Edit Team Member</DialogTitle>
-              <DialogDescription>
-                Update permissions and settings for {selectedMember.profile?.full_name ?? "this user"}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-6">
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="edit_is_active">Account Active</Label>
-                  <Switch
-                    id="edit_is_active"
-                    checked={selectedMember.is_active}
-                    onCheckedChange={(checked) => {
-                      handleUpdatePermissions(selectedMember.id, { is_active: checked })
-                      setSelectedMember({ ...selectedMember, is_active: checked })
-                    }}
-                  />
+        <>
+          <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Edit Team Member</DialogTitle>
+                <DialogDescription>
+                  Update permissions and settings for {selectedMember.profile?.full_name ?? "this user"}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-6">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="edit_is_active">Account Active</Label>
+                    <Switch
+                      id="edit_is_active"
+                      checked={selectedMember.is_active}
+                      onCheckedChange={(checked) => {
+                        handleUpdatePermissions(selectedMember.id, { is_active: checked })
+                        setSelectedMember({ ...selectedMember, is_active: checked })
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h4 className="font-medium">Feature Permissions</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    {[
+                      { key: "can_view_tasks", label: "View Tasks" },
+                      { key: "can_update_task_status", label: "Update Task Status" },
+                      { key: "can_create_tasks", label: "Create Tasks" },
+                      { key: "can_view_calendar", label: "View Calendar" },
+                      { key: "can_view_linkedin", label: "View LinkedIn" },
+                      { key: "can_view_relationships", label: "View Relationships" },
+                      { key: "can_view_vault", label: "View Vault" },
+                      { key: "can_view_analytics", label: "View Analytics" },
+                    ].map(({ key, label }) => (
+                      <div key={key} className="flex items-center justify-between">
+                        <Label htmlFor={`edit_${key}`} className="font-normal">
+                          {label}
+                        </Label>
+                        <Switch
+                          id={`edit_${key}`}
+                          checked={selectedMember[key as keyof TeamMember] as boolean}
+                          onCheckedChange={(checked) => {
+                            handleUpdatePermissions(selectedMember.id, { [key]: checked })
+                            setSelectedMember({ ...selectedMember, [key]: checked })
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex justify-end">
+                  <Button onClick={() => setEditDialogOpen(false)}>Done</Button>
                 </div>
               </div>
+            </DialogContent>
+          </Dialog>
 
-              <div className="space-y-4">
-                <h4 className="font-medium">Feature Permissions</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  {[
-                    { key: "can_view_tasks", label: "View Tasks" },
-                    { key: "can_update_task_status", label: "Update Task Status" },
-                    { key: "can_create_tasks", label: "Create Tasks" },
-                    { key: "can_view_calendar", label: "View Calendar" },
-                    { key: "can_view_linkedin", label: "View LinkedIn" },
-                    { key: "can_view_relationships", label: "View Relationships" },
-                    { key: "can_view_vault", label: "View Vault" },
-                    { key: "can_view_analytics", label: "View Analytics" },
-                  ].map(({ key, label }) => (
-                    <div key={key} className="flex items-center justify-between">
-                      <Label htmlFor={`edit_${key}`} className="font-normal">
-                        {label}
-                      </Label>
-                      <Switch
-                        id={`edit_${key}`}
-                        checked={selectedMember[key as keyof TeamMember] as boolean}
-                        onCheckedChange={(checked) => {
-                          handleUpdatePermissions(selectedMember.id, { [key]: checked })
-                          setSelectedMember({ ...selectedMember, [key]: checked })
-                        }}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex justify-end">
-                <Button onClick={() => setEditDialogOpen(false)}>Done</Button>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
+          <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete <strong>{selectedMember.profile?.full_name}</strong>. This action cannot
+                  be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => handleDeleteTeamMember(selectedMember.user_id, selectedMember.id)}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </>
       )}
     </div>
   )
