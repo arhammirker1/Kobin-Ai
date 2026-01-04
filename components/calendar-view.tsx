@@ -26,9 +26,8 @@ export function CalendarView() {
     startTime: "09:00",
     endTime: "10:00",
     type: "internal",
-    meeting_link: "", // Ensure field exists for hub consistency
-    purpose: "", // Ensure field exists for hub consistency
-    relationship_id: null, // Ensure field exists for hub consistency
+    meeting_link: "",
+    purpose: "",
   })
 
   const supabase = createClient()
@@ -68,16 +67,24 @@ export function CalendarView() {
       end_time: end.toISOString(),
       type: newEvent.type,
       meeting_link: newEvent.meeting_link,
-      // @ts-ignore - added fields for consistency
       purpose: newEvent.purpose || "",
-      // @ts-ignore
-      relationship_id: newEvent.relationship_id || null,
+      relationship_id: null,
     })
 
     if (error) {
+      console.error("[v0] Error creating event:", error)
       toast.error("Failed to add event")
     } else {
-      toast.success("Event added")
+      toast.success("Event created")
+      setNewEvent({
+        title: "",
+        date: format(new Date(), "yyyy-MM-dd"),
+        startTime: "09:00",
+        endTime: "10:00",
+        type: "internal",
+        meeting_link: "",
+        purpose: "",
+      })
       setIsDialogOpen(false)
       fetchEvents()
     }
@@ -97,9 +104,7 @@ export function CalendarView() {
         end_time: end.toISOString(),
         type: editingEvent.type,
         meeting_link: editingEvent.meeting_link,
-        // @ts-ignore - added fields for consistency
         purpose: editingEvent.purpose || "",
-        // @ts-ignore
         relationship_id: editingEvent.relationship_id || null,
       })
       .eq("id", editingEvent.id)
@@ -139,8 +144,8 @@ export function CalendarView() {
       endTime: format(end, "HH:mm"),
       type: event.type,
       meeting_link: event.meeting_link,
-      purpose: event.purpose || "", // Ensure field exists for hub consistency
-      relationship_id: event.relationship_id || null, // Ensure field exists for hub consistency
+      purpose: event.purpose || "",
+      relationship_id: event.relationship_id || null,
     })
     setIsEditDialogOpen(true)
   }
@@ -316,14 +321,6 @@ export function CalendarView() {
                     onChange={(e) => setNewEvent({ ...newEvent, purpose: e.target.value })}
                   />
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="relationship_id">Relationship ID</Label>
-                  <Input
-                    id="relationship_id"
-                    value={newEvent.relationship_id}
-                    onChange={(e) => setNewEvent({ ...newEvent, relationship_id: e.target.value })}
-                  />
-                </div>
               </div>
               <DialogFooter>
                 <Button onClick={handleAddEvent}>Create Event</Button>
@@ -337,7 +334,7 @@ export function CalendarView() {
                 <DialogTitle>Edit Event</DialogTitle>
               </DialogHeader>
               {editingEvent && (
-                <div className="grid gap-4 py-4">
+                <div className="grid gap-4">
                   <div className="grid gap-2">
                     <Label htmlFor="edit-title">Title</Label>
                     <Input
@@ -352,8 +349,19 @@ export function CalendarView() {
                       <Input
                         id="edit-date"
                         type="date"
-                        value={editingEvent.date}
-                        onChange={(e) => setEditingEvent({ ...editingEvent, date: e.target.value })}
+                        value={format(parseISO(editingEvent.start_time), "yyyy-MM-dd")}
+                        onChange={(e) => {
+                          const newDate = e.target.value
+                          const oldStart = parseISO(editingEvent.start_time)
+                          const newStart = new Date(newDate + "T" + format(oldStart, "HH:mm"))
+                          const oldEnd = parseISO(editingEvent.end_time)
+                          const newEnd = new Date(newDate + "T" + format(oldEnd, "HH:mm"))
+                          setEditingEvent({
+                            ...editingEvent,
+                            start_time: newStart.toISOString(),
+                            end_time: newEnd.toISOString(),
+                          })
+                        }}
                       />
                     </div>
                     <div className="grid gap-2">
@@ -407,14 +415,6 @@ export function CalendarView() {
                       id="edit-purpose"
                       value={editingEvent.purpose}
                       onChange={(e) => setEditingEvent({ ...editingEvent, purpose: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="edit-relationship_id">Relationship ID</Label>
-                    <Input
-                      id="edit-relationship_id"
-                      value={editingEvent.relationship_id}
-                      onChange={(e) => setEditingEvent({ ...editingEvent, relationship_id: e.target.value })}
                     />
                   </div>
                 </div>
