@@ -45,11 +45,19 @@ export function TodayView() {
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
     const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
 
+    // Fetch events first
     const { data: events, error: eventsError } = await supabase
       .from("events")
       .select(`
-        id, title, start_time, end_time, type, meeting_link, purpose, relationship_id,
-        relationships (full_name, company, tags)
+        id, 
+        title, 
+        start_time, 
+        end_time, 
+        type, 
+        meeting_link, 
+        purpose, 
+        outcome,
+        relationship_id
       `)
       .eq("user_id", userId)
       .gte("start_time", startOfToday.toISOString())
@@ -60,6 +68,28 @@ export function TodayView() {
       console.error("[v0] Error fetching events for Meeting Hub:", eventsError)
     }
 
+    let eventsWithRelationships = events || []
+
+    if (events && events.length > 0) {
+      const relationshipIds = [...new Set(events.map((e) => e.relationship_id).filter(Boolean))]
+
+      if (relationshipIds.length > 0) {
+        const { data: relationships, error: relError } = await supabase
+          .from("relationships")
+          .select("id, full_name, company, tags")
+          .in("id", relationshipIds)
+
+        if (!relError && relationships) {
+          const relationshipMap = Object.fromEntries(relationships.map((r) => [r.id, r]))
+
+          eventsWithRelationships = events.map((event) => ({
+            ...event,
+            relationships: relationshipMap[event.relationship_id] || null,
+          }))
+        }
+      }
+    }
+
     const { data: tasks } = await supabase
       .from("tasks")
       .select("id, title, status, priority, due_date")
@@ -67,7 +97,7 @@ export function TodayView() {
       .neq("status", "completed")
       .order("due_date", { ascending: true })
 
-    const allMeetings = events || []
+    const allMeetings = eventsWithRelationships
     setUpcomingMeetings(allMeetings)
 
     const meetingPriorities = allMeetings.map((e: any) => ({
