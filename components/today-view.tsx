@@ -59,7 +59,7 @@ export function TodayView() {
 
     const { data: tasks } = await supabase
       .from("tasks")
-      .select("*")
+      .select("id, title, status, priority, due_date")
       .eq("user_id", userId)
       .neq("status", "completed")
       .order("due_date", { ascending: true })

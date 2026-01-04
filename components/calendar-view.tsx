@@ -26,6 +26,7 @@ export function CalendarView() {
     startTime: "09:00",
     endTime: "10:00",
     type: "internal",
+    meeting_link: "", // Ensure field exists for hub consistency
   })
 
   const supabase = createClient()
@@ -64,6 +65,7 @@ export function CalendarView() {
       start_time: start.toISOString(),
       end_time: end.toISOString(),
       type: newEvent.type,
+      meeting_link: newEvent.meeting_link, // Ensure field exists for hub consistency
     })
 
     if (error) {
@@ -88,6 +90,7 @@ export function CalendarView() {
         start_time: start.toISOString(),
         end_time: end.toISOString(),
         type: editingEvent.type,
+        meeting_link: editingEvent.meeting_link, // Ensure field exists for hub consistency
       })
       .eq("id", editingEvent.id)
 
@@ -125,6 +128,7 @@ export function CalendarView() {
       startTime: format(start, "HH:mm"),
       endTime: format(end, "HH:mm"),
       type: event.type,
+      meeting_link: event.meeting_link, // Ensure field exists for hub consistency
     })
     setIsEditDialogOpen(true)
   }
@@ -284,6 +288,14 @@ export function CalendarView() {
                     />
                   </div>
                 </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="meeting_link">Meeting Link</Label>
+                  <Input
+                    id="meeting_link"
+                    value={newEvent.meeting_link}
+                    onChange={(e) => setNewEvent({ ...newEvent, meeting_link: e.target.value })}
+                  />
+                </div>
               </div>
               <DialogFooter>
                 <Button onClick={handleAddEvent}>Create Event</Button>
@@ -352,6 +364,14 @@ export function CalendarView() {
                         onChange={(e) => setEditingEvent({ ...editingEvent, endTime: e.target.value })}
                       />
                     </div>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="edit-meeting_link">Meeting Link</Label>
+                    <Input
+                      id="edit-meeting_link"
+                      value={editingEvent.meeting_link}
+                      onChange={(e) => setEditingEvent({ ...editingEvent, meeting_link: e.target.value })}
+                    />
                   </div>
                 </div>
               )}

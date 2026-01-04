@@ -224,7 +224,7 @@ export function CrmView() {
       end_time: end.toISOString(),
       type: "deal",
       relationship_id: selectedRelationship.id,
-      meeting_link: newMeeting.meetingLink || selectedRelationship.meeting_link,
+      meeting_link: newMeeting.meetingLink || selectedRelationship.meeting_link || "",
       purpose: newMeeting.purpose,
     })
 
