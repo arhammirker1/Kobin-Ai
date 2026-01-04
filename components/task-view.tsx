@@ -89,6 +89,8 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
   const supabase = createClient()
   const [activeBucket, setActiveBucket] = useState("today")
   const [activeFilter, setActiveFilter] = useState("all")
+  const [searchQuery, setSearchQuery] = useState("")
+  const [filterPriority, setFilterPriority] = useState<string>("all")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
@@ -447,8 +449,8 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
   }
 
   const filteredTasks = tasks?.filter((task) => {
-    const matchesSearch = task.title.toLowerCase().includes(newTask.title.toLowerCase())
-    const matchesPriority = !newTask.priority || task.priority === newTask.priority
+    const matchesSearch = task.title.toLowerCase().includes(searchQuery.toLowerCase())
+    const matchesPriority = filterPriority === "all" || task.priority === filterPriority
     return matchesSearch && matchesPriority
   })
 
@@ -629,28 +631,43 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
         </Card>
       </div>
 
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between">
+      <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0 w-full md:w-auto scrollbar-hide">
+          {BUCKETS.map((bucket) => (
+            <Button
+              key={bucket}
+              variant={activeBucket === bucket ? "default" : "outline"}
+              className="shrink-0"
+              onClick={() => setActiveBucket(bucket)}
+            >
+              {bucket.charAt(0).toUpperCase() + bucket.slice(1)}
+            </Button>
+          ))}
+        </div>
+
         <div className="flex items-center gap-2 w-full md:w-auto">
           <div className="relative flex-1 md:w-64">
-            {/* Filter icon */}
             <Filter className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search tasks..."
               className="pl-9 bg-white border-muted shadow-none h-10"
-              value={newTask.title}
-              onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
-          <Button
-            variant={activeFilter === "high" ? "default" : "outline"}
-            size="icon"
-            className="h-10 w-10 shrink-0 bg-white"
-            onClick={() => setActiveFilter(activeFilter === "high" ? "all" : "high")}
-            title="Filter High Priority"
-          >
-            {/* Filter icon */}
-            <Filter size={18} />
-          </Button>
+          <Select value={filterPriority} onValueChange={setFilterPriority}>
+            <SelectTrigger className="w-[130px] h-10 bg-white border-muted">
+              <SelectValue placeholder="Priority" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Priorities</SelectItem>
+              {PRIORITIES.map((p) => (
+                <SelectItem key={p} value={p}>
+                  {p.charAt(0).toUpperCase() + p.slice(1)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
