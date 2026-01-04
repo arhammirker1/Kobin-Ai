@@ -89,6 +89,29 @@ export async function createTeamMeeting(
     .single()
 
   if (error) throw error
+
+  const allParticipants = [userId]
+  if (data.team_member_id) allParticipants.push(data.team_member_id)
+
+  const eventInserts = allParticipants.map((participantId) => ({
+    user_id: participantId,
+    title: data.title,
+    description: data.description,
+    start_time: data.start_time,
+    end_time: data.end_time,
+    type: "Meeting",
+    meeting_link: data.meeting_link,
+    meeting_id: meeting.id, // Link event to the meeting
+  }))
+
+  const { error: eventError } = await supabase.from("events").insert(eventInserts)
+
+  if (eventError) {
+    // Delete the meeting if event creation fails
+    await supabase.from("team_meetings").delete().eq("id", meeting.id)
+    throw eventError
+  }
+
   return meeting
 }
 
@@ -98,7 +121,7 @@ export async function addMeetingParticipants(meetingId: string, founderId: strin
   // SECURITY: Verify the founder owns this meeting
   const { data: meeting, error: verifyError } = await supabase
     .from("team_meetings")
-    .select("id")
+    .select("id, title, description, start_time, end_time, meeting_link")
     .eq("id", meetingId)
     .eq("founder_id", founderId)
     .single()
@@ -116,4 +139,18 @@ export async function addMeetingParticipants(meetingId: string, founderId: strin
   )
 
   if (error) throw error
+
+  const eventInserts = participantIds.map((participantId) => ({
+    user_id: participantId,
+    title: meeting.title,
+    description: meeting.description,
+    start_time: meeting.start_time,
+    end_time: meeting.end_time,
+    type: "Meeting",
+    meeting_link: meeting.meeting_link,
+    meeting_id: meetingId,
+  }))
+
+  const { error: eventError } = await supabase.from("events").insert(eventInserts)
+  if (eventError) throw eventError
 }
