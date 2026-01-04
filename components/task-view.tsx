@@ -29,6 +29,20 @@ const PRIORITIES = ["low", "medium", "high", "urgent"]
 const STATUSES = ["todo", "in-progress", "blocked", "completed"]
 const UNASSIGNED = "__unassigned__"
 
+const INITIAL_TASK_STATE = {
+  title: "",
+  notes: "",
+  resources: [] as Array<{ url: string; title?: string }>,
+  priority: "medium" as const,
+  status: "todo" as const,
+  deadline: "",
+  assigned_to: "",
+  linked: "",
+  related_context_type: "none" as const,
+  related_context_id: "",
+  related_context_name: "",
+}
+
 interface Task {
   id: string
   user_id: string
@@ -82,19 +96,7 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
   const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [detailsTask, setDetailsTask] = useState<Task | null>(null) // Store task for details view
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
-  const [newTask, setNewTask] = useState({
-    title: "",
-    notes: "",
-    resources: [] as Array<{ url: string; title?: string }>,
-    priority: "medium",
-    status: "todo",
-    deadline: "",
-    assigned_to: "",
-    linked: "",
-    related_context_type: "none" as "" | "project" | "goal" | "meeting" | "none", // changed default from "" to "none"
-    related_context_id: "",
-    related_context_name: "",
-  })
+  const [newTask, setNewTask] = useState(INITIAL_TASK_STATE)
   const [newResourceUrl, setNewResourceUrl] = useState("")
   const [newResourceTitle, setNewResourceTitle] = useState("")
   const [showRelatedContextCollapsed, setShowRelatedContextCollapsed] = useState(true)
@@ -243,19 +245,7 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
       console.error("[v0] Error adding task:", error)
       toast.error("Failed to add task")
     } else {
-      setNewTask({
-        title: "",
-        notes: "",
-        resources: [],
-        priority: "medium",
-        status: "todo",
-        deadline: "",
-        assigned_to: "",
-        linked: "",
-        related_context_type: "none",
-        related_context_id: "",
-        related_context_name: "",
-      })
+      setNewTask(INITIAL_TASK_STATE)
       setNewResourceUrl("")
       setNewResourceTitle("")
       setIsDialogOpen(false)
@@ -294,19 +284,7 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
     } else {
       setIsEditOpen(false)
       setEditingTask(null)
-      setNewTask({
-        title: "",
-        notes: "",
-        resources: [],
-        priority: "medium",
-        status: "todo",
-        deadline: "",
-        assigned_to: "",
-        linked: "",
-        related_context_type: "none",
-        related_context_id: "",
-        related_context_name: "",
-      })
+      setNewTask(INITIAL_TASK_STATE)
       setNewResourceUrl("")
       setNewResourceTitle("")
       mutateTasks()
@@ -517,7 +495,17 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
         </div>
         <div className="flex gap-2 w-full md:w-auto">
           {canCreate && ( // Using new permission check
-            <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <Dialog
+              open={isDialogOpen}
+              onOpenChange={(open) => {
+                setIsDialogOpen(open)
+                if (!open) {
+                  setNewTask(INITIAL_TASK_STATE)
+                  setNewResourceUrl("")
+                  setNewResourceTitle("")
+                }
+              }}
+            >
               <DialogTrigger asChild>
                 <Button className="gap-2 shadow-sm font-bold" onClick={() => fetchTeamMembers()}>
                   {/* Plus icon */}
@@ -683,7 +671,12 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
                     <Label htmlFor="related_context_type">Related Context Type (Optional)</Label>
                     <Select
                       value={newTask.related_context_type}
-                      onValueChange={(v) => setNewTask({ ...newTask, related_context_type: v })}
+                      onValueChange={(v) =>
+                        setNewTask({
+                          ...newTask,
+                          related_context_type: v as "project" | "goal" | "meeting" | "none",
+                        })
+                      }
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Select context type" />
@@ -698,7 +691,13 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setIsDialogOpen(false)
+                      setNewTask(INITIAL_TASK_STATE)
+                    }}
+                  >
                     Cancel
                   </Button>
                   <Button onClick={handleAddTask}>Create Task</Button>
@@ -711,7 +710,12 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
             open={isEditOpen}
             onOpenChange={(open) => {
               setIsEditOpen(open)
-              if (!open) setEditingTask(null)
+              if (!open) {
+                setEditingTask(null)
+                setNewTask(INITIAL_TASK_STATE)
+                setNewResourceUrl("")
+                setNewResourceTitle("")
+              }
             }}
           >
             <DialogContent className="sm:max-w-[500px]">
@@ -868,7 +872,12 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
                   <Label htmlFor="edit-related_context_type">Related Context Type (Optional)</Label>
                   <Select
                     value={newTask.related_context_type}
-                    onValueChange={(v) => setNewTask({ ...newTask, related_context_type: v })}
+                    onValueChange={(v) =>
+                      setNewTask({
+                        ...newTask,
+                        related_context_type: v as "project" | "goal" | "meeting" | "none",
+                      })
+                    }
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select context type" />
@@ -888,6 +897,7 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
                   onClick={() => {
                     setIsEditOpen(false)
                     setEditingTask(null)
+                    setNewTask(INITIAL_TASK_STATE)
                   }}
                 >
                   Cancel
