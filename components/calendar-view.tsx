@@ -27,6 +27,8 @@ export function CalendarView() {
     endTime: "10:00",
     type: "internal",
     meeting_link: "", // Ensure field exists for hub consistency
+    purpose: "", // Ensure field exists for hub consistency
+    relationship_id: null, // Ensure field exists for hub consistency
   })
 
   const supabase = createClient()
@@ -65,7 +67,11 @@ export function CalendarView() {
       start_time: start.toISOString(),
       end_time: end.toISOString(),
       type: newEvent.type,
-      meeting_link: newEvent.meeting_link, // Ensure field exists for hub consistency
+      meeting_link: newEvent.meeting_link,
+      // @ts-ignore - added fields for consistency
+      purpose: newEvent.purpose || "",
+      // @ts-ignore
+      relationship_id: newEvent.relationship_id || null,
     })
 
     if (error) {
@@ -90,7 +96,11 @@ export function CalendarView() {
         start_time: start.toISOString(),
         end_time: end.toISOString(),
         type: editingEvent.type,
-        meeting_link: editingEvent.meeting_link, // Ensure field exists for hub consistency
+        meeting_link: editingEvent.meeting_link,
+        // @ts-ignore - added fields for consistency
+        purpose: editingEvent.purpose || "",
+        // @ts-ignore
+        relationship_id: editingEvent.relationship_id || null,
       })
       .eq("id", editingEvent.id)
 
@@ -128,7 +138,9 @@ export function CalendarView() {
       startTime: format(start, "HH:mm"),
       endTime: format(end, "HH:mm"),
       type: event.type,
-      meeting_link: event.meeting_link, // Ensure field exists for hub consistency
+      meeting_link: event.meeting_link,
+      purpose: event.purpose || "", // Ensure field exists for hub consistency
+      relationship_id: event.relationship_id || null, // Ensure field exists for hub consistency
     })
     setIsEditDialogOpen(true)
   }
@@ -296,6 +308,22 @@ export function CalendarView() {
                     onChange={(e) => setNewEvent({ ...newEvent, meeting_link: e.target.value })}
                   />
                 </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="purpose">Purpose</Label>
+                  <Input
+                    id="purpose"
+                    value={newEvent.purpose}
+                    onChange={(e) => setNewEvent({ ...newEvent, purpose: e.target.value })}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="relationship_id">Relationship ID</Label>
+                  <Input
+                    id="relationship_id"
+                    value={newEvent.relationship_id}
+                    onChange={(e) => setNewEvent({ ...newEvent, relationship_id: e.target.value })}
+                  />
+                </div>
               </div>
               <DialogFooter>
                 <Button onClick={handleAddEvent}>Create Event</Button>
@@ -371,6 +399,22 @@ export function CalendarView() {
                       id="edit-meeting_link"
                       value={editingEvent.meeting_link}
                       onChange={(e) => setEditingEvent({ ...editingEvent, meeting_link: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="edit-purpose">Purpose</Label>
+                    <Input
+                      id="edit-purpose"
+                      value={editingEvent.purpose}
+                      onChange={(e) => setEditingEvent({ ...editingEvent, purpose: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="edit-relationship_id">Relationship ID</Label>
+                    <Input
+                      id="edit-relationship_id"
+                      value={editingEvent.relationship_id}
+                      onChange={(e) => setEditingEvent({ ...editingEvent, relationship_id: e.target.value })}
                     />
                   </div>
                 </div>

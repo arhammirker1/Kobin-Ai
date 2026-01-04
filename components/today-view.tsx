@@ -41,21 +41,24 @@ export function TodayView() {
   }, [])
 
   const fetchMeetingsAndMergePriorities = async (userId: string) => {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const tomorrow = new Date(today)
-    tomorrow.setDate(tomorrow.getDate() + 1)
+    const now = new Date()
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
+    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
 
-    const { data: events } = await supabase
+    const { data: events, error: eventsError } = await supabase
       .from("events")
       .select(`
         id, title, start_time, end_time, type, meeting_link, purpose, relationship_id,
         relationships (full_name, company, tags)
       `)
       .eq("user_id", userId)
-      .gte("start_time", today.toISOString())
-      .lt("start_time", tomorrow.toISOString())
+      .gte("start_time", startOfToday.toISOString())
+      .lte("start_time", endOfToday.toISOString())
       .order("start_time", { ascending: true })
+
+    if (eventsError) {
+      console.error("[v0] Error fetching events for Meeting Hub:", eventsError)
+    }
 
     const { data: tasks } = await supabase
       .from("tasks")
