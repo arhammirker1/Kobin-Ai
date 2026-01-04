@@ -84,7 +84,7 @@ export function TeamView() {
     can_view_tasks: true,
     can_update_task_status: true,
     can_create_tasks: false,
-    can_view_calendar: false,
+    can_view_calendar: true,
     can_view_linkedin: false,
     can_view_relationships: false,
     can_view_vault: false,
