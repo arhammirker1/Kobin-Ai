@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
+import { createTeamMeeting, addMeetingParticipants } from "@/lib/supabase/queries/meetings"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -51,11 +52,9 @@ export function TeamMeetingsDialog({ open, onOpenChange, onMeetingCreated, teamM
   const supabase = createClient()
   const { toast } = useToast()
 
-  // Get eligible team members (those with calendar access)
   const eligibleMembers = teamMembers.filter((member) => member.can_view_calendar)
 
   useEffect(() => {
-    // Reset form when dialog opens
     if (open) {
       setTitle("")
       setDescription("")
@@ -79,7 +78,6 @@ export function TeamMeetingsDialog({ open, onOpenChange, onMeetingCreated, teamM
   const handleInviteAllChange = (checked: boolean) => {
     setInviteAll(checked)
     if (checked) {
-      // Select all eligible members
       setSelectedParticipants(eligibleMembers.map((m) => m.user_id))
     } else {
       setSelectedParticipants([])
@@ -113,40 +111,24 @@ export function TeamMeetingsDialog({ open, onOpenChange, onMeetingCreated, teamM
       const start = parseISO(`${date}T${startTime}`)
       const end = parseISO(`${date}T${endTime}`)
 
-      // Create team meeting
-      const { data: meetingData, error: meetingError } = await supabase
-        .from("team_meetings")
-        .insert({
-          founder_id: user.id,
-          team_member_id: meetingType === "individual" ? selectedMember : null,
-          title,
-          description,
-          start_time: start.toISOString(),
-          end_time: end.toISOString(),
-          meeting_type: meetingType,
-          meeting_link: meetingLink || null,
-        })
-        .select()
-        .single()
+      const meeting = await createTeamMeeting(user.id, {
+        title,
+        description,
+        start_time: start.toISOString(),
+        end_time: end.toISOString(),
+        meeting_type: meetingType,
+        team_member_id: meetingType === "individual" ? selectedMember : undefined,
+        meeting_link: meetingLink || undefined,
+      })
 
-      if (meetingError) throw meetingError
-
-      // For joint meetings, add all participants
-      if (meetingType === "joint" && meetingData) {
-        const participantInserts = selectedParticipants.map((participantId) => ({
-          meeting_id: meetingData.id,
-          participant_id: participantId,
-        }))
-
-        const { error: participantError } = await supabase.from("team_meeting_participants").insert(participantInserts)
-
-        if (participantError) throw participantError
+      // For joint meetings, add participants using helper function
+      if (meetingType === "joint" && meeting.id) {
+        await addMeetingParticipants(meeting.id, user.id, selectedParticipants)
       }
 
-      // Create corresponding calendar events for each participant
+      // Create calendar events for participants
       const eventInserts = []
       if (meetingType === "individual" && selectedMember) {
-        // Individual meeting - create for founder and team member
         eventInserts.push(
           {
             user_id: user.id,
@@ -168,7 +150,6 @@ export function TeamMeetingsDialog({ open, onOpenChange, onMeetingCreated, teamM
           },
         )
       } else if (meetingType === "joint") {
-        // Joint meeting - create for founder and all participants
         eventInserts.push({
           user_id: user.id,
           title,
@@ -200,9 +181,15 @@ export function TeamMeetingsDialog({ open, onOpenChange, onMeetingCreated, teamM
       toast.success(`Meeting created for ${selectedParticipants.length + 1} participant(s)`)
       onOpenChange(false)
       onMeetingCreated?.()
-    } catch (error) {
+    } catch (error: any) {
       console.error("[v0] Error creating meeting:", error)
-      toast.error("Failed to create meeting")
+      if (error.message.includes("infinite recursion")) {
+        toast.error("Database policy error - please contact support")
+      } else if (error.message.includes("Unauthorized")) {
+        toast.error("You don't have permission to create meetings")
+      } else {
+        toast.error(error.message || "Failed to create meeting")
+      }
     } finally {
       setLoading(false)
     }
