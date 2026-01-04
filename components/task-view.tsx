@@ -477,6 +477,12 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
     setIsDetailsOpen(true)
   }
 
+  const getAssigneeName = (assigneeId: string | null) => {
+    if (!assigneeId || assigneeId === UNASSIGNED) return null
+    const member = teamMembers.find((m) => m.user_id === assigneeId)
+    return member?.profile?.full_name || assigneeId
+  }
+
   return (
     <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -551,16 +557,17 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                       </div>
                       <div className="flex flex-col gap-2">
                         {newTask.resources.map((resource, index) => (
-                          <div key={index} className="flex items-start gap-2 p-2 bg-muted rounded text-sm">
-                            <span className="font-medium flex-shrink-0">{resource.title || "Link"}:</span>
+                          <div key={index} className="flex items-center gap-2">
                             <a
                               href={resource.url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="text-blue-500 truncate flex-1 hover:underline"
+                              className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 hover:bg-primary/20 text-xs text-primary font-medium"
                               title={resource.url}
+                              onClick={(e) => e.stopPropagation()}
                             >
-                              {resource.url}
+                              {resource.title || "Link"}
+                              <span className="text-primary/60">→</span>
                             </a>
                             <button
                               onClick={() => {
@@ -569,7 +576,7 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                                   resources: newTask.resources.filter((_, i) => i !== index),
                                 })
                               }}
-                              className="text-destructive hover:text-destructive/80 flex-shrink-0 text-xs"
+                              className="text-destructive hover:text-destructive/80 text-xs font-medium"
                             >
                               ✕
                             </button>
@@ -1051,7 +1058,7 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                       <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                         Assigned:{" "}
                         <Badge variant="outline" className="text-[8px]">
-                          {task.assigned_to}
+                          {getAssigneeName(task.assigned_to) || task.assigned_to}
                         </Badge>
                       </span>
                     )}
@@ -1169,7 +1176,9 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
               {detailsTask.assigned_to && (
                 <div>
                   <Label className="text-xs font-semibold text-muted-foreground">Assigned To</Label>
-                  <div className="mt-1 text-sm">{detailsTask.assigned_to}</div>
+                  <div className="mt-1 text-sm">
+                    {getAssigneeName(detailsTask.assigned_to) || detailsTask.assigned_to}
+                  </div>
                 </div>
               )}
 
@@ -1195,17 +1204,18 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
               {detailsTask.resources && detailsTask.resources.length > 0 && (
                 <div>
                   <Label className="text-xs font-semibold text-muted-foreground">Resources</Label>
-                  <div className="mt-2 flex flex-col gap-2">
+                  <div className="mt-2 flex flex-wrap gap-2">
                     {detailsTask.resources.map((resource, index) => (
                       <a
                         key={index}
                         href={resource.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="p-2 rounded border border-border bg-muted/30 hover:bg-muted text-sm"
+                        className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 hover:bg-primary/20 text-xs text-primary font-medium"
+                        title={resource.url}
                       >
-                        <div className="font-medium text-primary">{resource.title || "Link"}</div>
-                        <div className="text-xs text-muted-foreground truncate">{resource.url}</div>
+                        {resource.title || "Link"}
+                        <span className="text-primary/60">→</span>
                       </a>
                     ))}
                   </div>
