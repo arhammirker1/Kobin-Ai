@@ -40,6 +40,11 @@ interface Task {
   due_date: string | null
   assigned_to: string | null
   linked: string | null
+  notes: string | null // Added notes field
+  resources: Array<{ url: string; title?: string }> | null // Added resources array
+  related_context_type: "project" | "goal" | "meeting" | null // Added related context
+  related_context_id: string | null // Added related context ID
+  related_context_name: string | null // Added related context name
   created_at: string
 }
 
@@ -73,12 +78,20 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
   const [newTask, setNewTask] = useState({
     title: "",
+    notes: "",
+    resources: [] as Array<{ url: string; title?: string }>,
     priority: "medium",
     status: "todo",
     deadline: "",
     assigned_to: "",
     linked: "",
+    related_context_type: "none" as "" | "project" | "goal" | "meeting" | "none", // changed default from "" to "none"
+    related_context_id: "",
+    related_context_name: "",
   })
+  const [newResourceUrl, setNewResourceUrl] = useState("")
+  const [newResourceTitle, setNewResourceTitle] = useState("")
+  const [showRelatedContextCollapsed, setShowRelatedContextCollapsed] = useState(true)
 
   const {
     data: tasks,
@@ -204,6 +217,8 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
       user_id: permissions?.founder_id || user.id,
       created_by: user.id,
       title: newTask.title,
+      notes: newTask.notes || null,
+      resources: newTask.resources.length > 0 ? newTask.resources : null,
       bucket: activeBucket,
       priority: newTask.priority,
       status: newTask.status,
@@ -211,6 +226,9 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
       assigned_to: newTask.assigned_to === UNASSIGNED ? null : newTask.assigned_to || null,
       linked: newTask.linked || null,
       is_completed: false,
+      related_context_type: newTask.related_context_type === "none" ? null : newTask.related_context_type || null, // convert "none" to null
+      related_context_id: newTask.related_context_id ? newTask.related_context_id : null,
+      related_context_name: newTask.related_context_name || null,
     }
 
     const { error } = await supabase.from("tasks").insert(taskData)
@@ -219,7 +237,21 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
       console.error("[v0] Error adding task:", error)
       toast.error("Failed to add task")
     } else {
-      setNewTask({ title: "", priority: "medium", status: "todo", deadline: "", assigned_to: "", linked: "" })
+      setNewTask({
+        title: "",
+        notes: "",
+        resources: [],
+        priority: "medium",
+        status: "todo",
+        deadline: "",
+        assigned_to: "",
+        linked: "",
+        related_context_type: "none",
+        related_context_id: "",
+        related_context_name: "",
+      })
+      setNewResourceUrl("")
+      setNewResourceTitle("")
       setIsDialogOpen(false)
       mutateTasks()
       toast.success("Task added successfully")
@@ -235,12 +267,17 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
 
     const taskData = {
       title: newTask.title,
+      notes: newTask.notes || null,
+      resources: newTask.resources.length > 0 ? newTask.resources : null,
       priority: newTask.priority,
       status: newTask.status,
       due_date: newTask.deadline ? new Date(newTask.deadline).toISOString() : null,
       assigned_to: newTask.assigned_to === UNASSIGNED ? null : newTask.assigned_to || null,
       linked: newTask.linked || null,
       is_completed: newTask.status === "completed",
+      related_context_type: newTask.related_context_type === "none" ? null : newTask.related_context_type || null, // convert "none" to null
+      related_context_id: newTask.related_context_id ? newTask.related_context_id : null,
+      related_context_name: newTask.related_context_name || null,
     }
 
     const { error } = await supabase.from("tasks").update(taskData).eq("id", editingTask.id)
@@ -251,7 +288,21 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
     } else {
       setIsEditOpen(false)
       setEditingTask(null)
-      setNewTask({ title: "", priority: "medium", status: "todo", deadline: "", assigned_to: "", linked: "" })
+      setNewTask({
+        title: "",
+        notes: "",
+        resources: [],
+        priority: "medium",
+        status: "todo",
+        deadline: "",
+        assigned_to: "",
+        linked: "",
+        related_context_type: "none",
+        related_context_id: "",
+        related_context_name: "",
+      })
+      setNewResourceUrl("")
+      setNewResourceTitle("")
       mutateTasks()
       toast.success("Task updated successfully")
     }
@@ -261,11 +312,16 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
     setEditingTask(task)
     setNewTask({
       title: task.title,
+      notes: task.notes || "",
+      resources: task.resources || [],
       priority: task.priority,
       status: task.status,
       deadline: task.due_date ? format(new Date(task.due_date), "yyyy-MM-dd'T'HH:mm") : "",
       assigned_to: task.assigned_to || UNASSIGNED,
       linked: task.linked || "",
+      related_context_type: (task.related_context_type as "" | "project" | "goal" | "meeting" | "none") || "none", // use "none" as default
+      related_context_id: task.related_context_id || "",
+      related_context_name: task.related_context_name || "",
     })
     setIsEditOpen(true)
     fetchTeamMembers()
@@ -446,6 +502,57 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                       onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
                     />
                   </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="notes">Notes</Label>
+                    <Input
+                      id="notes"
+                      placeholder="Additional notes"
+                      value={newTask.notes}
+                      onChange={(e) => setNewTask({ ...newTask, notes: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="resources">Resources</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="resource-url"
+                        placeholder="URL"
+                        value={newResourceUrl}
+                        onChange={(e) => setNewResourceUrl(e.target.value)}
+                      />
+                      <Input
+                        id="resource-title"
+                        placeholder="Title (Optional)"
+                        value={newResourceTitle}
+                        onChange={(e) => setNewResourceTitle(e.target.value)}
+                      />
+                      <Button
+                        onClick={() => {
+                          setNewTask({
+                            ...newTask,
+                            resources: [...newTask.resources, { url: newResourceUrl, title: newResourceTitle }],
+                          })
+                          setNewResourceUrl("")
+                          setNewResourceTitle("")
+                        }}
+                      >
+                        Add Resource
+                      </Button>
+                    </div>
+                    {newTask.resources.map((resource, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <span className="text-sm">{resource.title || "No title"}</span>
+                        <a
+                          href={resource.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm text-blue-500"
+                        >
+                          {resource.url}
+                        </a>
+                      </div>
+                    ))}
+                  </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="grid gap-2">
                       <Label htmlFor="priority">Priority</Label>
@@ -515,6 +622,41 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                       onChange={(e) => setNewTask({ ...newTask, linked: e.target.value })}
                     />
                   </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="related_context_type">Related Context Type (Optional)</Label>
+                    <Select
+                      value={newTask.related_context_type}
+                      onValueChange={(v) => setNewTask({ ...newTask, related_context_type: v })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select context type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">None</SelectItem>
+                        <SelectItem value="project">Project</SelectItem>
+                        <SelectItem value="goal">Goal</SelectItem>
+                        <SelectItem value="meeting">Meeting</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="related_context_id">Related Context ID (Optional)</Label>
+                    <Input
+                      id="related_context_id"
+                      placeholder="Related context ID"
+                      value={newTask.related_context_id}
+                      onChange={(e) => setNewTask({ ...newTask, related_context_id: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="related_context_name">Related Context Name (Optional)</Label>
+                    <Input
+                      id="related_context_name"
+                      placeholder="Related context name"
+                      value={newTask.related_context_name}
+                      onChange={(e) => setNewTask({ ...newTask, related_context_name: e.target.value })}
+                    />
+                  </div>
                 </div>
                 <DialogFooter>
                   <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
@@ -546,6 +688,57 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                     value={newTask.title}
                     onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
                   />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="edit-notes">Notes</Label>
+                  <Input
+                    id="edit-notes"
+                    placeholder="Additional notes"
+                    value={newTask.notes}
+                    onChange={(e) => setNewTask({ ...newTask, notes: e.target.value })}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="edit-resources">Resources</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="edit-resource-url"
+                      placeholder="URL"
+                      value={newResourceUrl}
+                      onChange={(e) => setNewResourceUrl(e.target.value)}
+                    />
+                    <Input
+                      id="edit-resource-title"
+                      placeholder="Title (Optional)"
+                      value={newResourceTitle}
+                      onChange={(e) => setNewResourceTitle(e.target.value)}
+                    />
+                    <Button
+                      onClick={() => {
+                        setNewTask({
+                          ...newTask,
+                          resources: [...newTask.resources, { url: newResourceUrl, title: newResourceTitle }],
+                        })
+                        setNewResourceUrl("")
+                        setNewResourceTitle("")
+                      }}
+                    >
+                      Add Resource
+                    </Button>
+                  </div>
+                  {newTask.resources.map((resource, index) => (
+                    <div key={index} className="flex items-center gap-2">
+                      <span className="text-sm">{resource.title || "No title"}</span>
+                      <a
+                        href={resource.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-blue-500"
+                      >
+                        {resource.url}
+                      </a>
+                    </div>
+                  ))}
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
@@ -613,6 +806,41 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                     onChange={(e) => setNewTask({ ...newTask, linked: e.target.value })}
                   />
                 </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="edit-related_context_type">Related Context Type (Optional)</Label>
+                  <Select
+                    value={newTask.related_context_type}
+                    onValueChange={(v) => setNewTask({ ...newTask, related_context_type: v })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select context type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="project">Project</SelectItem>
+                      <SelectItem value="goal">Goal</SelectItem>
+                      <SelectItem value="meeting">Meeting</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="edit-related_context_id">Related Context ID (Optional)</Label>
+                  <Input
+                    id="edit-related_context_id"
+                    placeholder="Related context ID"
+                    value={newTask.related_context_id}
+                    onChange={(e) => setNewTask({ ...newTask, related_context_id: e.target.value })}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="edit-related_context_name">Related Context Name (Optional)</Label>
+                  <Input
+                    id="edit-related_context_name"
+                    placeholder="Related context name"
+                    value={newTask.related_context_name}
+                    onChange={(e) => setNewTask({ ...newTask, related_context_name: e.target.value })}
+                  />
+                </div>
               </div>
               <DialogFooter>
                 <Button
@@ -670,7 +898,7 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
         </Card>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between">
         <div className="flex items-center gap-2 w-full md:w-auto">
           <div className="relative flex-1 md:w-64">
             {/* Filter icon */}
