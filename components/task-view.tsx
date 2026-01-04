@@ -1107,25 +1107,25 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="size-8 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        className="size-8 opacity-30 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive hover:bg-destructive/10"
                         onClick={(e) => {
                           e.stopPropagation()
                           handleDeleteClick(task.id)
                         }}
+                        title="Delete task"
                       >
-                        {/* Trash2 icon */}
                         <Trash2 size={16} />
                       </Button>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="size-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                        className="size-8 opacity-30 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary hover:bg-primary/10"
                         onClick={(e) => {
                           e.stopPropagation()
                           handleEditClick(task)
                         }}
+                        title="Edit task"
                       >
-                        {/* Pencil icon */}
                         <Pencil size={16} />
                       </Button>
                     </div>
