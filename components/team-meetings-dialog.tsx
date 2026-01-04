@@ -86,17 +86,26 @@ export function TeamMeetingsDialog({ open, onOpenChange, onMeetingCreated, teamM
 
   const handleCreateMeeting = async () => {
     if (!title.trim()) {
-      toast.error("Please enter a meeting title")
+      toast({
+        description: "Please enter a meeting title",
+        variant: "destructive",
+      })
       return
     }
 
     if (meetingType === "individual" && !selectedMember) {
-      toast.error("Please select a team member")
+      toast({
+        description: "Please select a team member",
+        variant: "destructive",
+      })
       return
     }
 
     if (meetingType === "joint" && selectedParticipants.length === 0) {
-      toast.error("Please select at least one participant")
+      toast({
+        description: "Please select at least one participant",
+        variant: "destructive",
+      })
       return
     }
 
@@ -126,19 +135,28 @@ export function TeamMeetingsDialog({ open, onOpenChange, onMeetingCreated, teamM
         await addMeetingParticipants(meeting.id, user.id, selectedParticipants)
       }
 
-      toast.success(
-        `Meeting created for ${meetingType === "individual" ? "1" : selectedParticipants.length + 1} participant(s)`,
-      )
+      toast({
+        description: `Meeting created for ${meetingType === "individual" ? "1" : selectedParticipants.length + 1} participant(s)`,
+      })
       onOpenChange(false)
       onMeetingCreated?.()
     } catch (error: any) {
       console.error("[v0] Error creating meeting:", error)
       if (error.message.includes("infinite recursion")) {
-        toast.error("Database policy error - please contact support")
+        toast({
+          description: "Database policy error - please contact support",
+          variant: "destructive",
+        })
       } else if (error.message.includes("Unauthorized")) {
-        toast.error("You don't have permission to create meetings")
+        toast({
+          description: "You don't have permission to create meetings",
+          variant: "destructive",
+        })
       } else {
-        toast.error(error.message || "Failed to create meeting")
+        toast({
+          description: error.message || "Failed to create meeting",
+          variant: "destructive",
+        })
       }
     } finally {
       setLoading(false)
