@@ -22,7 +22,7 @@ import {
 import { toast } from "react-hot-toast"
 import { format, isThisWeek, isPast, differenceInDays } from "date-fns"
 import useSWR from "swr"
-import { Plus, Clock, Filter, Trash2, Pencil, CheckCircle2, Link, Activity } from "lucide-react"
+import { Plus, Clock, Filter, Trash2, Pencil, CheckCircle2, Activity, Calendar } from "lucide-react"
 
 const BUCKETS = ["today", "this-week", "delegated", "backlog"]
 const PRIORITIES = ["low", "medium", "high", "urgent"]
@@ -71,10 +71,11 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
   const [activeFilter, setActiveFilter] = useState("all")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
-  const [editingTask, setEditingTask] = useState<Task | null>(null)
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false) // Added state for task details modal
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
+  const [editingTask, setEditingTask] = useState<Task | null>(null)
+  const [detailsTask, setDetailsTask] = useState<Task | null>(null) // Store task for details view
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
   const [newTask, setNewTask] = useState({
     title: "",
@@ -471,8 +472,13 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
     (task) => !task.is_completed && task.due_date && isThisWeek(new Date(task.due_date)),
   )
 
+  const handleViewTaskDetails = (task: Task) => {
+    setDetailsTask(task)
+    setIsDetailsOpen(true)
+  }
+
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex flex-col gap-1">
           <h1 className="text-3xl font-bold tracking-tight">Tasks & Execution</h1>
@@ -974,12 +980,16 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
           <div key={task.id} className="relative group">
             <Card
               className={`group hover:border-primary/30 transition-all cursor-pointer shadow-sm ${task.is_completed ? "opacity-60" : ""}`}
+              onClick={() => handleViewTaskDetails(task)}
             >
               <CardContent className="p-4">
                 <div className="flex items-center gap-4">
                   <div
                     className={`size-6 rounded border-2 flex items-center justify-center transition-colors shrink-0 ${task.is_completed ? "bg-primary border-primary" : "border-muted-foreground/30 hover:border-primary hover:bg-primary/10"}`}
-                    onClick={() => toggleTask(task.id, task.is_completed)}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      toggleTask(task.id, task.is_completed)
+                    }}
                   >
                     {task.is_completed ? (
                       <CheckCircle2 size={16} className="text-primary-foreground" />
@@ -1002,70 +1012,98 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                       </Badge>
                       {task.due_date && getDeadlineBadge(task.due_date)}
                     </div>
-                    <div className="flex items-center gap-4 text-xs text-muted-foreground font-medium flex-wrap">
+
+                    {task.resources && task.resources.length > 0 && (
+                      <div className="flex flex-col gap-1 mb-2 text-xs">
+                        {task.resources.map((resource, index) => (
+                          <div key={index} className="flex items-center gap-1">
+                            <span className="font-medium text-muted-foreground">{resource.title || "Link"}:</span>
+                            <a
+                              href={resource.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-blue-500 hover:underline"
+                              title={resource.url}
+                            >
+                              click here
+                            </a>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {task.notes && <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{task.notes}</p>}
+
+                    {/* Existing task metadata ... */}
+                    <span className="flex items-center gap-1.5 text-xs text-muted-foreground mb-2">
                       {task.linked && (
                         <span className="flex items-center gap-1.5">
-                          {/* Link icon */}
-                          <Link size={12} />
-                          Linked to: <span className="text-foreground">{task.linked}</span>
+                          Linked to:{" "}
+                          <Badge variant="outline" className="text-[8px]">
+                            {task.linked}
+                          </Badge>
                         </span>
                       )}
-                      {task.assigned_to && (
-                        <span className="flex items-center gap-1.5">
-                          Assigned:
-                          <span className="text-foreground">
-                            {teamMembers.find((m) => m.user_id === task.assigned_to)?.profile?.full_name ??
-                              "Unassigned"}
-                          </span>
-                        </span>
-                      )}
-                      {permissions?.can_update_task_status && (
-                        <span className="flex items-center gap-1.5">
-                          Status:{" "}
-                          <Select value={task.status} onValueChange={(v) => updateTaskStatus(task.id, v)}>
-                            <SelectTrigger className="h-6 w-28 text-xs border-0 p-0 font-medium text-foreground">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {STATUSES.map((s) => (
-                                <SelectItem key={s} value={s} className="text-xs capitalize">
-                                  {s.replace("-", " ")}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </span>
-                      )}
-                    </div>
+                    </span>
+
+                    {task.assigned_to && (
+                      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        Assigned:{" "}
+                        <Badge variant="outline" className="text-[8px]">
+                          {task.assigned_to}
+                        </Badge>
+                      </span>
+                    )}
+
+                    {permissions?.can_update_task_status && (
+                      <span className="flex items-center gap-1.5">
+                        Status:{" "}
+                        <Select value={task.status} onValueChange={(v) => updateTaskStatus(task.id, v)}>
+                          <SelectTrigger className="h-6 w-28 text-xs border-0 p-0 font-medium text-foreground">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {STATUSES.map((s) => (
+                              <SelectItem key={s} value={s} className="text-xs capitalize">
+                                {s.replace("-", " ")}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </span>
+                    )}
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive hover:bg-destructive/10"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setSelectedTask(task)
-                        setIsDeleteModalOpen(true)
-                      }}
-                    >
-                      {/* Trash2 icon */}
-                      <Trash2 size={16} />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-primary hover:bg-primary/10"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleEditClick(task)
-                      }}
-                    >
-                      {/* Pencil icon */}
-                      <Pencil size={16} />
-                    </Button>
-                  </div>
+                  {permissions?.can_create_tasks && (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setSelectedTask(task)
+                          setIsDeleteModalOpen(true)
+                        }}
+                      >
+                        {/* Trash2 icon */}
+                        <Trash2 size={16} />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleEditClick(task)
+                        }}
+                      >
+                        {/* Pencil icon */}
+                        <Pencil size={16} />
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -1092,6 +1130,131 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-2xl">{detailsTask?.title}</DialogTitle>
+          </DialogHeader>
+
+          {detailsTask && (
+            <div className="space-y-6">
+              {/* Task Status and Priority */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-xs font-semibold text-muted-foreground">Status</Label>
+                  <div className="mt-1 text-lg font-medium capitalize">{detailsTask.status}</div>
+                </div>
+                <div>
+                  <Label className="text-xs font-semibold text-muted-foreground">Priority</Label>
+                  <div className="mt-1">
+                    <Badge className={`${getPriorityColor(detailsTask.priority)}`}>{detailsTask.priority}</Badge>
+                  </div>
+                </div>
+              </div>
+
+              {/* Deadline */}
+              {detailsTask.due_date && (
+                <div>
+                  <Label className="text-xs font-semibold text-muted-foreground">Deadline</Label>
+                  <div className="mt-1 text-sm flex items-center gap-2">
+                    <Calendar size={16} className="text-muted-foreground" />
+                    {format(new Date(detailsTask.due_date), "PPP p")}
+                    {getDeadlineBadge(detailsTask.due_date)}
+                  </div>
+                </div>
+              )}
+
+              {/* Assigned To */}
+              {detailsTask.assigned_to && (
+                <div>
+                  <Label className="text-xs font-semibold text-muted-foreground">Assigned To</Label>
+                  <div className="mt-1 text-sm">{detailsTask.assigned_to}</div>
+                </div>
+              )}
+
+              {/* Linked To */}
+              {detailsTask.linked && (
+                <div>
+                  <Label className="text-xs font-semibold text-muted-foreground">Linked To</Label>
+                  <div className="mt-1">
+                    <Badge variant="outline">{detailsTask.linked}</Badge>
+                  </div>
+                </div>
+              )}
+
+              {/* Notes */}
+              {detailsTask.notes && (
+                <div>
+                  <Label className="text-xs font-semibold text-muted-foreground">Notes</Label>
+                  <div className="mt-1 text-sm whitespace-pre-wrap">{detailsTask.notes}</div>
+                </div>
+              )}
+
+              {/* Resources */}
+              {detailsTask.resources && detailsTask.resources.length > 0 && (
+                <div>
+                  <Label className="text-xs font-semibold text-muted-foreground">Resources</Label>
+                  <div className="mt-2 flex flex-col gap-2">
+                    {detailsTask.resources.map((resource, index) => (
+                      <a
+                        key={index}
+                        href={resource.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-2 rounded border border-border bg-muted/30 hover:bg-muted text-sm"
+                      >
+                        <div className="font-medium text-primary">{resource.title || "Link"}</div>
+                        <div className="text-xs text-muted-foreground truncate">{resource.url}</div>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Metadata */}
+              {detailsTask.related_context_type && (
+                <div>
+                  <Label className="text-xs font-semibold text-muted-foreground">Related Context</Label>
+                  <div className="mt-1 text-sm capitalize">
+                    {detailsTask.related_context_type}
+                    {detailsTask.related_context_name && ` - ${detailsTask.related_context_name}`}
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-4 border-t flex gap-2">
+                {permissions?.can_create_tasks && (
+                  <>
+                    <Button
+                      variant="default"
+                      onClick={() => {
+                        handleEditClick(detailsTask)
+                        setIsDetailsOpen(false)
+                      }}
+                    >
+                      Edit Task
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      onClick={() => {
+                        setSelectedTask(detailsTask)
+                        setIsDetailsOpen(false)
+                        setIsDeleteModalOpen(true)
+                      }}
+                    >
+                      Delete Task
+                    </Button>
+                  </>
+                )}
+                <Button variant="outline" onClick={() => setIsDetailsOpen(false)}>
+                  Close
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
