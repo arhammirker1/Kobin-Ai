@@ -22,22 +22,22 @@ import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { toast } from "sonner"
 
-const ANALYTICS = [
-  { label: "Profile Visits", value: "2,482", change: "+18%", Icon: Eye },
-  { label: "Post Impressions", value: "84.2k", change: "+24%", Icon: TrendingUp },
-  { label: "Engagements", value: "1,240", change: "+5%", Icon: ThumbsUp },
-  { label: "New Leads", value: "14", change: "+2", Icon: BarChart2 },
-]
-
 export function LinkedinView() {
   const [drafts, setDrafts] = useState<any[]>([])
   const [content, setContent] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  const [analytics, setAnalytics] = useState({
+    profileVisits: 0,
+    postImpressions: 0,
+    engagements: 0,
+    newLeads: 0,
+  })
 
   const supabase = createClient()
 
   useEffect(() => {
     fetchDrafts()
+    fetchAnalytics()
   }, [])
 
   const fetchDrafts = async () => {
@@ -58,6 +58,39 @@ export function LinkedinView() {
     } else {
       setDrafts(data || [])
     }
+  }
+
+  const fetchAnalytics = async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) return
+
+    const { data: posts } = await supabase
+      .from("linkedin_posts")
+      .select("id, impressions, engagement_count")
+      .eq("user_id", user.id)
+      .eq("status", "Published")
+
+    const thirtyDaysAgo = new Date()
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+
+    const { data: recentLeads } = await supabase
+      .from("relationships")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("relationship_type", "lead")
+      .gte("created_at", thirtyDaysAgo.toISOString())
+
+    const totalImpressions = posts?.reduce((sum, post) => sum + (post.impressions || 0), 0) || 0
+    const totalEngagements = posts?.reduce((sum, post) => sum + (post.engagement_count || 0), 0) || 0
+
+    setAnalytics({
+      profileVisits: 0,
+      postImpressions: totalImpressions,
+      engagements: totalEngagements,
+      newLeads: recentLeads?.length || 0,
+    })
   }
 
   const handleSaveDraft = async () => {
@@ -89,6 +122,13 @@ export function LinkedinView() {
     window.location.href = "/api/auth/linkedin"
   }
 
+  const ANALYTICS = [
+    { label: "Profile Visits", value: analytics.profileVisits.toLocaleString(), change: "—", Icon: Eye },
+    { label: "Post Impressions", value: analytics.postImpressions.toLocaleString(), change: "—", Icon: TrendingUp },
+    { label: "Engagements", value: analytics.engagements.toLocaleString(), change: "—", Icon: ThumbsUp },
+    { label: "New Leads", value: analytics.newLeads.toString(), change: "Last 30d", Icon: BarChart2 },
+  ]
+
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -115,7 +155,9 @@ export function LinkedinView() {
               <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">{stat.label}</span>
               <div className="flex items-baseline gap-2">
                 <span className="text-xl font-bold">{stat.value}</span>
-                <span className="text-[10px] text-emerald-500 font-bold flex items-center gap-0.5">{stat.change}</span>
+                <span className="text-[10px] text-muted-foreground font-bold flex items-center gap-0.5">
+                  {stat.change}
+                </span>
               </div>
             </CardContent>
           </Card>

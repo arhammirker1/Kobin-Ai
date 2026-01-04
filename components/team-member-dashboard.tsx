@@ -5,18 +5,7 @@ import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { useRouter } from "next/navigation"
-import {
-  LogOut,
-  Home,
-  Calendar,
-  CheckSquare,
-  Linkedin,
-  Users,
-  FileText,
-  Settings,
-  LayoutDashboard,
-  Video,
-} from "lucide-react"
+import { LogOut, Home, Calendar, CheckSquare, Linkedin, Users, FileText, Settings, LayoutDashboard } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import {
   SidebarProvider,
@@ -37,7 +26,6 @@ import { CrmView } from "@/components/crm-view"
 import { VaultView } from "@/components/vault-view"
 import { SettingsView } from "@/components/settings-view"
 import { TaskView } from "@/components/task-view"
-import { MeetingsView } from "@/components/meetings-view"
 import useSWR, { mutate } from "swr"
 
 interface TeamMemberPermissions {
@@ -162,7 +150,6 @@ export function TeamMemberDashboard({ permissions }: { permissions: TeamMemberPe
   const navItems = [
     { title: "Home", icon: Home, show: true },
     { title: "Calendar", icon: Calendar, show: permissions.can_view_calendar },
-    { title: "Meetings", icon: Video, show: permissions.can_view_calendar },
     { title: "Tasks", icon: CheckSquare, show: permissions.can_view_tasks },
     { title: "LinkedIn", icon: Linkedin, show: permissions.can_view_linkedin },
     { title: "Relationships", icon: Users, show: permissions.can_view_relationships },
@@ -273,7 +260,7 @@ export function TeamMemberDashboard({ permissions }: { permissions: TeamMemberPe
             )}
             {activeTab === "Tasks" && permissions.can_view_tasks && (
               <TaskView
-                userType="team_member"
+                userType="team_member" // Explicitly set userType
                 permissions={{
                   can_create_tasks: permissions.can_create_tasks,
                   can_update_task_status: permissions.can_update_task_status,
@@ -281,7 +268,7 @@ export function TeamMemberDashboard({ permissions }: { permissions: TeamMemberPe
                 }}
               />
             )}
-            {activeTab === "Meetings" && permissions.can_view_calendar && <MeetingsView userType="team_member" />}
+            {/* Dynamic rendering for other views if permissions allow */}
             {activeTab === "Calendar" && permissions.can_view_calendar && <CalendarView />}
             {activeTab === "LinkedIn" && permissions.can_view_linkedin && <LinkedinView />}
             {activeTab === "Relationships" && permissions.can_view_relationships && <CrmView />}

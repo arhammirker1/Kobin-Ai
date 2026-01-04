@@ -10,7 +10,6 @@ import {
   DollarSign,
   Settings,
   LayoutDashboard,
-  Video,
 } from "lucide-react"
 import {
   Sidebar,
@@ -37,7 +36,6 @@ const mainNav = [
 ]
 
 const extraNav = [
-  { title: "Meetings", icon: Video },
   { title: "Team", icon: Users2 },
   { title: "Financials", icon: DollarSign },
   { title: "Settings", icon: Settings },

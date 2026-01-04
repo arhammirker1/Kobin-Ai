@@ -8,7 +8,6 @@ import { CrmView } from "@/components/crm-view"
 import { VaultView } from "@/components/vault-view"
 import { SettingsView } from "@/components/settings-view"
 import { TeamView } from "@/components/team-view"
-import { MeetingsView } from "@/components/meetings-view"
 import { Header } from "@/components/header"
 import { FileText } from "lucide-react"
 
@@ -18,12 +17,11 @@ export function DashboardContent({ activeTab, userType }: { activeTab: string; u
       <Header />
       <div className="flex-1 p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto w-full">
         {activeTab === "Home" && <TodayView />}
-        {activeTab === "Tasks" && <TaskView userType={userType} />}
+        {activeTab === "Tasks" && <TaskView userType={userType} />} {/* Passing userType */}
         {activeTab === "Calendar" && <CalendarView />}
         {activeTab === "LinkedIn" && <LinkedinView />}
         {activeTab === "Relationships" && <CrmView />}
         {activeTab === "Vault" && <VaultView />}
-        {activeTab === "Meetings" && <MeetingsView userType="founder" />}
         {activeTab === "Team" && <TeamView />}
         {activeTab === "Settings" && <SettingsView />}
         {/* Placeholder for other views */}
@@ -33,7 +31,6 @@ export function DashboardContent({ activeTab, userType }: { activeTab: string; u
           activeTab !== "LinkedIn" &&
           activeTab !== "Relationships" &&
           activeTab !== "Vault" &&
-          activeTab !== "Meetings" &&
           activeTab !== "Team" &&
           activeTab !== "Settings" && (
             <div className="flex flex-col items-center justify-center h-full text-center py-24">
