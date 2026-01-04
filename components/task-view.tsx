@@ -473,14 +473,34 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
   )
 
   const handleViewTaskDetails = (task: Task) => {
-    setDetailsTask(task)
-    setIsDetailsOpen(true)
+    if (teamMembers.length === 0) {
+      fetchTeamMembers().then(() => {
+        setDetailsTask(task)
+        setIsDetailsOpen(true)
+      })
+    } else {
+      setDetailsTask(task)
+      setIsDetailsOpen(true)
+    }
   }
 
   const getAssigneeName = (assigneeId: string | null) => {
     if (!assigneeId || assigneeId === UNASSIGNED) return null
     const member = teamMembers.find((m) => m.user_id === assigneeId)
-    return member?.profile?.full_name || assigneeId
+    if (member?.profile?.full_name) {
+      return member.profile.full_name
+    }
+    // If not found in teamMembers array, try to extract from the assigneeId
+    // This handles the case where teamMembers haven't been fetched yet
+    return assigneeId
+  }
+
+  const handleDeleteClick = (taskId: string) => {
+    const taskToDelete = tasks?.find((t) => t.id === taskId)
+    if (taskToDelete) {
+      setSelectedTask(taskToDelete)
+      setIsDeleteModalOpen(true)
+    }
   }
 
   return (
@@ -1090,8 +1110,7 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                         className="size-8 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive hover:bg-destructive/10"
                         onClick={(e) => {
                           e.stopPropagation()
-                          setSelectedTask(task)
-                          setIsDeleteModalOpen(true)
+                          handleDeleteClick(task.id)
                         }}
                       >
                         {/* Trash2 icon */}
@@ -1248,16 +1267,15 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                     <Button
                       variant="destructive"
                       onClick={() => {
-                        setSelectedTask(detailsTask)
+                        handleDeleteClick(detailsTask.id)
                         setIsDetailsOpen(false)
-                        setIsDeleteModalOpen(true)
                       }}
                     >
                       Delete Task
                     </Button>
                   </>
                 )}
-                <Button variant="outline" onClick={() => setIsDetailsOpen(false)}>
+                <Button variant="outline" onClick={() => setIsDetailsOpen(false)} className="ml-auto">
                   Close
                 </Button>
               </div>
