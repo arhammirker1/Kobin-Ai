@@ -260,6 +260,7 @@ export function TeamMemberDashboard({ permissions }: { permissions: TeamMemberPe
             )}
             {activeTab === "Tasks" && permissions.can_view_tasks && (
               <TaskView
+                userType="team_member" // Explicitly set userType
                 permissions={{
                   can_create_tasks: permissions.can_create_tasks,
                   can_update_task_status: permissions.can_update_task_status,

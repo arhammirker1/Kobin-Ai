@@ -11,20 +11,19 @@ import { TeamView } from "@/components/team-view"
 import { Header } from "@/components/header"
 import { FileText } from "lucide-react"
 
-export function DashboardContent({ activeTab }: { activeTab: string }) {
+export function DashboardContent({ activeTab, userType }: { activeTab: string; userType?: string }) {
   return (
     <div className="flex flex-col min-h-full w-full">
       <Header />
       <div className="flex-1 p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto w-full">
         {activeTab === "Home" && <TodayView />}
-        {activeTab === "Tasks" && <TaskView />}
+        {activeTab === "Tasks" && <TaskView userType={userType} />} {/* Passing userType */}
         {activeTab === "Calendar" && <CalendarView />}
         {activeTab === "LinkedIn" && <LinkedinView />}
         {activeTab === "Relationships" && <CrmView />}
         {activeTab === "Vault" && <VaultView />}
         {activeTab === "Team" && <TeamView />}
         {activeTab === "Settings" && <SettingsView />}
-
         {/* Placeholder for other views */}
         {activeTab !== "Home" &&
           activeTab !== "Tasks" &&

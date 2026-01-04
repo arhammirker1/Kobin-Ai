@@ -74,7 +74,7 @@ export default function Page() {
       <div className="flex min-h-screen w-full bg-background">
         <DashboardSidebar activeTab={activeTab} setActiveTab={setActiveTab} />
         <main className="flex-1 overflow-y-auto">
-          <DashboardContent activeTab={activeTab} />
+          <DashboardContent activeTab={activeTab} userType={userType || "founder"} /> {/* Passing userType */}
         </main>
       </div>
     </SidebarProvider>

@@ -63,9 +63,14 @@ interface TaskViewProps {
     can_update_task_status: boolean
     founder_id?: string
   }
+  userType?: string // added userType to props to distinguish founders
 }
 
-export function TaskView({ permissions }: TaskViewProps = {}) {
+export function TaskView({ permissions, userType }: TaskViewProps = {}) {
+  const canEditOrDelete = userType === "founder" || permissions?.can_create_tasks
+  const canUpdateStatus = userType === "founder" || permissions?.can_update_task_status
+  const canCreate = userType === "founder" || permissions?.can_create_tasks
+
   const supabase = createClient()
   const [activeBucket, setActiveBucket] = useState("today")
   const [activeFilter, setActiveFilter] = useState("all")
@@ -108,14 +113,14 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
 
       const query = supabase.from("tasks").select("*").eq("bucket", activeBucket)
 
-      if (permissions?.founder_id) {
-        // Team member view: Show tasks created by founder, assigned to them, or created by them
-        query.or(
-          `user_id.eq.${permissions.founder_id},assigned_to.eq.${user.id},created_by.eq.${user.id},user_id.eq.${user.id}`,
-        )
-      } else {
+      if (userType === "founder") {
         // Founder view
         query.or(`user_id.eq.${user.id},created_by.eq.${user.id}`)
+      } else {
+        // Team member view
+        query.or(
+          `user_id.eq.${permissions?.founder_id},assigned_to.eq.${user.id},created_by.eq.${user.id},user_id.eq.${user.id}`,
+        )
       }
 
       const { data, error } = await query.order("created_at", { ascending: false })
@@ -511,7 +516,7 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
           <p className="text-muted-foreground text-sm">Founder-first task management. No complexity, just momentum.</p>
         </div>
         <div className="flex gap-2 w-full md:w-auto">
-          {(permissions?.can_create_tasks ?? true) && (
+          {canCreate && ( // Using new permission check
             <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
               <DialogTrigger asChild>
                 <Button className="gap-2 shadow-sm font-bold" onClick={() => fetchTeamMembers()}>
@@ -1083,7 +1088,7 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                       </span>
                     )}
 
-                    {permissions?.can_update_task_status && (
+                    {canUpdateStatus && ( // Using new permission check
                       <span className="flex items-center gap-1.5">
                         Status:{" "}
                         <Select value={task.status} onValueChange={(v) => updateTaskStatus(task.id, v)}>
@@ -1102,7 +1107,7 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                     )}
                   </div>
 
-                  {permissions?.can_create_tasks && (
+                  {canEditOrDelete && ( // Using new permission check
                     <div className="flex items-center gap-2">
                       <Button
                         variant="ghost"
@@ -1253,7 +1258,7 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
               )}
 
               <div className="pt-4 border-t flex gap-2">
-                {permissions?.can_create_tasks && (
+                {canEditOrDelete && ( // Using new permission check
                   <>
                     <Button
                       variant="default"
