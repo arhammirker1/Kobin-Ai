@@ -349,19 +349,8 @@ export function CalendarView() {
                       <Input
                         id="edit-date"
                         type="date"
-                        value={format(parseISO(editingEvent.start_time), "yyyy-MM-dd")}
-                        onChange={(e) => {
-                          const newDate = e.target.value
-                          const oldStart = parseISO(editingEvent.start_time)
-                          const newStart = new Date(newDate + "T" + format(oldStart, "HH:mm"))
-                          const oldEnd = parseISO(editingEvent.end_time)
-                          const newEnd = new Date(newDate + "T" + format(oldEnd, "HH:mm"))
-                          setEditingEvent({
-                            ...editingEvent,
-                            start_time: newStart.toISOString(),
-                            end_time: newEnd.toISOString(),
-                          })
-                        }}
+                        value={editingEvent.date}
+                        onChange={(e) => setEditingEvent({ ...editingEvent, date: e.target.value })}
                       />
                     </div>
                     <div className="grid gap-2">
