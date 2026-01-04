@@ -207,12 +207,28 @@ export function CrmView() {
   }
 
   const handleScheduleMeeting = async () => {
-    if (!selectedRelationship) return
+    if (!selectedRelationship) {
+      toast.error("Please select a relationship")
+      return
+    }
 
     const {
       data: { user },
     } = await supabase.auth.getUser()
     if (!user) return
+
+    const { data: relationshipExists, error: checkError } = await supabase
+      .from("relationships")
+      .select("id")
+      .eq("id", selectedRelationship.id)
+      .eq("user_id", user.id)
+      .single()
+
+    if (checkError || !relationshipExists) {
+      toast.error("Relationship not found. It may have been deleted.")
+      setSelectedRelationship(null)
+      return
+    }
 
     const start = parseISO(`${newMeeting.date}T${newMeeting.startTime}`)
     const end = parseISO(`${newMeeting.date}T${newMeeting.endTime}`)
