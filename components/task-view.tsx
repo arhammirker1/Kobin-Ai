@@ -23,6 +23,7 @@ import { toast } from "react-hot-toast"
 import { format, isThisWeek, isPast, differenceInDays } from "date-fns"
 import useSWR from "swr"
 import { Plus, Clock, Filter, Trash2, Pencil, CheckCircle2, Activity, Calendar } from "lucide-react"
+import { TaskForm } from "@/components/task-form"
 
 const BUCKETS = ["today", "this-week", "delegated", "backlog"]
 const PRIORITIES = ["low", "medium", "high", "urgent"]
@@ -517,185 +518,23 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
                 <DialogHeader>
                   <DialogTitle>Add New Task</DialogTitle>
                 </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="title">Task Title</Label>
-                    <Input
-                      id="title"
-                      placeholder="What needs to be done?"
-                      value={newTask.title}
-                      onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="notes">Notes</Label>
-                    <Input
-                      id="notes"
-                      placeholder="Additional notes"
-                      value={newTask.notes}
-                      onChange={(e) => setNewTask({ ...newTask, notes: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="resources">Resources</Label>
-                    <div className="flex flex-col gap-2">
-                      <div className="flex gap-2 flex-col md:flex-row">
-                        <Input
-                          id="resource-url"
-                          placeholder="URL"
-                          value={newResourceUrl}
-                          onChange={(e) => setNewResourceUrl(e.target.value)}
-                          className="flex-1 min-w-0"
-                        />
-                        <Input
-                          id="resource-title"
-                          placeholder="Title (Optional)"
-                          value={newResourceTitle}
-                          onChange={(e) => setNewResourceTitle(e.target.value)}
-                          className="flex-1 min-w-0"
-                        />
-                        <Button
-                          onClick={() => {
-                            setNewTask({
-                              ...newTask,
-                              resources: [...newTask.resources, { url: newResourceUrl, title: newResourceTitle }],
-                            })
-                            setNewResourceUrl("")
-                            setNewResourceTitle("")
-                          }}
-                          className="shrink-0"
-                        >
-                          Add Resource
-                        </Button>
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        {newTask.resources.map((resource, index) => (
-                          <div key={index} className="flex items-center gap-2">
-                            <a
-                              href={resource.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 hover:bg-primary/20 text-xs text-primary font-medium"
-                              title={resource.url}
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              {resource.title || "Link"}
-                              <span className="text-primary/60">→</span>
-                            </a>
-                            <button
-                              onClick={() => {
-                                setNewTask({
-                                  ...newTask,
-                                  resources: newTask.resources.filter((_, i) => i !== index),
-                                })
-                              }}
-                              className="text-destructive hover:text-destructive/80 text-xs font-medium"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="grid gap-2">
-                      <Label htmlFor="priority">Priority</Label>
-                      <Select value={newTask.priority} onValueChange={(v) => setNewTask({ ...newTask, priority: v })}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {PRIORITIES.map((p) => (
-                            <SelectItem key={p} value={p} className="capitalize">
-                              {p}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="status">Status</Label>
-                      <Select value={newTask.status} onValueChange={(v) => setNewTask({ ...newTask, status: v })}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {STATUSES.map((s) => (
-                            <SelectItem key={s} value={s} className="capitalize">
-                              {s.replace("-", " ")}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="deadline">Deadline</Label>
-                    <Input
-                      id="deadline"
-                      type="datetime-local"
-                      value={newTask.deadline}
-                      onChange={(e) => setNewTask({ ...newTask, deadline: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="assigned_to">Assign To (Optional)</Label>
-                    <Select
-                      value={newTask.assigned_to}
-                      onValueChange={(v) => setNewTask({ ...newTask, assigned_to: v })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select team member" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={UNASSIGNED}>Unassigned</SelectItem>
-                        {teamMembers.map((member) => (
-                          <SelectItem key={member.user_id} value={member.user_id}>
-                            {member.profile?.full_name ?? "Unnamed"} - {member.position}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="linked">Linked To (Optional)</Label>
-                    <Input
-                      id="linked"
-                      placeholder="Related project or goal"
-                      value={newTask.linked}
-                      onChange={(e) => setNewTask({ ...newTask, linked: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="related_context_type">Related Context Type (Optional)</Label>
-                    <Select
-                      value={newTask.related_context_type}
-                      onValueChange={(v) =>
-                        setNewTask({
-                          ...newTask,
-                          related_context_type: v as "project" | "goal" | "meeting" | "none",
-                        })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select context type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">None</SelectItem>
-                        <SelectItem value="project">Project</SelectItem>
-                        <SelectItem value="goal">Goal</SelectItem>
-                        <SelectItem value="meeting">Meeting</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
+                <TaskForm
+                  task={newTask}
+                  onTaskChange={setNewTask}
+                  teamMembers={teamMembers}
+                  newResourceUrl={newResourceUrl}
+                  setNewResourceUrl={setNewResourceUrl}
+                  newResourceTitle={newResourceTitle}
+                  setNewResourceTitle={setNewResourceTitle}
+                />
                 <DialogFooter>
                   <Button
                     variant="outline"
                     onClick={() => {
                       setIsDialogOpen(false)
                       setNewTask(INITIAL_TASK_STATE)
+                      setNewResourceUrl("")
+                      setNewResourceTitle("")
                     }}
                   >
                     Cancel
@@ -722,175 +561,15 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
               <DialogHeader>
                 <DialogTitle>Edit Task</DialogTitle>
               </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="edit-title">Task Title</Label>
-                  <Input
-                    id="edit-title"
-                    placeholder="What needs to be done?"
-                    value={newTask.title}
-                    onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="edit-notes">Notes</Label>
-                  <Input
-                    id="edit-notes"
-                    placeholder="Additional notes"
-                    value={newTask.notes}
-                    onChange={(e) => setNewTask({ ...newTask, notes: e.target.value })}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="edit-resources">Resources</Label>
-                  <div className="flex flex-col gap-2">
-                    <div className="flex gap-2 flex-col md:flex-row">
-                      <Input
-                        id="edit-resource-url"
-                        placeholder="URL"
-                        value={newResourceUrl}
-                        onChange={(e) => setNewResourceUrl(e.target.value)}
-                        className="flex-1 min-w-0"
-                      />
-                      <Input
-                        id="edit-resource-title"
-                        placeholder="Title (Optional)"
-                        value={newResourceTitle}
-                        onChange={(e) => setNewResourceTitle(e.target.value)}
-                        className="flex-1 min-w-0"
-                      />
-                      <Button
-                        onClick={() => {
-                          setNewTask({
-                            ...newTask,
-                            resources: [...newTask.resources, { url: newResourceUrl, title: newResourceTitle }],
-                          })
-                          setNewResourceUrl("")
-                          setNewResourceTitle("")
-                        }}
-                        className="shrink-0"
-                      >
-                        Add Resource
-                      </Button>
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      {newTask.resources.map((resource, index) => (
-                        <div key={index} className="flex items-start gap-2 p-2 bg-muted rounded text-sm">
-                          <span className="font-medium flex-shrink-0">{resource.title || "Link"}:</span>
-                          <a
-                            href={resource.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-500 truncate flex-1 hover:underline"
-                            title={resource.url}
-                          >
-                            {resource.url}
-                          </a>
-                          <button
-                            onClick={() => {
-                              setNewTask({
-                                ...newTask,
-                                resources: newTask.resources.filter((_, i) => i !== index),
-                              })
-                            }}
-                            className="text-destructive hover:text-destructive/80 flex-shrink-0 text-xs"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="edit-priority">Priority</Label>
-                    <Select value={newTask.priority} onValueChange={(v) => setNewTask({ ...newTask, priority: v })}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {PRIORITIES.map((p) => (
-                          <SelectItem key={p} value={p} className="capitalize">
-                            {p}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="edit-status">Status</Label>
-                    <Select value={newTask.status} onValueChange={(v) => setNewTask({ ...newTask, status: v })}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {STATUSES.map((s) => (
-                          <SelectItem key={s} value={s} className="capitalize">
-                            {s.replace("-", " ")}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="edit-deadline">Deadline</Label>
-                  <Input
-                    id="edit-deadline"
-                    type="datetime-local"
-                    value={newTask.deadline}
-                    onChange={(e) => setNewTask({ ...newTask, deadline: e.target.value })}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="edit-assigned_to">Assign To (Optional)</Label>
-                  <Select value={newTask.assigned_to} onValueChange={(v) => setNewTask({ ...newTask, assigned_to: v })}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select team member" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={UNASSIGNED}>Unassigned</SelectItem>
-                      {teamMembers.map((member) => (
-                        <SelectItem key={member.user_id} value={member.user_id}>
-                          {member.profile?.full_name ?? "Unnamed"} - {member.position}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="edit-linked">Linked To (Optional)</Label>
-                  <Input
-                    id="edit-linked"
-                    placeholder="Related project or goal"
-                    value={newTask.linked}
-                    onChange={(e) => setNewTask({ ...newTask, linked: e.target.value })}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="edit-related_context_type">Related Context Type (Optional)</Label>
-                  <Select
-                    value={newTask.related_context_type}
-                    onValueChange={(v) =>
-                      setNewTask({
-                        ...newTask,
-                        related_context_type: v as "project" | "goal" | "meeting" | "none",
-                      })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select context type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">None</SelectItem>
-                      <SelectItem value="project">Project</SelectItem>
-                      <SelectItem value="goal">Goal</SelectItem>
-                      <SelectItem value="meeting">Meeting</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
+              <TaskForm
+                task={newTask}
+                onTaskChange={setNewTask}
+                teamMembers={teamMembers}
+                newResourceUrl={newResourceUrl}
+                setNewResourceUrl={setNewResourceUrl}
+                newResourceTitle={newResourceTitle}
+                setNewResourceTitle={setNewResourceTitle}
+              />
               <DialogFooter>
                 <Button
                   variant="outline"
@@ -898,6 +577,8 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
                     setIsEditOpen(false)
                     setEditingTask(null)
                     setNewTask(INITIAL_TASK_STATE)
+                    setNewResourceUrl("")
+                    setNewResourceTitle("")
                   }}
                 >
                   Cancel
