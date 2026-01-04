@@ -4,19 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { format } from "date-fns"
-import {
-  CalendarIcon,
-  Zap,
-  ChevronRight,
-  Linkedin,
-  CheckSquare,
-  Users,
-  Video,
-  Plus,
-  MessageSquare,
-  Send,
-  Activity,
-} from "lucide-react"
+import { CalendarIcon, Zap, ChevronRight, Linkedin, CheckSquare, Users, Video, Plus, Activity } from "lucide-react"
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
@@ -40,135 +28,90 @@ export function TodayView() {
   const supabase = createClient()
 
   useEffect(() => {
-    fetchUpcomingMeetings()
-    fetchTopPriorities()
-    fetchTaskStats()
-    fetchRealStats()
+    const loadDashboardData = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (!user) return
+
+      await Promise.all([fetchMeetingsAndMergePriorities(user.id), fetchTaskStats(user.id), fetchRealStats(user.id)])
+    }
+
+    loadDashboardData()
   }, [])
 
-  const fetchUpcomingMeetings = async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) return
-
+  const fetchMeetingsAndMergePriorities = async (userId: string) => {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     const tomorrow = new Date(today)
     tomorrow.setDate(tomorrow.getDate() + 1)
 
-    const { data: events, error } = await supabase
+    const { data: events } = await supabase
       .from("events")
-      .select(
-        `
-        id,
-        title,
-        start_time,
-        end_time,
-        type,
-        meeting_link,
-        purpose,
-        relationship_id,
-        relationships (
-          full_name,
-          company,
-          tags
-        )
-      `,
-      )
-      .eq("user_id", user.id)
+      .select(`
+        id, title, start_time, end_time, type, meeting_link, purpose, relationship_id,
+        relationships (full_name, company, tags)
+      `)
+      .eq("user_id", userId)
       .gte("start_time", today.toISOString())
       .lt("start_time", tomorrow.toISOString())
       .order("start_time", { ascending: true })
 
-    if (!error && events) {
-      setUpcomingMeetings(events)
-
-      const meetingPriorities = events
-        .filter((e: any) => e.relationships?.tags?.includes("follow-up") || e.relationships?.tags?.includes("urgent"))
-        .slice(0, 3)
-        .map((e: any, idx: number) => ({
-          title: `${e.title} - ${e.purpose || "Meeting"}`,
-          tag: e.type === "deal" ? "Deal" : "Meeting",
-          time: "1 hour",
-          isUrgent: true,
-        }))
-
-      setPriorities(meetingPriorities)
-    }
-  }
-
-  const fetchTopPriorities = async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { data: tasks, error } = await supabase
+    const { data: tasks } = await supabase
       .from("tasks")
       .select("*")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .neq("status", "completed")
       .order("due_date", { ascending: true })
 
-    if (!error && tasks) {
-      const priorityWeight: Record<string, number> = { urgent: 4, high: 3, medium: 2, low: 1 }
+    const allMeetings = events || []
+    setUpcomingMeetings(allMeetings)
 
-      const sortedPriorities = tasks
-        .sort((a, b) => {
-          const now = new Date()
-          const aDue = a.due_date ? new Date(a.due_date) : null
-          const bDue = b.due_date ? new Date(b.due_date) : null
+    const meetingPriorities = allMeetings.map((e: any) => ({
+      title: `${e.title}${e.relationships?.full_name ? ` w/ ${e.relationships.full_name}` : ""}`,
+      tag: "Meeting",
+      status: "scheduled",
+      due_date: e.start_time,
+      isUrgent: e.relationships?.tags?.some((t: string) => ["urgent", "follow-up"].includes(t.toLowerCase())) || false,
+      type: "meeting",
+    }))
 
-          if (aDue && bDue) {
-            const aHours = differenceInHours(aDue, now)
-            const bHours = differenceInHours(bDue, now)
+    const taskPriorities = (tasks || []).map((t: any) => ({
+      title: t.title,
+      tag: t.priority,
+      status: t.status,
+      due_date: t.due_date,
+      isUrgent:
+        t.priority.toLowerCase() === "urgent" ||
+        (t.due_date && differenceInHours(new Date(t.due_date), new Date()) < 5),
+      type: "task",
+    }))
 
-            if (aHours < 24 || bHours < 24) {
-              return aHours - bHours
-            }
-          }
+    const merged = [...meetingPriorities, ...taskPriorities]
+      .sort((a, b) => {
+        const aTime = a.due_date ? new Date(a.due_date).getTime() : Number.POSITIVE_INFINITY
+        const bTime = b.due_date ? new Date(b.due_date).getTime() : Number.POSITIVE_INFINITY
+        return aTime - bTime
+      })
+      .slice(0, 3)
 
-          const pA = priorityWeight[a.priority.toLowerCase()] || 0
-          const pB = priorityWeight[b.priority.toLowerCase()] || 0
-          if (pA !== pB) return pB - pA
-
-          return 0
-        })
-        .slice(0, 3)
-        .map((t) => ({
-          title: t.title,
-          tag: t.priority,
-          status: t.status,
-          due_date: t.due_date,
-          isUrgent:
-            t.priority.toLowerCase() === "urgent" ||
-            (t.due_date && differenceInHours(new Date(t.due_date), new Date()) < 5),
-        }))
-
-      setPriorities(sortedPriorities)
-    }
+    setPriorities(merged)
   }
 
-  const fetchTaskStats = async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) return
-
+  const fetchTaskStats = async (userId: string) => {
     const { data, error } = await supabase
       .from("tasks")
       .select("status, title, priority, is_completed")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
 
     if (!error && data) {
       const stats = data.reduce(
         (acc, task) => {
-          const s = task.status.toLowerCase()
+          const s = (task.status || "todo").toLowerCase()
           if (s === "in-progress") acc.inProgress++
           else if (s === "blocked") acc.blocked++
           else if (s === "completed") acc.completed++
-          else if (s === "todo") acc.todo++
+          else acc.todo++
           return acc
         },
         { inProgress: 0, blocked: 0, completed: 0, todo: 0 },
@@ -178,19 +121,14 @@ export function TodayView() {
     }
   }
 
-  const fetchRealStats = async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) return
-
+  const fetchRealStats = async (userId: string) => {
     const [leadsRes, postsRes] = await Promise.all([
       supabase
         .from("relationships")
         .select("id", { count: "exact" })
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .eq("relationship_type", "lead"),
-      supabase.from("linkedin_posts").select("id", { count: "exact" }).eq("user_id", user.id).eq("status", "Published"),
+      supabase.from("linkedin_posts").select("id", { count: "exact" }).eq("user_id", userId).eq("status", "Published"),
     ])
 
     setRealStats({
@@ -200,59 +138,60 @@ export function TodayView() {
   }
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
       <section>
-        <div className="flex items-end justify-between mb-6">
+        <div className="flex items-end justify-between mb-4">
           <div className="flex flex-col gap-1">
             <h1 className="text-3xl font-bold tracking-tight">Today View</h1>
-            <p className="text-muted-foreground italic">"What should I focus on today?"</p>
+            <p className="text-muted-foreground italic text-sm">"What should I focus on today?"</p>
           </div>
-          <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground bg-muted/50 px-3 py-1.5 rounded-full border">
-            <CalendarIcon size={14} />
+          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground bg-muted/50 px-3 py-1.5 rounded-full border">
+            <CalendarIcon size={12} />
             {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Today's Priorities */}
-          <Card className="lg:col-span-7 border-primary/20 bg-card/50 overflow-hidden relative">
-            <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
-              <Zap size={100} className="text-primary" />
+          <Card className="lg:col-span-6 border-primary/20 bg-card/50 overflow-hidden relative min-h-[300px]">
+            <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
+              <Zap size={80} className="text-primary" />
             </div>
-            <CardHeader className="flex flex-row items-center justify-between pb-3 relative">
-              <div className="space-y-1">
-                <CardTitle className="text-base font-semibold flex items-center gap-2">
-                  <Zap size={16} className="text-primary" />
+            <CardHeader className="flex flex-row items-center justify-between pb-2 relative">
+              <div className="space-y-0.5">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <Zap size={14} className="text-primary" />
                   Top 3 Priorities
                 </CardTitle>
-                <p className="text-[10px] text-muted-foreground">Focus on these to move the needle today.</p>
+                <p className="text-[9px] text-muted-foreground">Focus on these to move the needle today.</p>
               </div>
-              <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-[10px] font-normal">
-                <Plus size={12} />
+              <Button variant="ghost" size="sm" className="h-6 gap-1 text-[9px] font-normal px-2">
+                <Plus size={10} />
                 Override
               </Button>
             </CardHeader>
-            <CardContent className="space-y-3 relative pb-4">
+            <CardContent className="space-y-2 relative pb-4">
               {priorities.length > 0 ? (
                 priorities.map((p, i) => (
                   <div
                     key={i}
-                    className="flex items-start justify-between p-3 rounded-lg bg-background/50 border border-border shadow-sm hover:border-primary/50 transition-all group cursor-pointer"
+                    className="flex items-start justify-between p-2.5 rounded-lg bg-background/50 border border-border shadow-sm hover:border-primary/50 transition-all group cursor-pointer"
                   >
-                    <div className="flex items-start gap-3">
-                      <div className="mt-0.5 size-5 rounded-full border border-primary/30 flex items-center justify-center text-[10px] font-bold text-primary transition-all group-hover:bg-primary group-hover:text-primary-foreground">
+                    <div className="flex items-start gap-2.5">
+                      <div className="mt-0.5 size-4 rounded-full border border-primary/30 flex items-center justify-center text-[9px] font-bold text-primary transition-all group-hover:bg-primary group-hover:text-primary-foreground">
                         {i + 1}
                       </div>
-                      <div className="space-y-1">
-                        <p className="font-semibold text-xs leading-tight group-hover:text-primary transition-colors">
+                      <div className="space-y-0.5">
+                        <p className="font-semibold text-[11px] leading-tight group-hover:text-primary transition-colors line-clamp-1">
                           {p.title}
                         </p>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
                           <Badge
                             variant="secondary"
                             className={cn(
-                              "text-[9px] h-4 font-bold uppercase tracking-widest px-1.5",
+                              "text-[8px] h-3.5 font-bold uppercase tracking-tight px-1",
                               p.tag.toLowerCase() === "urgent" && "bg-red-500/10 text-red-500 border-red-500/20",
+                              p.tag.toLowerCase() === "meeting" && "bg-blue-500/10 text-blue-500 border-blue-500/20",
                               p.tag.toLowerCase() === "high" && "bg-orange-500/10 text-orange-500 border-orange-500/20",
                             )}
                           >
@@ -261,12 +200,13 @@ export function TodayView() {
                           <Badge
                             variant="outline"
                             className={cn(
-                              "text-[9px] h-4 font-medium px-1.5 bg-muted/50",
+                              "text-[8px] h-3.5 font-medium px-1 bg-muted/50",
                               p.status === "blocked" && "text-red-400 border-red-400/30",
                               p.status === "in-progress" && "text-blue-400 border-blue-400/30",
+                              p.status === "scheduled" && "text-emerald-400 border-emerald-400/30",
                             )}
                           >
-                            {p.status.replace("-", " ")}
+                            {(p.status || "todo").replace("-", " ")}
                           </Badge>
                         </div>
                       </div>
@@ -274,13 +214,13 @@ export function TodayView() {
                   </div>
                 ))
               ) : (
-                <div className="flex flex-col items-center justify-center py-10 text-center">
-                  <div className="size-12 rounded-full bg-muted/50 flex items-center justify-center mb-3">
-                    <Zap size={24} className="text-muted-foreground/30" />
+                <div className="flex flex-col items-center justify-center py-6 text-center h-[200px]">
+                  <div className="size-10 rounded-full bg-muted/50 flex items-center justify-center mb-2">
+                    <Zap size={20} className="text-muted-foreground/30" />
                   </div>
-                  <h3 className="text-sm font-semibold mb-1">No urgent priorities right now</h3>
-                  <p className="text-[11px] text-muted-foreground max-w-[200px]">
-                    Create tasks with due dates to see focus items here.
+                  <h3 className="text-xs font-semibold mb-0.5">No urgent priorities right now</h3>
+                  <p className="text-[10px] text-muted-foreground max-w-[180px]">
+                    Create tasks with due dates or schedule meetings to see focus items here.
                   </p>
                 </div>
               )}
@@ -288,131 +228,113 @@ export function TodayView() {
           </Card>
 
           {/* Quick Stats / Progress Panel */}
-          <Card className="lg:col-span-5 border-none shadow-none bg-transparent">
-            <CardContent className="p-0 space-y-6">
-              <div className="space-y-3">
-                <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest px-1 flex items-center gap-2">
-                  <Activity size={12} className="text-primary" />
+          <Card className="lg:col-span-6 border-none shadow-none bg-transparent">
+            <CardContent className="p-0 space-y-4">
+              <div className="space-y-2">
+                <h3 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-1 flex items-center gap-2">
+                  <Activity size={10} className="text-primary" />
                   Execution Pipeline
                 </h3>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="p-4 rounded-xl bg-card border border-border shadow-sm flex flex-col gap-1">
-                    <span className="text-[10px] text-muted-foreground font-bold uppercase">In Progress</span>
-                    <span className="text-2xl font-bold">{taskStats.inProgress}</span>
-                  </div>
-                  <div className="p-4 rounded-xl bg-card border border-border shadow-sm flex flex-col gap-1">
-                    <span className="text-[10px] text-red-400 font-bold uppercase">Blocked</span>
-                    <span className="text-2xl font-bold text-red-400">{taskStats.blocked}</span>
-                  </div>
-                  <div className="p-4 rounded-xl bg-card border border-border shadow-sm flex flex-col gap-1">
-                    <span className="text-[10px] text-emerald-400 font-bold uppercase">Completed</span>
-                    <span className="text-2xl font-bold text-emerald-400">{taskStats.completed}</span>
-                  </div>
-                  <div className="p-4 rounded-xl bg-card border border-border shadow-sm flex flex-col gap-1">
-                    <span className="text-[10px] text-muted-foreground font-bold uppercase">Total Todo</span>
-                    <span className="text-2xl font-bold">{taskStats.todo}</span>
-                  </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {[
+                    { label: "In Progress", val: taskStats.inProgress, color: "" },
+                    { label: "Blocked", val: taskStats.blocked, color: "text-red-400" },
+                    { label: "Completed", val: taskStats.completed, color: "text-emerald-400" },
+                    { label: "Total Todo", val: taskStats.todo, color: "" },
+                  ].map((s, idx) => (
+                    <div
+                      key={idx}
+                      className="p-2 rounded-lg bg-card border border-border shadow-sm flex flex-col gap-0.5"
+                    >
+                      <span
+                        className={cn("text-[8px] font-bold uppercase truncate", s.color || "text-muted-foreground")}
+                      >
+                        {s.label}
+                      </span>
+                      <span className={cn("text-lg font-bold", s.color)}>{s.val}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
 
               {/* Real Analytics Overview */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 rounded-2xl bg-card border border-primary/20 shadow-sm flex flex-col gap-1 relative overflow-hidden group">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 rounded-xl bg-card border border-primary/20 shadow-sm flex flex-col gap-0.5 relative overflow-hidden group">
                   <div className="absolute -right-2 -bottom-2 opacity-5 group-hover:scale-110 transition-transform">
-                    <Linkedin size={64} />
+                    <Linkedin size={48} />
                   </div>
-                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">Updates</span>
+                  <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-bold">Updates</span>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-2xl font-bold">{realStats.posts}</span>
+                    <span className="text-xl font-bold">{realStats.posts}</span>
                     <Badge
                       variant="secondary"
-                      className="text-[9px] h-4 font-bold bg-primary/10 text-primary border-none"
+                      className="text-[8px] h-3.5 font-bold bg-primary/10 text-primary border-none"
                     >
                       Live
                     </Badge>
                   </div>
                 </div>
-                <div className="p-4 rounded-2xl bg-card border border-primary/20 shadow-sm flex flex-col gap-1 relative overflow-hidden group">
+                <div className="p-3 rounded-xl bg-card border border-primary/20 shadow-sm flex flex-col gap-0.5 relative overflow-hidden group">
                   <div className="absolute -right-2 -bottom-2 opacity-5 group-hover:scale-110 transition-transform">
-                    <Users size={64} />
+                    <Users size={48} />
                   </div>
-                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">Leads</span>
+                  <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-bold">Leads</span>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-2xl font-bold">{realStats.leads}</span>
-                    <Badge className="text-[9px] h-4 bg-emerald-500/10 text-emerald-400 border-none font-bold">
+                    <span className="text-xl font-bold">{realStats.leads}</span>
+                    <Badge className="text-[8px] h-3.5 bg-emerald-500/10 text-emerald-400 border-none font-bold">
                       Active
                     </Badge>
                   </div>
                 </div>
               </div>
 
-              <div className="space-y-3">
-                <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest px-1">
-                  Quick Actions
-                </h3>
-                <div className="grid grid-cols-1 gap-2">
-                  <Button
-                    variant="outline"
-                    className="justify-start h-12 px-4 bg-card hover:bg-primary hover:text-primary-foreground transition-all group border-primary/10 shadow-sm"
-                  >
-                    <Plus size={18} className="mr-3 text-primary group-hover:text-primary-foreground" />
-                    <span className="font-medium">Capture Note</span>
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="justify-start h-12 px-4 bg-card hover:bg-primary hover:text-primary-foreground transition-all group border-primary/10 shadow-sm"
-                  >
-                    <Linkedin size={18} className="mr-3 text-primary group-hover:text-primary-foreground" />
-                    <span className="font-medium">Schedule LinkedIn</span>
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="justify-start h-12 px-4 bg-card hover:bg-primary hover:text-primary-foreground transition-all group border-primary/10 shadow-sm"
-                  >
-                    <CheckSquare size={18} className="mr-3 text-primary group-hover:text-primary-foreground" />
-                    <span className="font-medium">Log Follow-up</span>
-                  </Button>
-                </div>
-              </div>
-
-              {/* Dynamic Icons */}
-              <div className="space-y-3">
-                <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest px-1">
-                  Recent Activities
-                </h3>
-                <div className="grid grid-cols-1 gap-2">
-                  {[
-                    { label: "Reply to 12 comments on latest post", Icon: MessageSquare },
-                    { label: "New DMs from 3 potential leads", Icon: Send },
-                  ].map((r, i) => (
-                    <div key={i} className="flex items-center justify-between text-sm group cursor-pointer">
-                      <div className="flex items-center gap-2 font-medium">
-                        <r.Icon size={14} className="text-primary" />
-                        <span>{r.label}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+              {/* Quick Actions */}
+              <div className="grid grid-cols-3 gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 px-2 bg-card hover:bg-primary hover:text-primary-foreground transition-all group border-primary/10 shadow-sm text-[10px]"
+                >
+                  <Plus size={14} className="mr-1.5 text-primary group-hover:text-primary-foreground" />
+                  Note
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 px-2 bg-card hover:bg-primary hover:text-primary-foreground transition-all group border-primary/10 shadow-sm text-[10px]"
+                >
+                  <Linkedin size={14} className="mr-1.5 text-primary group-hover:text-primary-foreground" />
+                  LinkedIn
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 px-2 bg-card hover:bg-primary hover:text-primary-foreground transition-all group border-primary/10 shadow-sm text-[10px]"
+                >
+                  <CheckSquare size={14} className="mr-1.5 text-primary group-hover:text-primary-foreground" />
+                  Follow-up
+                </Button>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-8">
-          {/* Smart Calendar / Meetings */}
-          <Card className="lg:col-span-7">
-            <CardHeader className="flex flex-row items-center justify-between pb-3">
-              <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                <CalendarIcon size={18} className="text-primary" />
+        {/* Meeting Hub */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-6">
+          <Card className="lg:col-span-8 border-border/50">
+            <CardHeader className="flex flex-row items-center justify-between py-3">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <CalendarIcon size={16} className="text-primary" />
                 Meetings Hub
               </CardTitle>
-              <div className="flex items-center gap-2">
-                <Badge variant="outline" className="font-normal border-emerald-200 text-emerald-600 bg-emerald-50">
-                  {upcomingMeetings.length} Today
-                </Badge>
-              </div>
+              <Badge
+                variant="outline"
+                className="font-bold text-[10px] border-emerald-200/50 text-emerald-400 bg-emerald-500/5"
+              >
+                {upcomingMeetings.length} Today
+              </Badge>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-3 pb-4">
               {upcomingMeetings.length > 0 ? (
                 upcomingMeetings.map((m, i) => {
                   const startTime = new Date(m.start_time)
@@ -489,79 +411,6 @@ export function TodayView() {
                   <p className="text-sm font-medium">No meetings scheduled today</p>
                 </div>
               )}
-            </CardContent>
-          </Card>
-
-          {/* Execution Tracker */}
-          <Card className="lg:col-span-5">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                <CheckSquare size={18} className="text-primary" />
-                Execution Center
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between px-1">
-                  <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">In Progress</h4>
-                  <Badge variant="outline" className="text-[9px] font-bold">
-                    {activeTasks.length} Active
-                  </Badge>
-                </div>
-                <div className="space-y-2">
-                  {activeTasks.length > 0 ? (
-                    activeTasks.map((task, i) => {
-                      const progress = task.is_completed ? 100 : task.status === "in-progress" ? 50 : 20
-
-                      return (
-                        <div
-                          key={task.id}
-                          className="p-3 rounded-xl bg-muted/30 border border-transparent hover:border-border transition-all cursor-pointer"
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm font-semibold">{task.title}</span>
-                            <div className="flex items-center gap-2">
-                              {task.priority && (
-                                <Badge
-                                  variant="outline"
-                                  className={cn(
-                                    "text-[9px] font-bold uppercase h-4",
-                                    task.priority === "urgent"
-                                      ? "bg-red-50 text-red-600 border-red-200"
-                                      : task.priority === "high"
-                                        ? "bg-orange-50 text-orange-600 border-orange-200"
-                                        : "bg-muted text-muted-foreground",
-                                  )}
-                                >
-                                  {task.priority}
-                                </Badge>
-                              )}
-                              <span className="text-[10px] font-bold text-primary">{progress}%</span>
-                            </div>
-                          </div>
-                          <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-primary rounded-full transition-all duration-500"
-                              style={{ width: `${progress}%` }}
-                            />
-                          </div>
-                        </div>
-                      )
-                    })
-                  ) : (
-                    <div className="py-8 text-center text-xs text-muted-foreground italic">
-                      No active tasks currently in progress.
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="pt-2">
-                <Button className="w-full h-11 bg-primary/10 hover:bg-primary/20 text-primary border-none shadow-none font-bold text-sm">
-                  Review All Tasks
-                  <ChevronRight size={16} className="ml-1" />
-                </Button>
-              </div>
             </CardContent>
           </Card>
         </div>
