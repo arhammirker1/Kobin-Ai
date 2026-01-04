@@ -1,6 +1,8 @@
 "use client"
 
 import type React from "react"
+import { TeamMeetingsDialog } from "./team-meetings-dialog"
+import { Calendar } from "lucide-react"
 
 import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
@@ -73,6 +75,7 @@ export function TeamView() {
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null)
+  const [meetingDialogOpen, setMeetingDialogOpen] = useState(false)
   const { toast } = useToast()
   const supabase = createClient()
 
@@ -222,6 +225,10 @@ export function TeamView() {
     }
   }
 
+  const handleCreateMeeting = () => {
+    setMeetingDialogOpen(true)
+  }
+
   const openEditDialog = (member: TeamMember) => {
     setSelectedMember(member)
     setEditDialogOpen(true)
@@ -239,173 +246,186 @@ export function TeamView() {
           <h2 className="text-3xl font-bold tracking-tight">Team Workspace</h2>
           <p className="text-muted-foreground">Manage your team members and their permissions</p>
         </div>
-        <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <UserPlus className="mr-2 h-4 w-4" />
-              Add Team Member
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Create Team Member</DialogTitle>
-              <DialogDescription>
-                Manually create a team member account. You will set their credentials and permissions.
-              </DialogDescription>
-            </DialogHeader>
-            <form onSubmit={handleCreateTeamMember} className="space-y-6">
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="full_name">Full Name</Label>
-                  <Input
-                    id="full_name"
-                    value={formData.full_name}
-                    onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+        <div className="flex gap-2">
+          <Button onClick={handleCreateMeeting} variant="outline">
+            <Calendar className="mr-2 h-4 w-4" />
+            Schedule Meeting
+          </Button>
+          <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+            <DialogTrigger asChild>
+              <Button>
+                <UserPlus className="mr-2 h-4 w-4" />
+                Add Team Member
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Create Team Member</DialogTitle>
+                <DialogDescription>
+                  Manually create a team member account. You will set their credentials and permissions.
+                </DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleCreateTeamMember} className="space-y-6">
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="full_name">Full Name</Label>
                     <Input
-                      id="email"
-                      type="email"
-                      className="pl-10"
-                      value={formData.email}
-                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                      id="full_name"
+                      value={formData.full_name}
+                      onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
                       required
                     />
                   </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="password"
-                      type="password"
-                      className="pl-10"
-                      value={formData.password}
-                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                      required
-                      minLength={6}
-                    />
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Email</Label>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        id="email"
+                        type="email"
+                        className="pl-10"
+                        value={formData.email}
+                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                        required
+                      />
+                    </div>
                   </div>
-                  <p className="text-xs text-muted-foreground">Minimum 6 characters</p>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="position">Position</Label>
-                  <div className="relative">
-                    <Briefcase className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="position"
-                      className="pl-10"
-                      value={formData.position}
-                      onChange={(e) => setFormData({ ...formData, position: e.target.value })}
-                      placeholder="e.g., Executive Assistant, Operations Manager"
-                      required
-                    />
+                  <div className="space-y-2">
+                    <Label htmlFor="password">Password</Label>
+                    <div className="relative">
+                      <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        id="password"
+                        type="password"
+                        className="pl-10"
+                        value={formData.password}
+                        onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                        required
+                        minLength={6}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">Minimum 6 characters</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="position">Position</Label>
+                    <div className="relative">
+                      <Briefcase className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        id="position"
+                        className="pl-10"
+                        value={formData.position}
+                        onChange={(e) => setFormData({ ...formData, position: e.target.value })}
+                        placeholder="e.g., Executive Assistant, Operations Manager"
+                        required
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="space-y-4">
-                <h4 className="font-medium">Feature Permissions</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="can_view_tasks" className="font-normal">
-                      View Tasks
-                    </Label>
-                    <Switch
-                      id="can_view_tasks"
-                      checked={formData.can_view_tasks}
-                      onCheckedChange={(checked) => setFormData({ ...formData, can_view_tasks: checked })}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="can_update_task_status" className="font-normal">
-                      Update Task Status
-                    </Label>
-                    <Switch
-                      id="can_update_task_status"
-                      checked={formData.can_update_task_status}
-                      onCheckedChange={(checked) => setFormData({ ...formData, can_update_task_status: checked })}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="can_create_tasks" className="font-normal">
-                      Create Tasks
-                    </Label>
-                    <Switch
-                      id="can_create_tasks"
-                      checked={formData.can_create_tasks}
-                      onCheckedChange={(checked) => setFormData({ ...formData, can_create_tasks: checked })}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="can_view_calendar" className="font-normal">
-                      View Calendar
-                    </Label>
-                    <Switch
-                      id="can_view_calendar"
-                      checked={formData.can_view_calendar}
-                      onCheckedChange={(checked) => setFormData({ ...formData, can_view_calendar: checked })}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="can_view_linkedin" className="font-normal">
-                      View LinkedIn
-                    </Label>
-                    <Switch
-                      id="can_view_linkedin"
-                      checked={formData.can_view_linkedin}
-                      onCheckedChange={(checked) => setFormData({ ...formData, can_view_linkedin: checked })}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="can_view_relationships" className="font-normal">
-                      View Relationships
-                    </Label>
-                    <Switch
-                      id="can_view_relationships"
-                      checked={formData.can_view_relationships}
-                      onCheckedChange={(checked) => setFormData({ ...formData, can_view_relationships: checked })}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="can_view_vault" className="font-normal">
-                      View Vault
-                    </Label>
-                    <Switch
-                      id="can_view_vault"
-                      checked={formData.can_view_vault}
-                      onCheckedChange={(checked) => setFormData({ ...formData, can_view_vault: checked })}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="can_view_analytics" className="font-normal">
-                      View Analytics
-                    </Label>
-                    <Switch
-                      id="can_view_analytics"
-                      checked={formData.can_view_analytics}
-                      onCheckedChange={(checked) => setFormData({ ...formData, can_view_analytics: checked })}
-                    />
+                <div className="space-y-4">
+                  <h4 className="font-medium">Feature Permissions</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="can_view_tasks" className="font-normal">
+                        View Tasks
+                      </Label>
+                      <Switch
+                        id="can_view_tasks"
+                        checked={formData.can_view_tasks}
+                        onCheckedChange={(checked) => setFormData({ ...formData, can_view_tasks: checked })}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="can_update_task_status" className="font-normal">
+                        Update Task Status
+                      </Label>
+                      <Switch
+                        id="can_update_task_status"
+                        checked={formData.can_update_task_status}
+                        onCheckedChange={(checked) => setFormData({ ...formData, can_update_task_status: checked })}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="can_create_tasks" className="font-normal">
+                        Create Tasks
+                      </Label>
+                      <Switch
+                        id="can_create_tasks"
+                        checked={formData.can_create_tasks}
+                        onCheckedChange={(checked) => setFormData({ ...formData, can_create_tasks: checked })}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="can_view_calendar" className="font-normal">
+                        View Calendar
+                      </Label>
+                      <Switch
+                        id="can_view_calendar"
+                        checked={formData.can_view_calendar}
+                        onCheckedChange={(checked) => setFormData({ ...formData, can_view_calendar: checked })}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="can_view_linkedin" className="font-normal">
+                        View LinkedIn
+                      </Label>
+                      <Switch
+                        id="can_view_linkedin"
+                        checked={formData.can_view_linkedin}
+                        onCheckedChange={(checked) => setFormData({ ...formData, can_view_linkedin: checked })}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="can_view_relationships" className="font-normal">
+                        View Relationships
+                      </Label>
+                      <Switch
+                        id="can_view_relationships"
+                        checked={formData.can_view_relationships}
+                        onCheckedChange={(checked) => setFormData({ ...formData, can_view_relationships: checked })}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="can_view_vault" className="font-normal">
+                        View Vault
+                      </Label>
+                      <Switch
+                        id="can_view_vault"
+                        checked={formData.can_view_vault}
+                        onCheckedChange={(checked) => setFormData({ ...formData, can_view_vault: checked })}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="can_view_analytics" className="font-normal">
+                        View Analytics
+                      </Label>
+                      <Switch
+                        id="can_view_analytics"
+                        checked={formData.can_view_analytics}
+                        onCheckedChange={(checked) => setFormData({ ...formData, can_view_analytics: checked })}
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => setCreateDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit">Create Team Member</Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="outline" onClick={() => setCreateDialogOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit">Create Team Member</Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
+
+      <TeamMeetingsDialog
+        open={meetingDialogOpen}
+        onOpenChange={setMeetingDialogOpen}
+        onMeetingCreated={() => fetchTeamMembers()}
+        teamMembers={teamMembers}
+      />
 
       {loading ? (
         <div className="flex items-center justify-center h-64">
