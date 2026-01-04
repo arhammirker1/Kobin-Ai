@@ -126,59 +126,9 @@ export function TeamMeetingsDialog({ open, onOpenChange, onMeetingCreated, teamM
         await addMeetingParticipants(meeting.id, user.id, selectedParticipants)
       }
 
-      // Create calendar events for participants
-      const eventInserts = []
-      if (meetingType === "individual" && selectedMember) {
-        eventInserts.push(
-          {
-            user_id: user.id,
-            title,
-            description,
-            start_time: start.toISOString(),
-            end_time: end.toISOString(),
-            type: "team_meeting",
-            meeting_link: meetingLink || null,
-          },
-          {
-            user_id: selectedMember,
-            title,
-            description,
-            start_time: start.toISOString(),
-            end_time: end.toISOString(),
-            type: "team_meeting",
-            meeting_link: meetingLink || null,
-          },
-        )
-      } else if (meetingType === "joint") {
-        eventInserts.push({
-          user_id: user.id,
-          title,
-          description,
-          start_time: start.toISOString(),
-          end_time: end.toISOString(),
-          type: "team_meeting",
-          meeting_link: meetingLink || null,
-        })
-
-        selectedParticipants.forEach((participantId) => {
-          eventInserts.push({
-            user_id: participantId,
-            title,
-            description,
-            start_time: start.toISOString(),
-            end_time: end.toISOString(),
-            type: "team_meeting",
-            meeting_link: meetingLink || null,
-          })
-        })
-      }
-
-      if (eventInserts.length > 0) {
-        const { error: eventError } = await supabase.from("events").insert(eventInserts)
-        if (eventError) throw eventError
-      }
-
-      toast.success(`Meeting created for ${selectedParticipants.length + 1} participant(s)`)
+      toast.success(
+        `Meeting created for ${meetingType === "individual" ? "1" : selectedParticipants.length + 1} participant(s)`,
+      )
       onOpenChange(false)
       onMeetingCreated?.()
     } catch (error: any) {
