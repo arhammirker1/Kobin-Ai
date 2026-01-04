@@ -513,45 +513,64 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="resources">Resources</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        id="resource-url"
-                        placeholder="URL"
-                        value={newResourceUrl}
-                        onChange={(e) => setNewResourceUrl(e.target.value)}
-                      />
-                      <Input
-                        id="resource-title"
-                        placeholder="Title (Optional)"
-                        value={newResourceTitle}
-                        onChange={(e) => setNewResourceTitle(e.target.value)}
-                      />
-                      <Button
-                        onClick={() => {
-                          setNewTask({
-                            ...newTask,
-                            resources: [...newTask.resources, { url: newResourceUrl, title: newResourceTitle }],
-                          })
-                          setNewResourceUrl("")
-                          setNewResourceTitle("")
-                        }}
-                      >
-                        Add Resource
-                      </Button>
-                    </div>
-                    {newTask.resources.map((resource, index) => (
-                      <div key={index} className="flex items-center gap-2">
-                        <span className="text-sm">{resource.title || "No title"}</span>
-                        <a
-                          href={resource.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-sm text-blue-500"
+                    <div className="flex flex-col gap-2">
+                      <div className="flex gap-2 flex-col md:flex-row">
+                        <Input
+                          id="resource-url"
+                          placeholder="URL"
+                          value={newResourceUrl}
+                          onChange={(e) => setNewResourceUrl(e.target.value)}
+                          className="flex-1 min-w-0"
+                        />
+                        <Input
+                          id="resource-title"
+                          placeholder="Title (Optional)"
+                          value={newResourceTitle}
+                          onChange={(e) => setNewResourceTitle(e.target.value)}
+                          className="flex-1 min-w-0"
+                        />
+                        <Button
+                          onClick={() => {
+                            setNewTask({
+                              ...newTask,
+                              resources: [...newTask.resources, { url: newResourceUrl, title: newResourceTitle }],
+                            })
+                            setNewResourceUrl("")
+                            setNewResourceTitle("")
+                          }}
+                          className="shrink-0"
                         >
-                          {resource.url}
-                        </a>
+                          Add Resource
+                        </Button>
                       </div>
-                    ))}
+                      <div className="flex flex-col gap-2">
+                        {newTask.resources.map((resource, index) => (
+                          <div key={index} className="flex items-start gap-2 p-2 bg-muted rounded text-sm">
+                            <span className="font-medium flex-shrink-0">{resource.title || "Link"}:</span>
+                            <a
+                              href={resource.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-500 truncate flex-1 hover:underline"
+                              title={resource.url}
+                            >
+                              {resource.url}
+                            </a>
+                            <button
+                              onClick={() => {
+                                setNewTask({
+                                  ...newTask,
+                                  resources: newTask.resources.filter((_, i) => i !== index),
+                                })
+                              }}
+                              className="text-destructive hover:text-destructive/80 flex-shrink-0 text-xs"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="grid gap-2">
@@ -639,24 +658,6 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="related_context_id">Related Context ID (Optional)</Label>
-                    <Input
-                      id="related_context_id"
-                      placeholder="Related context ID"
-                      value={newTask.related_context_id}
-                      onChange={(e) => setNewTask({ ...newTask, related_context_id: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="related_context_name">Related Context Name (Optional)</Label>
-                    <Input
-                      id="related_context_name"
-                      placeholder="Related context name"
-                      value={newTask.related_context_name}
-                      onChange={(e) => setNewTask({ ...newTask, related_context_name: e.target.value })}
-                    />
-                  </div>
                 </div>
                 <DialogFooter>
                   <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
@@ -700,45 +701,64 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="edit-resources">Resources</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="edit-resource-url"
-                      placeholder="URL"
-                      value={newResourceUrl}
-                      onChange={(e) => setNewResourceUrl(e.target.value)}
-                    />
-                    <Input
-                      id="edit-resource-title"
-                      placeholder="Title (Optional)"
-                      value={newResourceTitle}
-                      onChange={(e) => setNewResourceTitle(e.target.value)}
-                    />
-                    <Button
-                      onClick={() => {
-                        setNewTask({
-                          ...newTask,
-                          resources: [...newTask.resources, { url: newResourceUrl, title: newResourceTitle }],
-                        })
-                        setNewResourceUrl("")
-                        setNewResourceTitle("")
-                      }}
-                    >
-                      Add Resource
-                    </Button>
-                  </div>
-                  {newTask.resources.map((resource, index) => (
-                    <div key={index} className="flex items-center gap-2">
-                      <span className="text-sm">{resource.title || "No title"}</span>
-                      <a
-                        href={resource.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm text-blue-500"
+                  <div className="flex flex-col gap-2">
+                    <div className="flex gap-2 flex-col md:flex-row">
+                      <Input
+                        id="edit-resource-url"
+                        placeholder="URL"
+                        value={newResourceUrl}
+                        onChange={(e) => setNewResourceUrl(e.target.value)}
+                        className="flex-1 min-w-0"
+                      />
+                      <Input
+                        id="edit-resource-title"
+                        placeholder="Title (Optional)"
+                        value={newResourceTitle}
+                        onChange={(e) => setNewResourceTitle(e.target.value)}
+                        className="flex-1 min-w-0"
+                      />
+                      <Button
+                        onClick={() => {
+                          setNewTask({
+                            ...newTask,
+                            resources: [...newTask.resources, { url: newResourceUrl, title: newResourceTitle }],
+                          })
+                          setNewResourceUrl("")
+                          setNewResourceTitle("")
+                        }}
+                        className="shrink-0"
                       >
-                        {resource.url}
-                      </a>
+                        Add Resource
+                      </Button>
                     </div>
-                  ))}
+                    <div className="flex flex-col gap-2">
+                      {newTask.resources.map((resource, index) => (
+                        <div key={index} className="flex items-start gap-2 p-2 bg-muted rounded text-sm">
+                          <span className="font-medium flex-shrink-0">{resource.title || "Link"}:</span>
+                          <a
+                            href={resource.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-500 truncate flex-1 hover:underline"
+                            title={resource.url}
+                          >
+                            {resource.url}
+                          </a>
+                          <button
+                            onClick={() => {
+                              setNewTask({
+                                ...newTask,
+                                resources: newTask.resources.filter((_, i) => i !== index),
+                              })
+                            }}
+                            className="text-destructive hover:text-destructive/80 flex-shrink-0 text-xs"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
@@ -822,24 +842,6 @@ export function TaskView({ permissions }: TaskViewProps = {}) {
                       <SelectItem value="meeting">Meeting</SelectItem>
                     </SelectContent>
                   </Select>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="edit-related_context_id">Related Context ID (Optional)</Label>
-                  <Input
-                    id="edit-related_context_id"
-                    placeholder="Related context ID"
-                    value={newTask.related_context_id}
-                    onChange={(e) => setNewTask({ ...newTask, related_context_id: e.target.value })}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="edit-related_context_name">Related Context Name (Optional)</Label>
-                  <Input
-                    id="edit-related_context_name"
-                    placeholder="Related context name"
-                    value={newTask.related_context_name}
-                    onChange={(e) => setNewTask({ ...newTask, related_context_name: e.target.value })}
-                  />
                 </div>
               </div>
               <DialogFooter>
