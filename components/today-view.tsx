@@ -4,7 +4,19 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { format } from "date-fns"
-import { CalendarIcon, Zap, Clock, ChevronRight, Linkedin, CheckSquare, Users, Video, Plus, MessageSquare, Send, Activity, Inbox } from "lucide-react"
+import {
+  CalendarIcon,
+  Zap,
+  ChevronRight,
+  Linkedin,
+  CheckSquare,
+  Users,
+  Video,
+  Plus,
+  MessageSquare,
+  Send,
+  Activity,
+} from "lucide-react"
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
@@ -40,6 +52,11 @@ export function TodayView() {
     } = await supabase.auth.getUser()
     if (!user) return
 
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const tomorrow = new Date(today)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+
     const { data: events, error } = await supabase
       .from("events")
       .select(
@@ -60,8 +77,8 @@ export function TodayView() {
       `,
       )
       .eq("user_id", user.id)
-      .gte("start_time", new Date().toISOString())
-      .lte("start_time", new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString())
+      .gte("start_time", today.toISOString())
+      .lt("start_time", tomorrow.toISOString())
       .order("start_time", { ascending: true })
 
     if (!error && events) {
@@ -198,43 +215,43 @@ export function TodayView() {
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Today's Priorities */}
-          <Card className="lg:col-span-8 border-primary/20 bg-card/50 overflow-hidden relative">
+          <Card className="lg:col-span-7 border-primary/20 bg-card/50 overflow-hidden relative">
             <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
-              <Zap size={120} className="text-primary" />
+              <Zap size={100} className="text-primary" />
             </div>
-            <CardHeader className="flex flex-row items-center justify-between pb-4 relative">
+            <CardHeader className="flex flex-row items-center justify-between pb-3 relative">
               <div className="space-y-1">
-                <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                  <Zap size={18} className="text-primary" />
+                <CardTitle className="text-base font-semibold flex items-center gap-2">
+                  <Zap size={16} className="text-primary" />
                   Top 3 Priorities
                 </CardTitle>
-                <p className="text-xs text-muted-foreground">Focus on these to move the needle today.</p>
+                <p className="text-[10px] text-muted-foreground">Focus on these to move the needle today.</p>
               </div>
-              <Button variant="ghost" size="sm" className="h-8 gap-2 text-xs font-normal">
-                <Plus size={14} />
+              <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-[10px] font-normal">
+                <Plus size={12} />
                 Override
               </Button>
             </CardHeader>
-            <CardContent className="space-y-4 relative">
+            <CardContent className="space-y-3 relative pb-4">
               {priorities.length > 0 ? (
                 priorities.map((p, i) => (
                   <div
                     key={i}
-                    className="flex items-start justify-between p-4 rounded-xl bg-background/50 border border-border shadow-sm hover:border-primary/50 transition-all group cursor-pointer"
+                    className="flex items-start justify-between p-3 rounded-lg bg-background/50 border border-border shadow-sm hover:border-primary/50 transition-all group cursor-pointer"
                   >
-                    <div className="flex items-start gap-4">
-                      <div className="mt-1 size-6 rounded-full border-2 border-primary/30 flex items-center justify-center text-xs font-bold text-primary transition-all group-hover:bg-primary group-hover:text-primary-foreground">
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5 size-5 rounded-full border border-primary/30 flex items-center justify-center text-[10px] font-bold text-primary transition-all group-hover:bg-primary group-hover:text-primary-foreground">
                         {i + 1}
                       </div>
-                      <div className="space-y-1.5">
-                        <p className="font-semibold text-sm leading-tight group-hover:text-primary transition-colors">
+                      <div className="space-y-1">
+                        <p className="font-semibold text-xs leading-tight group-hover:text-primary transition-colors">
                           {p.title}
                         </p>
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2">
                           <Badge
                             variant="secondary"
                             className={cn(
-                              "text-[10px] h-5 font-bold uppercase tracking-widest",
+                              "text-[9px] h-4 font-bold uppercase tracking-widest px-1.5",
                               p.tag.toLowerCase() === "urgent" && "bg-red-500/10 text-red-500 border-red-500/20",
                               p.tag.toLowerCase() === "high" && "bg-orange-500/10 text-orange-500 border-orange-500/20",
                             )}
@@ -244,32 +261,26 @@ export function TodayView() {
                           <Badge
                             variant="outline"
                             className={cn(
-                              "text-[10px] h-5 font-medium px-2 bg-muted/50",
+                              "text-[9px] h-4 font-medium px-1.5 bg-muted/50",
                               p.status === "blocked" && "text-red-400 border-red-400/30",
                               p.status === "in-progress" && "text-blue-400 border-blue-400/30",
                             )}
                           >
                             {p.status.replace("-", " ")}
                           </Badge>
-                          {p.due_date && (
-                            <span className="text-[10px] text-muted-foreground flex items-center gap-1 font-medium">
-                              <Clock size={10} />
-                              {differenceInHours(new Date(p.due_date), new Date())}h left
-                            </span>
-                          )}
                         </div>
                       </div>
                     </div>
                   </div>
                 ))
               ) : (
-                <div className="flex flex-col items-center justify-center py-16 text-center">
-                  <div className="size-16 rounded-full bg-muted/50 flex items-center justify-center mb-4">
-                    <Zap size={32} className="text-muted-foreground/30" />
+                <div className="flex flex-col items-center justify-center py-10 text-center">
+                  <div className="size-12 rounded-full bg-muted/50 flex items-center justify-center mb-3">
+                    <Zap size={24} className="text-muted-foreground/30" />
                   </div>
-                  <h3 className="text-base font-semibold mb-2">No urgent priorities right now</h3>
-                  <p className="text-sm text-muted-foreground max-w-xs">
-                    Create tasks with due dates and priorities to see your top 3 focus items here.
+                  <h3 className="text-sm font-semibold mb-1">No urgent priorities right now</h3>
+                  <p className="text-[11px] text-muted-foreground max-w-[200px]">
+                    Create tasks with due dates to see focus items here.
                   </p>
                 </div>
               )}
@@ -277,7 +288,7 @@ export function TodayView() {
           </Card>
 
           {/* Quick Stats / Progress Panel */}
-          <Card className="lg:col-span-4 border-none shadow-none bg-transparent">
+          <Card className="lg:col-span-5 border-none shadow-none bg-transparent">
             <CardContent className="p-0 space-y-6">
               <div className="space-y-3">
                 <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest px-1 flex items-center gap-2">
