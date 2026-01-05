@@ -17,11 +17,10 @@ interface Task {
 
 export function TaskAssignmentNotification() {
   const [newAssignedTask, setNewAssignedTask] = useState<Task | null>(null)
-  const [shownTaskIds, setShownTaskIds] = useState<Set<string>>(new Set())
+  const [isClient, setIsClient] = useState(false)
   const [notificationSound] = useState(() => {
     if (typeof window !== "undefined") {
       const audio = new Audio()
-      // Create a simple notification beep sound using data URI
       audio.src =
         "data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZRQ0PVK3n77BdGwxEnN7xv3IdBzWM0vPOfilFJnfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZRQ0PVK3n77BdGwxEnN7xv3IdBzWM0vPOfilFJnfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZRQ0PVK3n77BdGwxEnN7xv3IdBzWM0vPOfilFJnfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZRQ0PVK3n77BdGwxEnN7xv3IdBzWM0vPOfilFJnfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZRQ0PVK3n77BdGwxEnN7xv3IdBzWM0vPOfilFJnfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZRQ0PVK3n77BdGwxEnN7xv3IdBzWM0vPOfilFJnfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZRQ0PVK3n77BdGwxEnN7xv3IdBzWM0vPOfilFJnfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZRQ0PVK3n77BdGwxEnN7xv3IdBzWM0vPOfilFJnfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZRQ0PVK3n77BdGwxEnN7xv3IdBzWM0vPOfilFJnfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZRQ0PVK3n77BdGwxEnN7xv3IdBzWM0vPOfilFJnfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZRQ0PVK3n77BdGwxEnN7xv3IdBzWM0vPOfilF"
       return audio
@@ -32,10 +31,30 @@ export function TaskAssignmentNotification() {
   const supabase = createClient()
 
   useEffect(() => {
-    checkForNewAssignments()
-    const interval = setInterval(checkForNewAssignments, 10000) // Check every 10 seconds
-    return () => clearInterval(interval)
+    setIsClient(true)
   }, [])
+
+  const getShownTaskIds = (): Set<string> => {
+    if (typeof window === "undefined") return new Set()
+    const stored = localStorage.getItem("task-notifications-shown")
+    return stored ? new Set(JSON.parse(stored)) : new Set()
+  }
+
+  const markTaskAsShown = (taskId: string) => {
+    if (typeof window === "undefined") return
+    const shown = getShownTaskIds()
+    shown.add(taskId)
+    localStorage.setItem("task-notifications-shown", JSON.stringify(Array.from(shown)))
+    console.log("[v0] Marked task as shown:", taskId)
+  }
+
+  useEffect(() => {
+    if (!isClient) return
+
+    checkForNewAssignments()
+    const interval = setInterval(checkForNewAssignments, 10000)
+    return () => clearInterval(interval)
+  }, [isClient])
 
   const checkForNewAssignments = async () => {
     const {
@@ -43,28 +62,27 @@ export function TaskAssignmentNotification() {
     } = await supabase.auth.getUser()
     if (!user) return
 
-    // Get tasks assigned to current user in last 30 seconds
-    const thirtySecondsAgo = new Date(Date.now() - 30000).toISOString()
+    const shownTaskIds = getShownTaskIds()
+
+    // Get tasks assigned to current user in last 60 seconds
+    const sixtySecondsAgo = new Date(Date.now() - 60000).toISOString()
 
     const { data, error } = await supabase
       .from("tasks")
       .select("*")
       .eq("assigned_to", user.id)
-      .gte("created_at", thirtySecondsAgo)
+      .gte("created_at", sixtySecondsAgo)
       .order("created_at", { ascending: false })
-      .limit(1)
 
     if (!error && data && data.length > 0) {
-      const task = data[0]
-      console.log("[v0] Checking task assignment:", task.id, "shown:", shownTaskIds.has(task.id))
+      const unshownTask = data.find((task) => !shownTaskIds.has(task.id))
 
-      // Only show if we haven't shown this task before
-      if (!shownTaskIds.has(task.id)) {
-        console.log("[v0] New task assignment detected:", task.title)
-        setNewAssignedTask(task)
-        setShownTaskIds((prev) => new Set(prev).add(task.id))
+      if (unshownTask) {
+        console.log("[v0] New task assignment detected:", unshownTask.title)
+        setNewAssignedTask(unshownTask)
+        markTaskAsShown(unshownTask.id)
         playNotificationSound()
-        sendBrowserNotification(task)
+        sendBrowserNotification(unshownTask)
       }
     }
   }
@@ -124,6 +142,10 @@ export function TaskAssignmentNotification() {
     return `Due in ${diffDays} days`
   }
 
+  const handleClose = () => {
+    setNewAssignedTask(null)
+  }
+
   return (
     <>
       {/* Task Assignment Pop-up - Top Right */}
@@ -148,12 +170,7 @@ export function TaskAssignmentNotification() {
                   )}
                 </div>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 rounded-full shrink-0"
-                onClick={() => setNewAssignedTask(null)}
-              >
+              <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full shrink-0" onClick={handleClose}>
                 <X className="h-4 w-4" />
               </Button>
             </div>
