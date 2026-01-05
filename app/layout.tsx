@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/sonner"
+import { MeetingReminder } from "@/components/meeting-reminder"
 import "./globals.css"
 
 const _geist = Geist({ subsets: ["latin"] })
@@ -42,6 +43,7 @@ export default function RootLayout({
       <body className={`font-sans antialiased`}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           {children}
+          <MeetingReminder />
           <Toaster />
           <Analytics />
         </ThemeProvider>
