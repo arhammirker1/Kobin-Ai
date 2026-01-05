@@ -765,9 +765,11 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
               }}
             >
               <CardContent className="p-4">
-                <div className={`flex ${expandedCommentTaskId === task.id ? "flex-row gap-4" : "gap-4"}`}>
+                <div className={`flex ${expandedCommentTaskId === task.id ? "flex-col sm:flex-row gap-4" : "gap-4"}`}>
                   {/* Left side: Task content */}
-                  <div className={`flex gap-4 ${expandedCommentTaskId === task.id ? "flex-1 min-w-0" : "flex-1"}`}>
+                  <div
+                    className={`flex gap-4 ${expandedCommentTaskId === task.id ? "flex-1 min-w-0" : "flex-1 min-w-0"}`}
+                  >
                     <div
                       className={`size-6 rounded border-2 flex items-center justify-center transition-colors shrink-0 cursor-pointer ${
                         task.is_completed
@@ -786,34 +788,38 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
                       )}
                     </div>
 
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-3 mb-1 flex-wrap">
+                    <div className="flex-1 min-w-0 overflow-hidden">
+                      <div className="flex items-start gap-2 mb-1 flex-wrap">
                         <h3
-                          className={`font-bold text-sm truncate group-hover:text-primary transition-colors ${
+                          className={`font-bold text-sm break-words max-w-full group-hover:text-primary transition-colors ${
                             task.is_completed ? "line-through" : ""
                           }`}
                         >
                           {task.title}
                         </h3>
-                        <Badge
-                          className={`text-[9px] font-bold uppercase tracking-widest ${getPriorityColor(task.priority)}`}
-                        >
-                          {task.priority}
-                        </Badge>
-                        {task.due_date && getDeadlineBadge(task.due_date)}
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <Badge
+                            className={`text-[9px] font-bold uppercase tracking-widest whitespace-nowrap ${getPriorityColor(task.priority)}`}
+                          >
+                            {task.priority}
+                          </Badge>
+                          {task.due_date && getDeadlineBadge(task.due_date)}
+                        </div>
                       </div>
 
                       {task.resources && task.resources.length > 0 && (
                         <div className="flex flex-col gap-1 mb-2 text-xs">
                           {task.resources.map((resource, index) => (
-                            <div key={index} className="flex items-center gap-1">
-                              <span className="font-medium text-muted-foreground">{resource.title || "Link"}:</span>
+                            <div key={index} className="flex items-center gap-1 overflow-hidden">
+                              <span className="font-medium text-muted-foreground shrink-0">
+                                {resource.title || "Link"}:
+                              </span>
                               <a
                                 href={resource.url}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 onClick={(e) => e.stopPropagation()}
-                                className="text-blue-500 hover:underline"
+                                className="text-blue-500 hover:underline truncate"
                                 title={resource.url}
                               >
                                 click here
@@ -823,31 +829,31 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
                         </div>
                       )}
 
-                      {task.notes && <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{task.notes}</p>}
+                      {task.notes && (
+                        <p className="text-xs text-muted-foreground line-clamp-2 mb-2 break-words">{task.notes}</p>
+                      )}
 
-                      <span className="flex items-center gap-1.5 text-xs text-muted-foreground mb-2">
-                        {task.linked && (
-                          <span className="flex items-center gap-1.5">
-                            Linked to:{" "}
-                            <Badge variant="outline" className="text-[8px]">
-                              {task.linked}
-                            </Badge>
-                          </span>
-                        )}
-                      </span>
+                      {task.linked && (
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-2 overflow-hidden">
+                          <span className="shrink-0">Linked to:</span>
+                          <Badge variant="outline" className="text-[8px] truncate max-w-[150px]">
+                            {task.linked}
+                          </Badge>
+                        </div>
+                      )}
 
                       {task.assigned_to && (
-                        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          Assigned:{" "}
-                          <Badge variant="outline" className="text-[8px]">
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-2 overflow-hidden">
+                          <span className="shrink-0">Assigned:</span>
+                          <Badge variant="outline" className="text-[8px] truncate max-w-[150px]">
                             {getAssigneeName(task.assigned_to) || task.assigned_to}
                           </Badge>
-                        </span>
+                        </div>
                       )}
 
                       {canUpdateStatus && (
-                        <span className="flex items-center gap-1.5">
-                          Status:{" "}
+                        <div className="flex items-center gap-1.5 overflow-hidden">
+                          <span className="text-xs shrink-0">Status:</span>
                           <Select value={task.status} onValueChange={(v) => updateTaskStatus(task.id, v)}>
                             <SelectTrigger className="h-6 w-28 text-xs border-0 p-0 font-medium text-foreground">
                               <SelectValue />
@@ -860,12 +866,12 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
                               ))}
                             </SelectContent>
                           </Select>
-                        </span>
+                        </div>
                       )}
                     </div>
 
                     {expandedCommentTaskId === task.id && (
-                      <div className="flex-1 border-l pl-4 min-h-[300px]">
+                      <div className="flex-1 border-l pl-4 min-h-[300px] min-w-0">
                         <TaskComments
                           taskId={task.id}
                           onCommentCountChange={(count) => handleCommentCountChange(task.id, count)}
@@ -874,11 +880,11 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
                     )}
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-start gap-2 shrink-0">
                     <Button
                       variant="ghost"
                       size="icon"
-                      className={`size-8 relative transition-opacity ${
+                      className={`size-8 relative transition-opacity shrink-0 ${
                         expandedCommentTaskId === task.id
                           ? "bg-primary/10 text-primary"
                           : "opacity-30 group-hover:opacity-100"
@@ -899,7 +905,7 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="size-8 opacity-30 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive hover:bg-destructive/10"
+                          className="size-8 opacity-30 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive hover:bg-destructive/10 shrink-0"
                           onClick={(e) => {
                             e.stopPropagation()
                             handleDeleteClick(task.id)
@@ -911,7 +917,7 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="size-8 opacity-30 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary hover:bg-primary/10"
+                          className="size-8 opacity-30 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary hover:bg-primary/10 shrink-0"
                           onClick={(e) => {
                             e.stopPropagation()
                             handleEditClick(task)
