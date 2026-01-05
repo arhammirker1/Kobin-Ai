@@ -5,6 +5,7 @@ import { Analytics } from "@vercel/analytics/next"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/sonner"
 import { MeetingReminder } from "@/components/meeting-reminder"
+import { TaskAssignmentNotification } from "@/components/task-assignment-notification"
 import "./globals.css"
 
 const _geist = Geist({ subsets: ["latin"] })
@@ -44,6 +45,7 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           {children}
           <MeetingReminder />
+          <TaskAssignmentNotification />
           <Toaster />
           <Analytics />
         </ThemeProvider>
