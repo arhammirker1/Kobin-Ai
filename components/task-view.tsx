@@ -1,5 +1,7 @@
 "use client"
 
+import type React from "react"
+
 import { useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -22,8 +24,10 @@ import {
 import { toast } from "react-hot-toast"
 import { format, isThisWeek, isPast, differenceInDays } from "date-fns"
 import useSWR from "swr"
-import { Plus, Clock, Filter, Trash2, Pencil, CheckCircle2, Activity, Calendar } from "lucide-react"
+import { Plus, Clock, Filter, Trash2, Pencil, CheckCircle2, Activity, Calendar, MessageSquare } from "lucide-react"
 import { TaskForm } from "@/components/task-form"
+import { TaskComments } from "@/components/task-comments"
+import { getTaskCommentCount } from "@/lib/supabase/queries/task-comments"
 
 const BUCKETS = ["today", "this-week", "delegated", "backlog"]
 const PRIORITIES = ["low", "medium", "high", "urgent"]
@@ -43,6 +47,8 @@ const INITIAL_TASK_STATE = {
   related_context_id: "",
   related_context_name: "",
 }
+
+const INITIAL_STATE = INITIAL_TASK_STATE // Declared the missing variable
 
 interface Task {
   id: string
@@ -103,6 +109,19 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
   const [newResourceUrl, setNewResourceUrl] = useState("")
   const [newResourceTitle, setNewResourceTitle] = useState("")
   const [showRelatedContextCollapsed, setShowRelatedContextCollapsed] = useState(true)
+  const [expandedCommentTaskId, setExpandedCommentTaskId] = useState<string | null>(null)
+  const [commentCounts, setCommentCounts] = useState<Record<string, number>>({})
+
+  const loadCommentCounts = async (taskList: Task[]) => {
+    const counts: Record<string, number> = {}
+    await Promise.all(
+      taskList.map(async (task) => {
+        const count = await getTaskCommentCount(task.id)
+        counts[task.id] = count
+      }),
+    )
+    setCommentCounts(counts)
+  }
 
   const {
     data: tasks,
@@ -130,7 +149,9 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
 
       const { data, error } = await query.order("created_at", { ascending: false })
       if (error) throw error
-      return sortTasksByPriorityAndDeadline(data || [])
+      const sortedTasks = sortTasksByPriorityAndDeadline(data || [])
+      loadCommentCounts(sortedTasks)
+      return sortedTasks
     },
     { revalidateOnFocus: true },
   )
@@ -489,6 +510,18 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
     }
   }
 
+  const toggleCommentSection = (taskId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setExpandedCommentTaskId(expandedCommentTaskId === taskId ? null : taskId)
+  }
+
+  const handleCommentCountChange = (taskId: string, count: number) => {
+    setCommentCounts((prev) => ({
+      ...prev,
+      [taskId]: count,
+    }))
+  }
+
   return (
     <div className="flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -534,7 +567,7 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
                     variant="outline"
                     onClick={() => {
                       setIsDialogOpen(false)
-                      setNewTask(INITIAL_TASK_STATE)
+                      setNewTask(INITIAL_STATE)
                       setNewResourceUrl("")
                       setNewResourceTitle("")
                     }}
@@ -719,11 +752,17 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
         {tasks?.map((task) => (
           <div key={task.id} className="relative group">
             <Card
-              className={`group hover:border-primary/30 transition-all cursor-pointer shadow-sm ${task.is_completed ? "opacity-60" : ""}`}
-              onClick={() => handleViewTaskDetails(task)}
+              className={`group hover:border-primary/30 transition-all ${task.is_completed ? "opacity-60" : ""} ${
+                expandedCommentTaskId === task.id ? "col-span-1 md:col-span-2" : ""
+              }`}
+              onClick={() => {
+                if (expandedCommentTaskId !== task.id) {
+                  handleViewTaskDetails(task)
+                }
+              }}
             >
               <CardContent className="p-4">
-                <div className="flex items-center gap-4">
+                <div className={`flex gap-4 ${expandedCommentTaskId === task.id ? "items-start" : "items-center"}`}>
                   <div
                     className={`size-6 rounded border-2 flex items-center justify-center transition-colors shrink-0 ${task.is_completed ? "bg-primary border-primary" : "border-muted-foreground/30 hover:border-primary hover:bg-primary/10"}`}
                     onClick={(e) => {
@@ -738,7 +777,7 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
                     )}
                   </div>
 
-                  <div className="flex-1 min-w-0">
+                  <div className={`flex-1 min-w-0 ${expandedCommentTaskId === task.id ? "max-w-[45%]" : ""}`}>
                     <div className="flex items-center gap-3 mb-1 flex-wrap">
                       <h3
                         className={`font-bold text-sm truncate group-hover:text-primary transition-colors ${task.is_completed ? "line-through" : ""}`}
@@ -815,34 +854,60 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
                     )}
                   </div>
 
-                  {canEditOrDelete && ( // Using new permission check
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-8 opacity-30 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive hover:bg-destructive/10"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleDeleteClick(task.id)
-                        }}
-                        title="Delete task"
-                      >
-                        <Trash2 size={16} />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-8 opacity-30 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary hover:bg-primary/10"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleEditClick(task)
-                        }}
-                        title="Edit task"
-                      >
-                        <Pencil size={16} />
-                      </Button>
+                  {expandedCommentTaskId === task.id && (
+                    <div className="flex-1 border-l pl-4 h-[300px]">
+                      <TaskComments
+                        taskId={task.id}
+                        onCommentCountChange={(count) => handleCommentCountChange(task.id, count)}
+                      />
                     </div>
                   )}
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={`size-8 relative transition-opacity ${expandedCommentTaskId === task.id ? "bg-primary/10 text-primary" : "opacity-30 group-hover:opacity-100"}`}
+                      onClick={(e) => toggleCommentSection(task.id, e)}
+                      title={expandedCommentTaskId === task.id ? "Hide comments" : "Show comments"}
+                    >
+                      <MessageSquare size={16} />
+                      {commentCounts[task.id] > 0 && (
+                        <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[9px] font-bold rounded-full size-4 flex items-center justify-center">
+                          {commentCounts[task.id]}
+                        </span>
+                      )}
+                    </Button>
+
+                    {canEditOrDelete && ( // Using new permission check
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 opacity-30 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleDeleteClick(task.id)
+                          }}
+                          title="Delete task"
+                        >
+                          <Trash2 size={16} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 opacity-30 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary hover:bg-primary/10"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleEditClick(task)
+                          }}
+                          title="Edit task"
+                        >
+                          <Pencil size={16} />
+                        </Button>
+                      </>
+                    )}
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -964,6 +1029,16 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
                   </div>
                 </div>
               )}
+
+              <div>
+                <Label className="text-xs font-semibold text-muted-foreground mb-3 block">Comments</Label>
+                <div className="border rounded-lg p-4 h-[400px]">
+                  <TaskComments
+                    taskId={detailsTask.id}
+                    onCommentCountChange={(count) => handleCommentCountChange(detailsTask.id, count)}
+                  />
+                </div>
+              </div>
 
               <div className="pt-4 border-t flex gap-2">
                 {canEditOrDelete && ( // Using new permission check
