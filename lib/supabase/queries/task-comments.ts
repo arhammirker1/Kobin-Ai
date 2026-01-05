@@ -20,7 +20,7 @@ export async function getTaskComments(taskId: string): Promise<TaskComment[]> {
     .from("task_comments")
     .select(`
       *,
-      profile:profiles!task_comments_user_id_profiles_fkey(full_name, avatar_url)
+      profile:profiles(full_name, avatar_url)
     `)
     .eq("task_id", taskId)
     .order("created_at", { ascending: true })
@@ -53,7 +53,7 @@ export async function createTaskComment(taskId: string, content: string) {
     })
     .select(`
       *,
-      profile:profiles!task_comments_user_id_profiles_fkey(full_name, avatar_url)
+      profile:profiles(full_name, avatar_url)
     `)
     .single()
 
