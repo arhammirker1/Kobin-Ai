@@ -90,6 +90,11 @@ export function TodayView() {
       }
     }
 
+    const upcomingEvents = eventsWithRelationships.filter((event) => {
+      const eventEndTime = new Date(event.end_time || event.start_time)
+      return eventEndTime >= now
+    })
+
     const { data: tasks } = await supabase
       .from("tasks")
       .select("id, title, status, priority, due_date")
@@ -97,7 +102,7 @@ export function TodayView() {
       .neq("status", "completed")
       .order("due_date", { ascending: true })
 
-    const allMeetings = eventsWithRelationships
+    const allMeetings = upcomingEvents
     setUpcomingMeetings(allMeetings)
 
     const meetingPriorities = allMeetings.map((e: any) => ({
