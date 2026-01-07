@@ -8,6 +8,7 @@ import { CrmView } from "@/components/crm-view"
 import { VaultView } from "@/components/vault-view"
 import { SettingsView } from "@/components/settings-view"
 import { TeamView } from "@/components/team-view"
+import { ProjectsView } from "@/components/projects-view"
 import { Header } from "@/components/header"
 import { FileText } from "lucide-react"
 
@@ -22,6 +23,7 @@ export function DashboardContent({ activeTab, userType }: { activeTab: string; u
         {activeTab === "LinkedIn" && <LinkedinView />}
         {activeTab === "Relationships" && <CrmView />}
         {activeTab === "Vault" && <VaultView />}
+        {activeTab === "Projects" && <ProjectsView />}
         {activeTab === "Team" && <TeamView />}
         {activeTab === "Settings" && <SettingsView />}
         {/* Placeholder for other views */}
@@ -31,6 +33,7 @@ export function DashboardContent({ activeTab, userType }: { activeTab: string; u
           activeTab !== "LinkedIn" &&
           activeTab !== "Relationships" &&
           activeTab !== "Vault" &&
+          activeTab !== "Projects" &&
           activeTab !== "Team" &&
           activeTab !== "Settings" && (
             <div className="flex flex-col items-center justify-center h-full text-center py-24">
