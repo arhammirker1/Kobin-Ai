@@ -52,16 +52,14 @@ export async function POST(request: Request) {
     const newUserId = createdUser.user.id
 
     // 3️⃣ ADMIN CLIENT — UPSERT PROFILE WITH USER_TYPE
-    const { error: upsertError, data: upsertData } = await supabaseAdmin.from("profiles").upsert(
-      {
-        id: newUserId,
-        email,
-        full_name: relationship_name,
-        user_type: "client", // Explicitly set user_type to client
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "id" },
-    )
+    const { error: upsertError, data: upsertData } = await supabaseAdmin.from("profiles").upsert({
+      id: newUserId,
+      email,
+      full_name: relationship_name,
+      user_type: "client", // Explicitly set user_type to client
+      created_by: user.id, // Set founder's ID as creator
+      updated_at: new Date().toISOString(),
+    })
 
     console.log("[v0] Upsert result - Error:", upsertError, "Data:", upsertData)
 
