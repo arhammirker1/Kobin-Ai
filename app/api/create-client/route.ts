@@ -51,42 +51,29 @@ export async function POST(request: Request) {
 
     const newUserId = createdUser.user.id
 
-    // 3️⃣ ADMIN CLIENT — CREATE PROFILE WITH USER_TYPE
-    const founderId = profile?.user_type === "founder" ? user.id : null
-
-    // Insert profile directly to avoid race conditions with upsert
-    const { data: existingProfile, error: checkError } = await supabaseAdmin
-      .from("profiles")
-      .select("id")
-      .eq("id", newUserId)
-      .single()
-
-    if (existingProfile) {
-      // Profile already exists, update it
-      await supabaseAdmin
-        .from("profiles")
-        .update({
-          email,
-          full_name: relationship_name,
-          user_type: "client",
-          created_by: user.id,
-        })
-        .eq("id", newUserId)
-    } else {
-      // Profile doesn't exist, insert it with explicit user_type
-      await supabaseAdmin.from("profiles").insert({
+    // 3️⃣ ADMIN CLIENT — UPSERT PROFILE WITH USER_TYPE
+    const { error: upsertError, data: upsertData } = await supabaseAdmin.from("profiles").upsert(
+      {
         id: newUserId,
         email,
         full_name: relationship_name,
-        user_type: "client",
-        created_by: user.id,
-      })
+        user_type: "client", // Explicitly set user_type to client
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "id" },
+    )
+
+    console.log("[v0] Upsert result - Error:", upsertError, "Data:", upsertData)
+
+    if (upsertError) {
+      console.error("[v0] Upsert error details:", upsertError)
+      return NextResponse.json({ message: upsertError.message }, { status: 400 })
     }
 
     // 4️⃣ ADMIN CLIENT — INSERT CLIENT RECORD
     const clientData: any = {
       user_id: newUserId,
-      founder_id: founderId || user.id,
+      founder_id: profile?.user_type === "founder" ? user.id : user.id,
       is_active: true,
     }
 
