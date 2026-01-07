@@ -401,17 +401,6 @@ export function CrmView() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-        <Button
-          className="gap-2 shadow-sm font-bold"
-          onClick={() => {
-            setIsCreateClientModalOpen(true)
-            setSelectedRelationshipForClient(null)
-          }}
-        >
-          <UserPlus size={18} />
-          <span className="hidden md:inline">Create Client</span>
-          <span className="md:hidden">Create</span>
-        </Button>
       </div>
 
       <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
