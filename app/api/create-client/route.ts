@@ -42,7 +42,10 @@ export async function POST(request: Request) {
       email,
       password,
       email_confirm: true,
-      user_metadata: { role: "client" },
+      user_metadata: {
+        role: "client", // Tell the trigger to set user_type='client'
+        created_by: user.id, // Pass founder ID so trigger can set created_by
+      },
     })
 
     if (createError || !createdUser.user) {
@@ -51,24 +54,7 @@ export async function POST(request: Request) {
 
     const newUserId = createdUser.user.id
 
-    // 3️⃣ ADMIN CLIENT — UPSERT PROFILE WITH USER_TYPE
-    const { error: upsertError, data: upsertData } = await supabaseAdmin.from("profiles").upsert({
-      id: newUserId,
-      email,
-      full_name: relationship_name,
-      user_type: "client", // Explicitly set user_type to client
-      created_by: user.id, // Set founder's ID as creator
-      updated_at: new Date().toISOString(),
-    })
-
-    console.log("[v0] Upsert result - Error:", upsertError, "Data:", upsertData)
-
-    if (upsertError) {
-      console.error("[v0] Upsert error details:", upsertError)
-      return NextResponse.json({ message: upsertError.message }, { status: 400 })
-    }
-
-    // 4️⃣ ADMIN CLIENT — INSERT CLIENT RECORD
+    // 3️⃣ ADMIN CLIENT — INSERT CLIENT RECORD (trigger will create profile with correct user_type)
     const clientData: any = {
       user_id: newUserId,
       founder_id: profile?.user_type === "founder" ? user.id : user.id,
@@ -83,8 +69,14 @@ export async function POST(request: Request) {
       clientData.project_id = project_id
     }
 
-    await supabaseAdmin.from("clients").insert(clientData)
+    const { error: clientError } = await supabaseAdmin.from("clients").insert(clientData)
 
+    if (clientError) {
+      console.error("[v0] Error creating client record:", clientError)
+      return NextResponse.json({ message: clientError.message }, { status: 400 })
+    }
+
+    console.log("[v0] Client created successfully with user_id:", newUserId)
     return NextResponse.json({ success: true, client_id: newUserId })
   } catch (error: any) {
     console.error("[v0] Error creating client:", error)
