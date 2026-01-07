@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useEffect } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -35,7 +34,7 @@ export function CreateClientModal({
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
-  const [projectId, setProjectId] = useState<string | null>("none") // Updated default value to be "none"
+  const [projectId, setProjectId] = useState<string | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(false)
   const [projectsLoading, setProjectsLoading] = useState(true)
@@ -51,7 +50,7 @@ export function CreateClientModal({
     try {
       setProjectsLoading(true)
       if (!supabase) {
-        toast.error("Supabase not configured. Please check environment variables.")
+        toast.error("Supabase not configured")
         return
       }
 
@@ -70,7 +69,7 @@ export function CreateClientModal({
       if (error) throw error
       setProjects(data || [])
     } catch (error) {
-      console.error("[v0] Error fetching projects:", error)
+      console.error("Error fetching projects:", error)
       toast.error("Failed to load projects")
     } finally {
       setProjectsLoading(false)
@@ -82,33 +81,27 @@ export function CreateClientModal({
       toast.error("Email is required")
       return false
     }
-
     if (!email.includes("@")) {
       toast.error("Please enter a valid email")
       return false
     }
-
     if (!password || password.length < 8) {
       toast.error("Password must be at least 8 characters")
       return false
     }
-
     return true
   }
 
   const handleCreateClient = async (e: React.FormEvent) => {
     e.preventDefault()
-
     if (!validateForm()) return
-
     if (!supabase) {
-      toast.error("Supabase not configured. Please check environment variables.")
+      toast.error("Supabase not configured")
       return
     }
 
     try {
       setLoading(true)
-
       const response = await fetch("/api/create-client", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -116,12 +109,12 @@ export function CreateClientModal({
           email,
           password,
           relationship_id: relationshipId,
-          project_id: projectId === "none" ? null : projectId, // Convert "none" to null
+          relationship_name: relationshipName,
+          project_id: projectId,
         }),
       })
 
       const data = await response.json()
-
       if (!response.ok) {
         throw new Error(data.message || "Failed to create client")
       }
@@ -129,12 +122,12 @@ export function CreateClientModal({
       toast.success("Client account created successfully")
       setEmail("")
       setPassword("")
-      setProjectId("none") // Reset to "none"
+      setProjectId(null)
       onOpenChange(false)
       onClientCreated?.()
-    } catch (error: any) {
-      console.error("[v0] Error creating client:", error)
-      toast.error(error.message || "Failed to create client account")
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Failed to create client"
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -146,7 +139,7 @@ export function CreateClientModal({
         <DialogHeader>
           <DialogTitle>Create Client Account</DialogTitle>
           <p className="text-sm text-muted-foreground mt-2">
-            Create a new client user for <span className="font-semibold">{relationshipName}</span>
+            Creating account for <span className="font-semibold">{relationshipName}</span>
           </p>
         </DialogHeader>
 
@@ -154,7 +147,7 @@ export function CreateClientModal({
           <div className="space-y-2">
             <Label htmlFor="client-email" className="flex items-center gap-2">
               <Mail size={16} />
-              Client Email
+              Email
             </Label>
             <Input
               id="client-email"
@@ -163,7 +156,6 @@ export function CreateClientModal({
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               disabled={loading}
-              autoComplete="email"
             />
           </div>
 
@@ -180,31 +172,29 @@ export function CreateClientModal({
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={loading}
-                autoComplete="new-password"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
                 disabled={loading}
-                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               >
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
-            <p className="text-xs text-muted-foreground">Must be at least 8 characters long</p>
+            <p className="text-xs text-muted-foreground">Minimum 8 characters</p>
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="client-project">Assign to Project (Optional)</Label>
             {projectsLoading ? (
-              <div className="text-sm text-muted-foreground py-2">Loading projects...</div>
+              <p className="text-sm text-muted-foreground py-2">Loading projects...</p>
             ) : projects.length > 0 ? (
-              <Select value={projectId} onValueChange={(value) => setProjectId(value)}>
+              <Select value={projectId || ""} onValueChange={(value) => setProjectId(value || null)}>
                 <SelectTrigger id="client-project">
-                  <SelectValue placeholder="Select a project (optional)" />
+                  <SelectValue placeholder="Select a project" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">No project</SelectItem>
                   {projects.map((project) => (
                     <SelectItem key={project.id} value={project.id}>
                       {project.name}
@@ -213,9 +203,7 @@ export function CreateClientModal({
                 </SelectContent>
               </Select>
             ) : (
-              <p className="text-sm text-muted-foreground py-2">
-                No active projects available. Create one in the Projects panel.
-              </p>
+              <p className="text-sm text-muted-foreground py-2">No active projects available</p>
             )}
           </div>
 
