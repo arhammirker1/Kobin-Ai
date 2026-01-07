@@ -5,7 +5,7 @@ import { NextResponse } from "next/server"
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { email, password, relationship_id, project_id } = body
+    const { email, password, relationship_id, relationship_name, project_id } = body
 
     // 1️⃣ USER CLIENT — CHECK PERMISSIONS
     const supabase = await createClient()
@@ -51,15 +51,37 @@ export async function POST(request: Request) {
 
     const newUserId = createdUser.user.id
 
-    // 3️⃣ ADMIN CLIENT — UPDATE PROFILE
+    // 3️⃣ ADMIN CLIENT — CREATE PROFILE WITH USER_TYPE
     const founderId = profile?.user_type === "founder" ? user.id : null
 
-    await supabaseAdmin.from("profiles").upsert({
-      id: newUserId,
-      email,
-      user_type: "client",
-      created_by: user.id,
-    })
+    // Insert profile directly to avoid race conditions with upsert
+    const { data: existingProfile, error: checkError } = await supabaseAdmin
+      .from("profiles")
+      .select("id")
+      .eq("id", newUserId)
+      .single()
+
+    if (existingProfile) {
+      // Profile already exists, update it
+      await supabaseAdmin
+        .from("profiles")
+        .update({
+          email,
+          full_name: relationship_name,
+          user_type: "client",
+          created_by: user.id,
+        })
+        .eq("id", newUserId)
+    } else {
+      // Profile doesn't exist, insert it with explicit user_type
+      await supabaseAdmin.from("profiles").insert({
+        id: newUserId,
+        email,
+        full_name: relationship_name,
+        user_type: "client",
+        created_by: user.id,
+      })
+    }
 
     // 4️⃣ ADMIN CLIENT — INSERT CLIENT RECORD
     const clientData: any = {

@@ -38,6 +38,7 @@ export function CreateClientModal({
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(false)
   const [projectsLoading, setProjectsLoading] = useState(true)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const supabase = createClient()
 
   useEffect(() => {
@@ -94,6 +95,7 @@ export function CreateClientModal({
 
   const handleCreateClient = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (isSubmitting || loading) return
     if (!validateForm()) return
     if (!supabase) {
       toast.error("Supabase not configured")
@@ -101,6 +103,7 @@ export function CreateClientModal({
     }
 
     try {
+      setIsSubmitting(true)
       setLoading(true)
       const response = await fetch("/api/create-client", {
         method: "POST",
@@ -130,6 +133,7 @@ export function CreateClientModal({
       toast.error(errorMessage)
     } finally {
       setLoading(false)
+      setIsSubmitting(false)
     }
   }
 
@@ -211,7 +215,7 @@ export function CreateClientModal({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
               Cancel
             </Button>
-            <Button type="submit" disabled={loading}>
+            <Button type="submit" disabled={loading || isSubmitting}>
               {loading ? "Creating..." : "Create Client"}
             </Button>
           </DialogFooter>
