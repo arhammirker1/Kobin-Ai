@@ -38,6 +38,11 @@ export default function Page() {
             return
           }
 
+          if (profile?.user_type === "client") {
+            router.push("/client-dashboard")
+            return
+          }
+
           setUserType(profile?.user_type || "founder")
           setIsAuthenticated(true)
         } else {
