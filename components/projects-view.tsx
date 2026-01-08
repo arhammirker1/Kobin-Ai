@@ -141,20 +141,22 @@ export function ProjectsView() {
 
       const { data, error } = await supabase
         .from("projects")
-        .select(
-          `
-          *,
-          creator_profile:profiles!projects_created_by_fkey(full_name)
-        `,
-        )
+        .select("*")
         .eq("founder_id", founderId)
         .order("created_at", { ascending: false })
 
       if (error) throw error
 
-      // Fetch task counts for each project
-      const projectsWithCounts = await Promise.all(
+      const projectsWithProfiles = await Promise.all(
         (data || []).map(async (project) => {
+          // Get creator profile
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("full_name")
+            .eq("id", project.created_by)
+            .single()
+
+          // Get task counts
           const { count: totalCount } = await supabase
             .from("tasks")
             .select("*", { count: "exact", head: true })
@@ -168,13 +170,14 @@ export function ProjectsView() {
 
           return {
             ...project,
+            creator_profile: profile ? { full_name: profile.full_name } : null,
             task_count: totalCount || 0,
             completed_task_count: completedCount || 0,
           }
         }),
       )
 
-      setProjects(projectsWithCounts)
+      setProjects(projectsWithProfiles)
     } catch (error) {
       console.error("[v0] Error fetching projects:", error)
       toast({
