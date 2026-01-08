@@ -7,13 +7,12 @@ import { Input, Textarea } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Search, Plus, Video, CalendarIcon, FileText, Linkedin, UserPlus } from "lucide-react"
+import { Search, Plus, Video, CalendarIcon, FileText, Linkedin } from "lucide-react"
 import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { toast } from "sonner"
 import { format, parseISO } from "date-fns"
 import { cn } from "@/lib/utils"
-import { CreateClientModal } from "@/components/create-client-modal"
 
 const RELATIONSHIP_TYPES = [
   { value: "lead", label: "Lead" },
@@ -60,8 +59,6 @@ export function CrmView() {
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null)
   const [upcomingMeetings, setUpcomingMeetings] = useState<Record<string, CalendarEvent | null>>({})
   const [outcomeText, setOutcomeText] = useState("")
-  const [isCreateClientModalOpen, setIsCreateClientModalOpen] = useState(false)
-  const [selectedRelationshipForClient, setSelectedRelationshipForClient] = useState<Relationship | null>(null)
 
   const [newRelationship, setNewRelationship] = useState<Partial<Relationship>>({
     full_name: "",
@@ -516,20 +513,6 @@ export function CrmView() {
                       <span className="truncate">LinkedIn</span>
                     </Button>
                   )}
-                  {rel.relationship_type === "client" && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="flex-1 min-w-0 h-8 text-xs bg-transparent text-primary hover:text-primary"
-                      onClick={() => {
-                        setSelectedRelationshipForClient(rel)
-                        setIsCreateClientModalOpen(true)
-                      }}
-                    >
-                      <UserPlus className="h-3 w-3 mr-1 shrink-0" />
-                      <span className="truncate">Add Client User</span>
-                    </Button>
-                  )}
                   <Button
                     size="sm"
                     variant="outline"
@@ -770,19 +753,6 @@ export function CrmView() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {selectedRelationshipForClient && (
-        <CreateClientModal
-          open={isCreateClientModalOpen}
-          onOpenChange={setIsCreateClientModalOpen}
-          relationshipId={selectedRelationshipForClient.id}
-          relationshipName={selectedRelationshipForClient.full_name}
-          onClientCreated={() => {
-            setSelectedRelationshipForClient(null)
-            toast.success("Client account created successfully")
-          }}
-        />
-      )}
     </div>
   )
 }
