@@ -16,7 +16,6 @@ import { cn } from "@/lib/utils"
 
 const RELATIONSHIP_TYPES = [
   { value: "lead", label: "Lead" },
-  { value: "client", label: "Client" },
   { value: "investor", label: "Investor" },
   { value: "partner", label: "Partner" },
   { value: "talent", label: "Talent" },
@@ -27,7 +26,7 @@ type Relationship = {
   full_name: string
   company: string | null
   role: string | null
-  relationship_type: "lead" | "client" | "investor" | "partner" | "talent"
+  relationship_type: "lead" | "investor" | "partner" | "talent"
   linkedin_profile_url: string | null
   meeting_link: string | null
   status: "active" | "archived"
@@ -292,7 +291,7 @@ export function CrmView() {
         <div className="flex flex-col gap-1">
           <h1 className="text-3xl font-bold tracking-tight">Relationships</h1>
           <p className="text-muted-foreground text-sm">
-            Manage leads, clients, and partners. Calendar is the source of truth.
+            Manage leads, investors, partners, and talents. Calendar is the source of truth.
           </p>
         </div>
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
@@ -443,7 +442,6 @@ export function CrmView() {
                     className={cn(
                       "text-[10px] uppercase font-bold shrink-0",
                       rel.relationship_type === "lead" && "bg-blue-50 text-blue-600 border-blue-200",
-                      rel.relationship_type === "client" && "bg-emerald-50 text-emerald-600 border-emerald-200",
                       rel.relationship_type === "investor" && "bg-purple-50 text-purple-600 border-purple-200",
                       rel.relationship_type === "partner" && "bg-amber-50 text-amber-600 border-amber-200",
                       rel.relationship_type === "talent" && "bg-cyan-50 text-cyan-600 border-cyan-200",

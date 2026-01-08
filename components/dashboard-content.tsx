@@ -11,6 +11,7 @@ import { TeamView } from "@/components/team-view"
 import { ProjectsView } from "@/components/projects-view"
 import { Header } from "@/components/header"
 import { FileText } from "lucide-react"
+import { ClientsView } from "@/components/clients-view"
 
 export function DashboardContent({ activeTab, userType }: { activeTab: string; userType?: string }) {
   return (
@@ -25,6 +26,7 @@ export function DashboardContent({ activeTab, userType }: { activeTab: string; u
         {activeTab === "Relationships" && <CrmView />}
         {activeTab === "Vault" && <VaultView />}
         {activeTab === "Team" && <TeamView />}
+        {activeTab === "Clients" && <ClientsView />}
         {activeTab === "Settings" && <SettingsView />}
         {/* Placeholder for other views */}
         {activeTab !== "Home" &&
@@ -35,6 +37,7 @@ export function DashboardContent({ activeTab, userType }: { activeTab: string; u
           activeTab !== "Relationships" &&
           activeTab !== "Vault" &&
           activeTab !== "Team" &&
+          activeTab !== "Clients" &&
           activeTab !== "Settings" && (
             <div className="flex flex-col items-center justify-center h-full text-center py-24">
               <div className="size-20 rounded-full bg-muted flex items-center justify-center mb-6">

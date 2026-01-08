@@ -16,6 +16,7 @@ import {
   Settings,
   LayoutDashboard,
   FolderOpen,
+  UserCircle,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import {
@@ -38,6 +39,7 @@ import { VaultView } from "@/components/vault-view"
 import { SettingsView } from "@/components/settings-view"
 import { TaskView } from "@/components/task-view"
 import { ProjectsView } from "@/components/projects-view"
+import { ClientsView } from "@/components/clients-view"
 import useSWR, { mutate } from "swr"
 
 interface TeamMemberPermissions {
@@ -56,6 +58,7 @@ interface TeamMemberPermissions {
   can_view_analytics: boolean
   can_view_projects: boolean // Added can_view_projects permission
   can_create_projects: boolean // Added can_create_projects permission
+  can_access_clients: boolean // Added can_access_clients permission
 }
 
 interface Task {
@@ -169,6 +172,7 @@ export function TeamMemberDashboard({ permissions }: { permissions: TeamMemberPe
     { title: "LinkedIn", icon: Linkedin, show: permissions.can_view_linkedin },
     { title: "Relationships", icon: Users, show: permissions.can_view_relationships },
     { title: "Vault", icon: FileText, show: permissions.can_view_vault },
+    { title: "Clients", icon: UserCircle, show: permissions.can_access_clients }, // Added Clients navigation item
     { title: "Settings", icon: Settings, show: true },
   ]
 
@@ -296,6 +300,14 @@ export function TeamMemberDashboard({ permissions }: { permissions: TeamMemberPe
             {activeTab === "LinkedIn" && permissions.can_view_linkedin && <LinkedinView />}
             {activeTab === "Relationships" && permissions.can_view_relationships && <CrmView />}
             {activeTab === "Vault" && permissions.can_view_vault && <VaultView />}
+            {activeTab === "Clients" && permissions.can_access_clients && (
+              <ClientsView
+                permissions={{
+                  can_create_projects: permissions.can_create_projects,
+                  founder_id: permissions.founder_id,
+                }}
+              />
+            )}
             {activeTab === "Settings" && <SettingsView />}
           </div>
         </main>

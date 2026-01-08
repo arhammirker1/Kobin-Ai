@@ -11,6 +11,7 @@ import {
   Settings,
   LayoutDashboard,
   FolderOpen,
+  UserCircle,
 } from "lucide-react"
 import {
   Sidebar,
@@ -39,6 +40,7 @@ const mainNav = [
 
 const extraNav = [
   { title: "Team", icon: Users2 },
+  { title: "Clients", icon: UserCircle },
   { title: "Financials", icon: DollarSign },
   { title: "Settings", icon: Settings },
 ]

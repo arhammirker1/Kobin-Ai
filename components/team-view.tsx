@@ -48,6 +48,7 @@ interface TeamMember {
   can_view_analytics: boolean
   can_view_projects: boolean // Added can_view_projects permission
   can_create_projects: boolean
+  can_access_clients: boolean // Added can_access_clients permission
   created_at: string
   profile: {
     full_name: string
@@ -55,7 +56,7 @@ interface TeamMember {
   }
 }
 
-interface CreateTeamMemberForm {
+interface TeamMemberFormData {
   full_name: string
   email: string
   password: string
@@ -68,8 +69,9 @@ interface CreateTeamMemberForm {
   can_view_relationships: boolean
   can_view_vault: boolean
   can_view_analytics: boolean
-  can_view_projects: boolean // Added can_view_projects permission
+  can_view_projects: boolean
   can_create_projects: boolean
+  can_access_clients: boolean // Added can_access_clients permission
 }
 
 export function TeamView() {
@@ -83,24 +85,25 @@ export function TeamView() {
   const { toast } = useToast()
   const supabase = createClient()
 
-  const defaultForm: CreateTeamMemberForm = {
+  const defaultForm: TeamMemberFormData = {
     full_name: "",
     email: "",
     password: "",
     position: "",
-    can_view_tasks: true,
-    can_update_task_status: true,
+    can_view_tasks: false,
+    can_update_task_status: false,
     can_create_tasks: false,
     can_view_calendar: false,
     can_view_linkedin: false,
     can_view_relationships: false,
     can_view_vault: false,
     can_view_analytics: false,
-    can_view_projects: true, // Default to true for view projects
+    can_view_projects: false,
     can_create_projects: false,
+    can_access_clients: false, // Added can_access_clients to form state
   }
 
-  const [formData, setFormData] = useState<CreateTeamMemberForm>(defaultForm)
+  const [formData, setFormData] = useState<TeamMemberFormData>(defaultForm)
 
   useEffect(() => {
     fetchTeamMembers()
@@ -121,7 +124,7 @@ export function TeamView() {
           profile:profiles!team_members_user_id_profiles_fkey(full_name, email)
         `)
         .eq("founder_id", user.id)
-        .order("created_at", { ascending: false })
+        .eq("is_active", true)
 
       if (error) throw error
       setTeamMembers(data || [])
@@ -431,6 +434,16 @@ export function TeamView() {
                         onCheckedChange={(checked) => setFormData({ ...formData, can_view_analytics: checked })}
                       />
                     </div>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="can_access_clients" className="font-normal">
+                        Client Portal
+                      </Label>
+                      <Switch
+                        id="can_access_clients"
+                        checked={formData.can_access_clients}
+                        onCheckedChange={(checked) => setFormData({ ...formData, can_access_clients: checked })}
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -483,6 +496,11 @@ export function TeamView() {
                       <Badge variant={member.is_active ? "default" : "secondary"}>
                         {member.is_active ? "Active" : "Inactive"}
                       </Badge>
+                      {member.can_access_clients && (
+                        <Badge variant="secondary" className="text-[10px]">
+                          Client Portal
+                        </Badge>
+                      )}
                     </div>
                     <CardDescription>{member.profile?.email ?? "No email"}</CardDescription>
                     <p className="text-sm text-muted-foreground">{member.position}</p>
@@ -517,6 +535,7 @@ export function TeamView() {
                       {member.can_view_relationships && <Badge variant="outline">Relationships</Badge>}
                       {member.can_view_vault && <Badge variant="outline">Vault</Badge>}
                       {member.can_view_analytics && <Badge variant="outline">Analytics</Badge>}
+                      {member.can_access_clients && <Badge variant="outline">Client Portal</Badge>}
                     </div>
                   </div>
                 </div>
@@ -565,9 +584,10 @@ export function TeamView() {
                       { key: "can_view_relationships", label: "View Relationships" },
                       { key: "can_view_vault", label: "View Vault" },
                       { key: "can_view_analytics", label: "View Analytics" },
+                      { key: "can_access_clients", label: "Client Portal" },
                     ].map(({ key, label }) => (
                       <div key={key} className="flex items-center justify-between">
-                        <Label htmlFor={`edit_${key}`} className="font-normal">
+                        <Label htmlFor={`edit_${key}`} className="text-sm font-normal cursor-pointer">
                           {label}
                         </Label>
                         <Switch
