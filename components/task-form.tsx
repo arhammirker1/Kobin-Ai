@@ -4,6 +4,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
+import { useEffect, useState } from "react"
+import { createClient } from "@/lib/supabase/client"
 
 const PRIORITIES = ["low", "medium", "high", "urgent"]
 const STATUSES = ["todo", "in-progress", "blocked", "completed"]
@@ -21,6 +23,7 @@ interface TaskFormData {
   related_context_type: "project" | "goal" | "meeting" | "none"
   related_context_id: string
   related_context_name: string
+  project_id?: string // Added project_id field
 }
 
 interface TeamMember {
@@ -30,6 +33,12 @@ interface TeamMember {
   profile: {
     full_name: string
   }
+}
+
+interface Project {
+  id: string
+  name: string
+  status: string
 }
 
 interface TaskFormProps {
@@ -51,6 +60,54 @@ export function TaskForm({
   newResourceTitle,
   setNewResourceTitle,
 }: TaskFormProps) {
+  const [projects, setProjects] = useState<Project[]>([])
+  const supabase = createClient()
+
+  useEffect(() => {
+    fetchProjects()
+  }, [])
+
+  const fetchProjects = async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (!user) return
+
+      // Fetch projects for the current user or their founder
+      const { data: profile } = await supabase.from("profiles").select("user_type").eq("id", user.id).single()
+
+      let founderId = user.id
+
+      if (profile?.user_type === "team_member") {
+        const { data: teamMember } = await supabase
+          .from("team_members")
+          .select("founder_id")
+          .eq("user_id", user.id)
+          .single()
+
+        if (teamMember) {
+          founderId = teamMember.founder_id
+        }
+      }
+
+      const { data, error } = await supabase
+        .from("projects")
+        .select("id, name, status")
+        .eq("founder_id", founderId)
+        .in("status", ["active", "on-hold"])
+        .order("name")
+
+      if (error) {
+        console.error("[v0] Error fetching projects:", error)
+      } else {
+        setProjects(data || [])
+      }
+    } catch (error) {
+      console.error("[v0] Error in fetchProjects:", error)
+    }
+  }
+
   const handleAddResource = () => {
     if (!newResourceUrl.trim()) return
     onTaskChange({
@@ -108,7 +165,7 @@ export function TaskForm({
               onChange={(e) => setNewResourceTitle(e.target.value)}
               className="flex-1 min-w-0"
             />
-            <Button onClick={handleAddResource} className="shrink-0">
+            <Button onClick={handleAddResource} className="shrink-0" type="button">
               Add Resource
             </Button>
           </div>
@@ -129,6 +186,7 @@ export function TaskForm({
                 <button
                   onClick={() => handleRemoveResource(index)}
                   className="text-destructive hover:text-destructive/80 text-xs font-medium"
+                  type="button"
                 >
                   ✕
                 </button>
@@ -192,6 +250,26 @@ export function TaskForm({
             {teamMembers.map((member) => (
               <SelectItem key={member.user_id} value={member.user_id}>
                 {member.profile?.full_name ?? "Unnamed"} - {member.position}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="project_id">Link to Project (Optional)</Label>
+        <Select
+          value={task.project_id || "none"}
+          onValueChange={(v) => onTaskChange({ ...task, project_id: v === "none" ? undefined : v })}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select project" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">No Project</SelectItem>
+            {projects.map((project) => (
+              <SelectItem key={project.id} value={project.id}>
+                {project.name}
               </SelectItem>
             ))}
           </SelectContent>

@@ -10,6 +10,7 @@ import {
   DollarSign,
   Settings,
   LayoutDashboard,
+  FolderOpen,
 } from "lucide-react"
 import {
   Sidebar,
@@ -30,6 +31,7 @@ const mainNav = [
   { title: "Home", icon: Home },
   { title: "Calendar", icon: Calendar },
   { title: "Tasks", icon: CheckSquare },
+  { title: "Projects", icon: FolderOpen },
   { title: "LinkedIn", icon: Linkedin },
   { title: "Relationships", icon: Users },
   { title: "Vault", icon: FileText },

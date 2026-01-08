@@ -46,6 +46,7 @@ interface TeamMember {
   can_view_relationships: boolean
   can_view_vault: boolean
   can_view_analytics: boolean
+  can_create_projects: boolean // Added can_create_projects permission
   created_at: string
   profile: {
     full_name: string
@@ -66,6 +67,7 @@ interface CreateTeamMemberForm {
   can_view_relationships: boolean
   can_view_vault: boolean
   can_view_analytics: boolean
+  can_create_projects: boolean // Added can_create_projects permission
 }
 
 export function TeamView() {
@@ -92,6 +94,7 @@ export function TeamView() {
     can_view_relationships: false,
     can_view_vault: false,
     can_view_analytics: false,
+    can_create_projects: false, // Added default value for can_create_projects
   }
 
   const [formData, setFormData] = useState<CreateTeamMemberForm>(defaultForm)
@@ -356,6 +359,16 @@ export function TeamView() {
                       />
                     </div>
                     <div className="flex items-center justify-between">
+                      <Label htmlFor="can_create_projects" className="font-normal">
+                        Create Projects
+                      </Label>
+                      <Switch
+                        id="can_create_projects"
+                        checked={formData.can_create_projects}
+                        onCheckedChange={(checked) => setFormData({ ...formData, can_create_projects: checked })}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
                       <Label htmlFor="can_view_calendar" className="font-normal">
                         View Calendar
                       </Label>
@@ -484,6 +497,7 @@ export function TeamView() {
                       {member.can_view_tasks && <Badge variant="outline">View Tasks</Badge>}
                       {member.can_update_task_status && <Badge variant="outline">Update Tasks</Badge>}
                       {member.can_create_tasks && <Badge variant="outline">Create Tasks</Badge>}
+                      {member.can_create_projects && <Badge variant="outline">Create Projects</Badge>}
                       {member.can_view_calendar && <Badge variant="outline">Calendar</Badge>}
                       {member.can_view_linkedin && <Badge variant="outline">LinkedIn</Badge>}
                       {member.can_view_relationships && <Badge variant="outline">Relationships</Badge>}
@@ -530,6 +544,7 @@ export function TeamView() {
                       { key: "can_view_tasks", label: "View Tasks" },
                       { key: "can_update_task_status", label: "Update Task Status" },
                       { key: "can_create_tasks", label: "Create Tasks" },
+                      { key: "can_create_projects", label: "Create Projects" },
                       { key: "can_view_calendar", label: "View Calendar" },
                       { key: "can_view_linkedin", label: "View LinkedIn" },
                       { key: "can_view_relationships", label: "View Relationships" },

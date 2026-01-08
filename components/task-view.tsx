@@ -46,6 +46,7 @@ const INITIAL_TASK_STATE = {
   related_context_type: "none" as const,
   related_context_id: "",
   related_context_name: "",
+  project_id: undefined as string | undefined, // Added project_id to initial state
 }
 
 const INITIAL_STATE = INITIAL_TASK_STATE // Declared the missing variable
@@ -66,6 +67,7 @@ interface Task {
   related_context_type: "project" | "goal" | "meeting" | null // Added related context
   related_context_id: string | null // Added related context ID
   related_context_name: string | null // Added related context name
+  project_id: string | null // Added project_id field
   created_at: string
 }
 
@@ -261,6 +263,7 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
       related_context_type: newTask.related_context_type === "none" ? null : newTask.related_context_type || null, // convert "none" to null
       related_context_id: newTask.related_context_id ? newTask.related_context_id : null,
       related_context_name: newTask.related_context_name || null,
+      project_id: newTask.project_id || null, // Added project_id to task data
     }
 
     const { error } = await supabase.from("tasks").insert(taskData)
@@ -298,6 +301,7 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
       related_context_type: newTask.related_context_type === "none" ? null : newTask.related_context_type || null, // convert "none" to null
       related_context_id: newTask.related_context_id ? newTask.related_context_id : null,
       related_context_name: newTask.related_context_name || null,
+      project_id: newTask.project_id || null, // Added project_id to update data
     }
 
     const { error } = await supabase.from("tasks").update(taskData).eq("id", editingTask.id)
@@ -330,6 +334,7 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
       related_context_type: (task.related_context_type as "" | "project" | "goal" | "meeting" | "none") || "none", // use "none" as default
       related_context_id: task.related_context_id || "",
       related_context_name: task.related_context_name || "",
+      project_id: task.project_id || undefined, // Added project_id to edit state
     })
     setIsEditOpen(true)
     fetchTeamMembers()
@@ -851,6 +856,15 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
                         </div>
                       )}
 
+                      {task.project_id && ( // Added project_id display
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-2 overflow-hidden">
+                          <span className="shrink-0">Project:</span>
+                          <Badge variant="outline" className="text-[8px] truncate max-w-[150px]">
+                            {task.project_id}
+                          </Badge>
+                        </div>
+                      )}
+
                       {canUpdateStatus && (
                         <div className="flex items-center gap-1.5 overflow-hidden">
                           <span className="text-xs shrink-0">Status:</span>
@@ -1047,6 +1061,16 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
                   <div className="mt-1 text-sm capitalize">
                     {detailsTask.related_context_type}
                     {detailsTask.related_context_name && ` - ${detailsTask.related_context_name}`}
+                  </div>
+                </div>
+              )}
+
+              {/* Project ID */}
+              {detailsTask.project_id && (
+                <div>
+                  <Label className="text-xs font-semibold text-muted-foreground">Project ID</Label>
+                  <div className="mt-1 text-sm">
+                    <Badge variant="outline">{detailsTask.project_id}</Badge>
                   </div>
                 </div>
               )}

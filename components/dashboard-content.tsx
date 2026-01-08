@@ -8,6 +8,7 @@ import { CrmView } from "@/components/crm-view"
 import { VaultView } from "@/components/vault-view"
 import { SettingsView } from "@/components/settings-view"
 import { TeamView } from "@/components/team-view"
+import { ProjectsView } from "@/components/projects-view"
 import { Header } from "@/components/header"
 import { FileText } from "lucide-react"
 
@@ -17,8 +18,9 @@ export function DashboardContent({ activeTab, userType }: { activeTab: string; u
       <Header />
       <div className="flex-1 p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto w-full">
         {activeTab === "Home" && <TodayView />}
-        {activeTab === "Tasks" && <TaskView userType={userType} />} {/* Passing userType */}
+        {activeTab === "Tasks" && <TaskView userType={userType} />}
         {activeTab === "Calendar" && <CalendarView />}
+        {activeTab === "Projects" && <ProjectsView />}
         {activeTab === "LinkedIn" && <LinkedinView />}
         {activeTab === "Relationships" && <CrmView />}
         {activeTab === "Vault" && <VaultView />}
@@ -28,6 +30,7 @@ export function DashboardContent({ activeTab, userType }: { activeTab: string; u
         {activeTab !== "Home" &&
           activeTab !== "Tasks" &&
           activeTab !== "Calendar" &&
+          activeTab !== "Projects" &&
           activeTab !== "LinkedIn" &&
           activeTab !== "Relationships" &&
           activeTab !== "Vault" &&
