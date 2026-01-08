@@ -5,7 +5,18 @@ import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { useRouter } from "next/navigation"
-import { LogOut, Home, Calendar, CheckSquare, Linkedin, Users, FileText, Settings, LayoutDashboard } from "lucide-react"
+import {
+  LogOut,
+  Home,
+  Calendar,
+  CheckSquare,
+  Linkedin,
+  Users,
+  FileText,
+  Settings,
+  LayoutDashboard,
+  FolderOpen,
+} from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import {
   SidebarProvider,
@@ -26,6 +37,7 @@ import { CrmView } from "@/components/crm-view"
 import { VaultView } from "@/components/vault-view"
 import { SettingsView } from "@/components/settings-view"
 import { TaskView } from "@/components/task-view"
+import { ProjectsView } from "@/components/projects-view"
 import useSWR, { mutate } from "swr"
 
 interface TeamMemberPermissions {
@@ -42,6 +54,8 @@ interface TeamMemberPermissions {
   can_view_relationships: boolean
   can_view_vault: boolean
   can_view_analytics: boolean
+  can_view_projects: boolean // Added can_view_projects permission
+  can_create_projects: boolean // Added can_create_projects permission
 }
 
 interface Task {
@@ -151,6 +165,7 @@ export function TeamMemberDashboard({ permissions }: { permissions: TeamMemberPe
     { title: "Home", icon: Home, show: true },
     { title: "Calendar", icon: Calendar, show: permissions.can_view_calendar },
     { title: "Tasks", icon: CheckSquare, show: permissions.can_view_tasks },
+    { title: "Projects", icon: FolderOpen, show: permissions.can_view_projects },
     { title: "LinkedIn", icon: Linkedin, show: permissions.can_view_linkedin },
     { title: "Relationships", icon: Users, show: permissions.can_view_relationships },
     { title: "Vault", icon: FileText, show: permissions.can_view_vault },
@@ -260,10 +275,18 @@ export function TeamMemberDashboard({ permissions }: { permissions: TeamMemberPe
             )}
             {activeTab === "Tasks" && permissions.can_view_tasks && (
               <TaskView
-                userType="team_member" // Explicitly set userType
+                userType="team_member"
                 permissions={{
                   can_create_tasks: permissions.can_create_tasks,
                   can_update_task_status: permissions.can_update_task_status,
+                  founder_id: permissions.founder_id,
+                }}
+              />
+            )}
+            {activeTab === "Projects" && permissions.can_view_projects && (
+              <ProjectsView
+                permissions={{
+                  can_create_projects: permissions.can_create_projects,
                   founder_id: permissions.founder_id,
                 }}
               />

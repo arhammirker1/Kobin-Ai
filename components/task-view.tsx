@@ -28,6 +28,7 @@ import { Plus, Clock, Filter, Trash2, Pencil, CheckCircle2, Activity, Calendar, 
 import { TaskForm } from "@/components/task-form"
 import { TaskComments } from "@/components/task-comments"
 import { getTaskCommentCount } from "@/lib/supabase/queries/task-comments"
+import { ProjectNameDisplay } from "@/components/project-name-display" // Import ProjectNameDisplay component
 
 const BUCKETS = ["today", "this-week", "delegated", "backlog"]
 const PRIORITIES = ["low", "medium", "high", "urgent"]
@@ -856,14 +857,7 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
                         </div>
                       )}
 
-                      {task.project_id && ( // Added project_id display
-                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-2 overflow-hidden">
-                          <span className="shrink-0">Project:</span>
-                          <Badge variant="outline" className="text-[8px] truncate max-w-[150px]">
-                            {task.project_id}
-                          </Badge>
-                        </div>
-                      )}
+                      {task.project_id && <ProjectNameDisplay projectId={task.project_id} />}
 
                       {canUpdateStatus && (
                         <div className="flex items-center gap-1.5 overflow-hidden">
@@ -1068,9 +1062,9 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
               {/* Project ID */}
               {detailsTask.project_id && (
                 <div>
-                  <Label className="text-xs font-semibold text-muted-foreground">Project ID</Label>
+                  <Label className="text-xs font-semibold text-muted-foreground">Project</Label>
                   <div className="mt-1 text-sm">
-                    <Badge variant="outline">{detailsTask.project_id}</Badge>
+                    <ProjectNameDisplay projectId={detailsTask.project_id} />
                   </div>
                 </div>
               )}

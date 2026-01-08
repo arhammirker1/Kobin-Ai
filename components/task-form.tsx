@@ -23,7 +23,7 @@ interface TaskFormData {
   related_context_type: "project" | "goal" | "meeting" | "none"
   related_context_id: string
   related_context_name: string
-  project_id?: string // Added project_id field
+  project_id?: string
 }
 
 interface TeamMember {
@@ -74,7 +74,6 @@ export function TaskForm({
       } = await supabase.auth.getUser()
       if (!user) return
 
-      // Fetch projects for the current user or their founder
       const { data: profile } = await supabase.from("profiles").select("user_type").eq("id", user.id).single()
 
       let founderId = user.id
@@ -272,39 +271,6 @@ export function TaskForm({
                 {project.name}
               </SelectItem>
             ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="linked">Linked To (Optional)</Label>
-        <Input
-          id="linked"
-          placeholder="Related project or goal"
-          value={task.linked}
-          onChange={(e) => onTaskChange({ ...task, linked: e.target.value })}
-        />
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="related_context_type">Related Context Type (Optional)</Label>
-        <Select
-          value={task.related_context_type}
-          onValueChange={(v) =>
-            onTaskChange({
-              ...task,
-              related_context_type: v as "project" | "goal" | "meeting" | "none",
-            })
-          }
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="Select context type" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none">None</SelectItem>
-            <SelectItem value="project">Project</SelectItem>
-            <SelectItem value="goal">Goal</SelectItem>
-            <SelectItem value="meeting">Meeting</SelectItem>
           </SelectContent>
         </Select>
       </div>

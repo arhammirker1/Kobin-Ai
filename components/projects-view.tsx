@@ -62,6 +62,13 @@ interface ProjectFormData {
   end_date: string
 }
 
+interface ProjectsViewProps {
+  permissions?: {
+    can_create_projects: boolean
+    founder_id?: string
+  }
+}
+
 const defaultFormData: ProjectFormData = {
   name: "",
   description: "",
@@ -71,7 +78,7 @@ const defaultFormData: ProjectFormData = {
   end_date: "",
 }
 
-export function ProjectsView() {
+export function ProjectsView({ permissions }: ProjectsViewProps = {}) {
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
@@ -91,6 +98,12 @@ export function ProjectsView() {
 
   const checkPermissions = async () => {
     try {
+      if (permissions) {
+        setCanCreateProjects(permissions.can_create_projects)
+        setUserType("team_member")
+        return
+      }
+
       const {
         data: { user },
       } = await supabase.auth.getUser()
@@ -124,10 +137,10 @@ export function ProjectsView() {
       } = await supabase.auth.getUser()
       if (!user) return
 
-      let founderId = user.id
+      let founderId = permissions?.founder_id || user.id
 
-      // If team member, get founder_id
-      if (userType === "team_member") {
+      // If no permissions prop and user is team member, fetch founder_id
+      if (!permissions && userType === "team_member") {
         const { data: teamMember } = await supabase
           .from("team_members")
           .select("founder_id")
@@ -208,10 +221,10 @@ export function ProjectsView() {
       } = await supabase.auth.getUser()
       if (!user) throw new Error("Not authenticated")
 
-      let founderId = user.id
+      let founderId = permissions?.founder_id || user.id
 
-      // If team member, get founder_id
-      if (userType === "team_member") {
+      // If no permissions prop and user is team member, fetch founder_id
+      if (!permissions && userType === "team_member") {
         const { data: teamMember } = await supabase
           .from("team_members")
           .select("founder_id")
@@ -598,7 +611,7 @@ export function ProjectsView() {
         </div>
       )}
 
-      {selectedProject && (
+      {selectedProject && userType === "founder" && (
         <>
           <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
             <DialogContent className="max-w-xl">
@@ -608,9 +621,9 @@ export function ProjectsView() {
               </DialogHeader>
               <form onSubmit={handleUpdateProject} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="edit-name">Project Name</Label>
+                  <Label htmlFor="edit_name">Project Name</Label>
                   <Input
-                    id="edit-name"
+                    id="edit_name"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     placeholder="Enter project name"
@@ -618,9 +631,9 @@ export function ProjectsView() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit-description">Description</Label>
+                  <Label htmlFor="edit_description">Description</Label>
                   <Textarea
-                    id="edit-description"
+                    id="edit_description"
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                     placeholder="Enter project description"
@@ -629,12 +642,12 @@ export function ProjectsView() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="edit-status">Status</Label>
+                    <Label htmlFor="edit_status">Status</Label>
                     <Select
                       value={formData.status}
                       onValueChange={(value: any) => setFormData({ ...formData, status: value })}
                     >
-                      <SelectTrigger id="edit-status">
+                      <SelectTrigger id="edit_status">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -646,12 +659,12 @@ export function ProjectsView() {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="edit-priority">Priority</Label>
+                    <Label htmlFor="edit_priority">Priority</Label>
                     <Select
                       value={formData.priority}
                       onValueChange={(value: any) => setFormData({ ...formData, priority: value })}
                     >
-                      <SelectTrigger id="edit-priority">
+                      <SelectTrigger id="edit_priority">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -665,18 +678,18 @@ export function ProjectsView() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="edit-start_date">Start Date</Label>
+                    <Label htmlFor="edit_start_date">Start Date</Label>
                     <Input
-                      id="edit-start_date"
+                      id="edit_start_date"
                       type="date"
                       value={formData.start_date}
                       onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="edit-end_date">End Date</Label>
+                    <Label htmlFor="edit_end_date">End Date</Label>
                     <Input
-                      id="edit-end_date"
+                      id="edit_end_date"
                       type="date"
                       value={formData.end_date}
                       onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
@@ -695,7 +708,7 @@ export function ProjectsView() {
                   >
                     Cancel
                   </Button>
-                  <Button type="submit">Update Project</Button>
+                  <Button type="submit">Save Changes</Button>
                 </DialogFooter>
               </form>
             </DialogContent>
@@ -706,8 +719,8 @@ export function ProjectsView() {
               <AlertDialogHeader>
                 <AlertDialogTitle>Delete Project</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Are you sure you want to delete "{selectedProject.name}"? This will unlink all tasks from this project
-                  but won't delete the tasks themselves. This action cannot be undone.
+                  Are you sure you want to delete <strong>{selectedProject.name}</strong>? This will unlink all tasks
+                  from this project. This action cannot be undone.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -719,7 +732,10 @@ export function ProjectsView() {
                 >
                   Cancel
                 </AlertDialogCancel>
-                <AlertDialogAction onClick={handleDeleteProject} className="bg-destructive text-destructive-foreground">
+                <AlertDialogAction
+                  onClick={handleDeleteProject}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
                   Delete
                 </AlertDialogAction>
               </AlertDialogFooter>

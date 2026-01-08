@@ -18,6 +18,8 @@ export async function POST(request: Request) {
       can_view_relationships,
       can_view_vault,
       can_view_analytics,
+      can_view_projects, // Added can_view_projects permission
+      can_create_projects, // Added can_create_projects permission
     } = body
 
     // 1️⃣ USER CLIENT — CHECK FOUNDER
@@ -30,24 +32,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "Not authenticated" }, { status: 401 })
     }
 
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("user_type")
-      .eq("id", user.id)
-      .single()
+    const { data: profile } = await supabase.from("profiles").select("user_type").eq("id", user.id).single()
 
     if (!profile || profile.user_type !== "founder") {
       return NextResponse.json({ message: "User not allowed" }, { status: 403 })
     }
 
     // 2️⃣ ADMIN CLIENT — CREATE USER
-    const { data: createdUser, error: createError } =
-      await supabaseAdmin.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
-        user_metadata: { full_name },
-      })
+    const { data: createdUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name },
+    })
 
     if (createError || !createdUser.user) {
       return NextResponse.json({ message: createError?.message }, { status: 400 })
@@ -56,15 +53,13 @@ export async function POST(request: Request) {
     const newUserId = createdUser.user.id
 
     // 3️⃣ ADMIN CLIENT — UPDATE PROFILE
-    await supabaseAdmin
-  .from("profiles")
-  .upsert({
-    id: newUserId,
-    full_name,
-    email,
-    user_type: "team_member",
-    created_by: user.id,
-  })
+    await supabaseAdmin.from("profiles").upsert({
+      id: newUserId,
+      full_name,
+      email,
+      user_type: "team_member",
+      created_by: user.id,
+    })
 
     // 4️⃣ ADMIN CLIENT — INSERT TEAM MEMBER
     await supabaseAdmin.from("team_members").insert({
@@ -79,13 +74,12 @@ export async function POST(request: Request) {
       can_view_relationships,
       can_view_vault,
       can_view_analytics,
+      can_view_projects: can_view_projects ?? true, // Default to true
+      can_create_projects: can_create_projects ?? false, // Default to false
     })
 
     return NextResponse.json({ success: true })
   } catch (error: any) {
-    return NextResponse.json(
-      { message: error.message || "Server error" },
-      { status: 500 }
-    )
+    return NextResponse.json({ message: error.message || "Server error" }, { status: 500 })
   }
 }
