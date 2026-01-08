@@ -118,22 +118,13 @@ export function TeamView() {
         .from("team_members")
         .select(`
           *,
-          profiles!team_members_user_id_fkey(full_name, email)
+          profile:profiles!team_members_user_id_profiles_fkey(full_name, email)
         `)
         .eq("founder_id", user.id)
         .order("created_at", { ascending: false })
 
-      console.log("[v0] Team members query result:", { data, error })
-
       if (error) throw error
-
-      const mappedData =
-        data?.map((member) => ({
-          ...member,
-          profile: member.profiles,
-        })) || []
-
-      setTeamMembers(mappedData)
+      setTeamMembers(data || [])
     } catch (error) {
       console.error("[v0] Error fetching team members:", error)
       toast({
