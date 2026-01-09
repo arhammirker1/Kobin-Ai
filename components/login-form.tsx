@@ -77,7 +77,36 @@ export function LoginForm() {
           }, 500)
         }
       } else {
-        console.log("[v0] Starting signin with:", { email })
+        console.log("[v0] Checking for client login first:", { email })
+
+        const clientAuthResponse = await fetch("/api/client-auth", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ email, password }),
+        })
+
+        if (clientAuthResponse.ok) {
+          const clientData = await clientAuthResponse.json()
+          console.log("[v0] Client login successful")
+
+          // Store client session token
+          localStorage.setItem("client_session_token", clientData.sessionToken)
+          localStorage.setItem("client_data", JSON.stringify(clientData.client))
+
+          toast.success(`Welcome ${clientData.client.name}!`)
+
+          setTimeout(() => {
+            router.push("/client-portal")
+            router.refresh()
+          }, 500)
+
+          setIsLoading(false)
+          return
+        }
+
+        console.log("[v0] Not a client, trying Supabase auth:", { email })
 
         const { error, data } = await supabase.auth.signInWithPassword({
           email,
