@@ -18,8 +18,9 @@ export async function POST(request: Request) {
       can_view_relationships,
       can_view_vault,
       can_view_analytics,
-      can_view_projects, // Added can_view_projects permission
-      can_create_projects, // Added can_create_projects permission
+      can_view_projects,
+      can_create_projects,
+      can_access_clients, // Added can_access_clients permission
     } = body
 
     // 1️⃣ USER CLIENT — CHECK FOUNDER
@@ -74,8 +75,9 @@ export async function POST(request: Request) {
       can_view_relationships,
       can_view_vault,
       can_view_analytics,
-      can_view_projects: can_view_projects ?? true, // Default to true
-      can_create_projects: can_create_projects ?? false, // Default to false
+      can_view_projects: can_view_projects ?? true,
+      can_create_projects: can_create_projects ?? false,
+      can_access_clients: can_access_clients ?? false, // Added can_access_clients with default false
     })
 
     return NextResponse.json({ success: true })
