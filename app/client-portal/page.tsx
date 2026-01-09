@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -10,9 +9,22 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { Calendar, CheckCircle2, Clock, LogOut, Video } from "lucide-react"
+import { Calendar, CheckCircle2, Clock, LogOut, Video, Home, CheckSquare, LayoutDashboard } from "lucide-react"
 import { toast } from "sonner"
 import { format, parseISO } from "date-fns"
+import {
+  SidebarProvider,
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarGroupContent,
+} from "@/components/ui/sidebar"
 
 type Task = {
   id: string
@@ -41,6 +53,7 @@ type Project = {
 }
 
 export default function ClientPortalPage() {
+  const [activeTab, setActiveTab] = useState("Home")
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [email, setEmail] = useState("")
@@ -166,22 +179,15 @@ export default function ClientPortalPage() {
 
   const upcomingMeetings = meetings.filter((m) => new Date(m.start_time) > new Date())
 
-  return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10">
-        <div className="container mx-auto px-6 py-4 flex justify-between items-center">
-          <div>
-            <h1 className="text-xl font-bold">Welcome, {clientData?.name}</h1>
-            {clientData?.company && <p className="text-sm text-muted-foreground">{clientData.company}</p>}
-          </div>
-          <Button variant="ghost" onClick={handleLogout} className="gap-2">
-            <LogOut size={16} />
-            Logout
-          </Button>
-        </div>
-      </header>
+  const navItems = [
+    { title: "Home", icon: Home },
+    { title: "Calendar", icon: Calendar },
+    { title: "Tasks", icon: CheckSquare },
+  ]
 
-      <main className="container mx-auto px-6 py-8">
+  const renderContent = () => {
+    if (activeTab === "Home") {
+      return (
         <div className="space-y-6">
           {/* Project Overview */}
           {project && (
@@ -269,72 +275,182 @@ export default function ClientPortalPage() {
               </CardContent>
             </Card>
           )}
+        </div>
+      )
+    }
 
-          {/* Tasks */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Your Tasks</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {tasks.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Clock className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                  <p>No tasks assigned yet</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {tasks.map((task) => (
-                    <div
-                      key={task.id}
-                      className="p-4 rounded-lg border bg-card hover:shadow-md transition-shadow flex items-start gap-3"
-                    >
-                      <div className="pt-0.5">
-                        {task.status === "completed" ? (
-                          <CheckCircle2 className="h-5 w-5 text-green-600" />
-                        ) : (
-                          <div className="h-5 w-5 rounded-full border-2 border-muted-foreground/30" />
-                        )}
+    if (activeTab === "Calendar") {
+      return (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Calendar size={20} />
+              Your Meetings
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {meetings.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <Calendar className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p>No meetings scheduled</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {meetings.map((meeting) => (
+                  <div key={meeting.id} className="p-4 rounded-lg border bg-card hover:shadow-md transition-shadow">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <h4 className="font-semibold">{meeting.title}</h4>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          {format(parseISO(meeting.start_time), "MMM d, yyyy • h:mm a")} -{" "}
+                          {format(parseISO(meeting.end_time), "h:mm a")}
+                        </p>
+                        {meeting.purpose && <p className="text-sm mt-2">{meeting.purpose}</p>}
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <h4
-                          className={`font-medium ${task.status === "completed" ? "line-through text-muted-foreground" : ""}`}
+                      {meeting.meeting_link && new Date(meeting.start_time) > new Date() && (
+                        <Button
+                          size="sm"
+                          onClick={() => window.open(meeting.meeting_link!, "_blank")}
+                          className="gap-2"
                         >
-                          {task.title}
-                        </h4>
-                        {task.description && (
-                          <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{task.description}</p>
+                          <Video size={16} />
+                          Join
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )
+    }
+
+    if (activeTab === "Tasks") {
+      return (
+        <Card>
+          <CardHeader>
+            <CardTitle>Your Tasks</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {tasks.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <Clock className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p>No tasks assigned yet</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {tasks.map((task) => (
+                  <div
+                    key={task.id}
+                    className="p-4 rounded-lg border bg-card hover:shadow-md transition-shadow flex items-start gap-3"
+                  >
+                    <div className="pt-0.5">
+                      {task.status === "completed" ? (
+                        <CheckCircle2 className="h-5 w-5 text-green-600" />
+                      ) : (
+                        <div className="h-5 w-5 rounded-full border-2 border-muted-foreground/30" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h4
+                        className={`font-medium ${task.status === "completed" ? "line-through text-muted-foreground" : ""}`}
+                      >
+                        {task.title}
+                      </h4>
+                      {task.description && (
+                        <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{task.description}</p>
+                      )}
+                      <div className="flex items-center gap-2 mt-2 flex-wrap">
+                        <Badge variant={task.status === "completed" ? "secondary" : "default"} className="text-xs">
+                          {task.status}
+                        </Badge>
+                        <Badge
+                          variant="outline"
+                          className={`text-xs ${
+                            task.priority === "high"
+                              ? "border-red-500 text-red-600"
+                              : task.priority === "medium"
+                                ? "border-yellow-500 text-yellow-600"
+                                : "border-blue-500 text-blue-600"
+                          }`}
+                        >
+                          {task.priority}
+                        </Badge>
+                        {task.deadline && (
+                          <span className="text-xs text-muted-foreground">
+                            Due: {format(parseISO(task.deadline), "MMM d")}
+                          </span>
                         )}
-                        <div className="flex items-center gap-2 mt-2 flex-wrap">
-                          <Badge variant={task.status === "completed" ? "secondary" : "default"} className="text-xs">
-                            {task.status}
-                          </Badge>
-                          <Badge
-                            variant="outline"
-                            className={`text-xs ${
-                              task.priority === "high"
-                                ? "border-red-500 text-red-600"
-                                : task.priority === "medium"
-                                  ? "border-yellow-500 text-yellow-600"
-                                  : "border-blue-500 text-blue-600"
-                            }`}
-                          >
-                            {task.priority}
-                          </Badge>
-                          {task.deadline && (
-                            <span className="text-xs text-muted-foreground">
-                              Due: {format(parseISO(task.deadline), "MMM d")}
-                            </span>
-                          )}
-                        </div>
                       </div>
                     </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )
+    }
+  }
+
+  return (
+    <SidebarProvider>
+      <div className="flex min-h-screen w-full bg-background">
+        <Sidebar collapsible="icon">
+          <SidebarHeader className="h-16 flex items-center px-6">
+            <div className="flex items-center gap-2 font-semibold">
+              <div className="size-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground">
+                <LayoutDashboard size={20} />
+              </div>
+              <span className="group-data-[collapsible=icon]:hidden">Client Portal</span>
+            </div>
+          </SidebarHeader>
+          <SidebarContent>
+            <SidebarGroup>
+              <SidebarGroupLabel className="px-6">Navigation</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {navItems.map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton
+                        tooltip={item.title}
+                        isActive={activeTab === item.title}
+                        className="px-6 h-11"
+                        onClick={() => setActiveTab(item.title)}
+                      >
+                        <item.icon />
+                        <span>{item.title}</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
                   ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </main>
-    </div>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </SidebarContent>
+          <SidebarFooter className="p-4 border-t">
+            <Button variant="ghost" className="w-full justify-start gap-2 px-2" onClick={handleLogout}>
+              <LogOut size={16} />
+              <span className="group-data-[collapsible=icon]:hidden">Logout</span>
+            </Button>
+          </SidebarFooter>
+        </Sidebar>
+
+        <main className="flex-1 overflow-y-auto">
+          <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10 px-8 py-4 flex justify-between items-center">
+            <div>
+              <h2 className="text-xl font-bold">{activeTab}</h2>
+              <p className="text-xs text-muted-foreground">
+                {clientData?.name}
+                {clientData?.company && ` • ${clientData.company}`}
+              </p>
+            </div>
+          </header>
+
+          <div className="p-8 max-w-[1400px] mx-auto w-full">{renderContent()}</div>
+        </main>
+      </div>
+    </SidebarProvider>
   )
 }
