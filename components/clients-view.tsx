@@ -7,7 +7,7 @@ import { Input, Textarea } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Search, Plus, Video, CalendarIcon, Mail, Phone, Edit, Trash2, User } from "lucide-react"
+import { Search, Plus, Video, CalendarIcon, Mail, Phone, Edit, Trash2, User, Lock, Eye, EyeOff } from "lucide-react"
 import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { toast } from "sonner"
@@ -51,8 +51,14 @@ export function ClientsView({ permissions }: { permissions?: { can_create_projec
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isMeetingDialogOpen, setIsMeetingDialogOpen] = useState(false)
+  const [isCredentialsDialogOpen, setIsCredentialsDialogOpen] = useState(false)
   const [selectedClient, setSelectedClient] = useState<Client | null>(null)
   const [upcomingMeetings, setUpcomingMeetings] = useState<Record<string, CalendarEvent | null>>({})
+  const [showPassword, setShowPassword] = useState(false)
+  const [credentials, setCredentials] = useState({
+    email: "",
+    password: "",
+  })
 
   const [newClient, setNewClient] = useState<Partial<Client>>({
     name: "",
@@ -263,6 +269,45 @@ export function ClientsView({ permissions }: { permissions?: { can_create_projec
     }
   }
 
+  const handleCreateCredentials = async () => {
+    if (!selectedClient) {
+      toast.error("Please select a client")
+      return
+    }
+
+    if (!credentials.email || !credentials.password) {
+      toast.error("Email and password are required")
+      return
+    }
+
+    try {
+      const response = await fetch("/api/create-client-credentials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientId: selectedClient.id,
+          email: credentials.email,
+          password: credentials.password,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to create credentials")
+      }
+
+      toast.success("Client portal access created")
+      setIsCredentialsDialogOpen(false)
+      setCredentials({ email: "", password: "" })
+      setShowPassword(false)
+      fetchClients()
+    } catch (error: any) {
+      console.error("[v0] Error creating credentials:", error)
+      toast.error(error.message || "Failed to create credentials")
+    }
+  }
+
   const filteredClients = clients.filter((c) => {
     const matchesSearch =
       c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -461,6 +506,19 @@ export function ClientsView({ permissions }: { permissions?: { can_create_projec
                         onClick={() => handleDeleteClient(client.id)}
                       >
                         <Trash2 className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => {
+                          setSelectedClient(client)
+                          setCredentials({ email: client.email || "", password: "" })
+                          setIsCredentialsDialogOpen(true)
+                        }}
+                        title="Create Portal Access"
+                      >
+                        <Lock className="h-4 w-4" />
                       </Button>
                     </div>
                   </div>
@@ -706,6 +764,59 @@ export function ClientsView({ permissions }: { permissions?: { can_create_projec
           </div>
           <DialogFooter>
             <Button onClick={handleScheduleMeeting}>Schedule Meeting</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Credentials Dialog */}
+      <Dialog open={isCredentialsDialogOpen} onOpenChange={setIsCredentialsDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create Client Portal Access</DialogTitle>
+            <p className="text-sm text-muted-foreground mt-2">
+              {selectedClient?.name} will be able to log in to view their project and tasks
+            </p>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="portal-email">Portal Email *</Label>
+              <Input
+                id="portal-email"
+                type="email"
+                value={credentials.email}
+                onChange={(e) => setCredentials({ ...credentials, email: e.target.value })}
+                placeholder="client@example.com"
+              />
+              <p className="text-xs text-muted-foreground">Email the client will use to log in</p>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="portal-password">Password *</Label>
+              <div className="relative">
+                <Input
+                  id="portal-password"
+                  type={showPassword ? "text" : "password"}
+                  value={credentials.password}
+                  onChange={(e) => setCredentials({ ...credentials, password: e.target.value })}
+                  placeholder="Create a strong password"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-0 top-0 h-full"
+                  onClick={() => setShowPassword(!showPassword)}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">Share this password securely with the client</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsCredentialsDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateCredentials}>Create Access</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

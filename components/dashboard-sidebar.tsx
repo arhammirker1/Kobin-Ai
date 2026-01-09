@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   FolderOpen,
   UserCircle,
+  LogIn,
 } from "lucide-react"
 import {
   Sidebar,
@@ -27,6 +28,7 @@ import {
 } from "@/components/ui/sidebar"
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
+import Link from "next/link"
 
 const mainNav = [
   { title: "Home", icon: Home },
@@ -133,6 +135,14 @@ export function DashboardSidebar({
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
+              <SidebarMenuItem>
+                <Link href="/client-dashboard" className="w-full">
+                  <SidebarMenuButton tooltip="Client Dashboard" className="px-6 h-11 w-full">
+                    <LogIn />
+                    <span>Client Dashboard</span>
+                  </SidebarMenuButton>
+                </Link>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
