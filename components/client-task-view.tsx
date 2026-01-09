@@ -316,6 +316,18 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
     return matchesSearch && matchesPriority
   })
 
+  const taskStats = tasks.reduce(
+    (acc, task) => {
+      const s = task.status.toLowerCase()
+      if (s === "in-progress") acc.inProgress++
+      else if (s === "blocked") acc.blocked++
+      else if (s === "completed") acc.completed++
+      else if (s === "todo") acc.todo++
+      return acc
+    },
+    { inProgress: 0, blocked: 0, completed: 0, todo: 0 },
+  )
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Header */}
@@ -515,68 +527,73 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
         )}
       </div>
 
-      {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-sm font-medium text-muted-foreground uppercase">In Progress</div>
-            <div className="text-2xl font-bold mt-2">{tasks.filter((t) => t.status === "in-progress").length}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-sm font-medium text-muted-foreground uppercase">Blocked</div>
-            <div className="text-2xl font-bold mt-2 text-red-600">
-              {tasks.filter((t) => t.status === "blocked").length}
+        <Card className="border-primary/10 bg-card/50">
+          <CardContent className="p-4 flex flex-col gap-1">
+            <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">In Progress</span>
+            <div className="flex items-center justify-between">
+              <span className="text-2xl font-bold">{taskStats.inProgress}</span>
+              <Activity size={16} className="text-blue-500 opacity-50" />
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-sm font-medium text-muted-foreground uppercase">Completed</div>
-            <div className="text-2xl font-bold mt-2 text-green-600">
-              {tasks.filter((t) => t.status === "completed").length}
+        <Card className="border-primary/10 bg-card/50">
+          <CardContent className="p-4 flex flex-col gap-1">
+            <span className="text-[10px] text-red-400 font-bold uppercase tracking-wider">Blocked</span>
+            <div className="flex items-center justify-between">
+              <span className="text-2xl font-bold text-red-400">{taskStats.blocked}</span>
+              <Activity size={16} className="text-red-500 opacity-50" />
             </div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-sm font-medium text-muted-foreground uppercase">Total Todo</div>
-            <div className="text-2xl font-bold mt-2">{tasks.length}</div>
+        <Card className="border-primary/10 bg-card/50">
+          <CardContent className="p-4 flex flex-col gap-1">
+            <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">Completed</span>
+            <div className="flex items-center justify-between">
+              <span className="text-2xl font-bold text-emerald-400">{taskStats.completed}</span>
+              <Activity size={16} className="text-emerald-500 opacity-50" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-primary/10 bg-card/50">
+          <CardContent className="p-4 flex flex-col gap-1">
+            <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Total Todo</span>
+            <div className="flex items-center justify-between">
+              <span className="text-2xl font-bold">{taskStats.todo}</span>
+              <Activity size={16} className="text-muted-foreground opacity-30" />
+            </div>
           </CardContent>
         </Card>
       </div>
 
       {/* Bucket Tabs and Controls */}
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-wrap gap-2">
+      <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0 w-full md:w-auto scrollbar-hide">
           {BUCKETS.map((bucket) => (
             <Button
               key={bucket}
               variant={activeBucket === bucket ? "default" : "outline"}
-              size="sm"
+              className="shrink-0"
               onClick={() => setActiveBucket(bucket)}
-              className="capitalize"
             >
-              {bucket.replace("-", " ")}
+              {bucket.charAt(0).toUpperCase() + bucket.slice(1).replace("-", " ")}
             </Button>
           ))}
         </div>
 
-        {/* Search and Filter */}
-        <div className="flex flex-col md:flex-row gap-3">
-          <div className="flex-1 relative">
+        <div className="flex items-center gap-2 w-full md:w-auto">
+          <div className="relative flex-1 md:w-64">
+            <Filter className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search tasks..."
+              className="pl-9 bg-white border-muted shadow-none h-10"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
             />
           </div>
           <Select value={filterPriority} onValueChange={setFilterPriority}>
-            <SelectTrigger className="w-full md:w-[150px]">
-              <Filter size={16} className="mr-2" />
-              <SelectValue />
+            <SelectTrigger className="w-[130px] h-10 bg-white border-muted">
+              <SelectValue placeholder="Priority" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Priorities</SelectItem>
@@ -590,69 +607,99 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
         </div>
       </div>
 
-      {/* Tasks List */}
-      {filteredTasks.length > 0 ? (
-        <div className="grid gap-3">
-          {filteredTasks.map((task) => (
-            <Card key={task.id} className="hover:border-primary/50 transition-colors">
+      {/* Tasks Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {filteredTasks.length > 0 ? (
+          filteredTasks.map((task) => (
+            <Card key={task.id} className="group hover:border-primary/30 transition-all">
               <CardContent className="p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1">
-                    <div className="flex items-start gap-3 mb-2">
-                      <button
-                        onClick={() => updateTaskStatus(task.id, task.is_completed ? "todo" : "completed")}
-                        className="flex-shrink-0 text-muted-foreground hover:text-primary transition-colors mt-0.5"
-                      >
-                        <CheckCircle2 size={20} className={task.is_completed ? "fill-primary text-primary" : ""} />
-                      </button>
-                      <div className="flex-1">
-                        <p
-                          className={`font-medium leading-tight ${
-                            task.is_completed ? "line-through text-muted-foreground" : ""
-                          }`}
-                        >
-                          {task.title}
-                        </p>
-                        {task.notes && <p className="text-sm text-muted-foreground mt-1">{task.notes}</p>}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 ml-8 flex-wrap">
-                      <Badge variant="outline" className={getPriorityColor(task.priority)}>
-                        {task.priority.toUpperCase()}
-                      </Badge>
-                      <Badge variant="outline" className={getStatusColor(task.status)}>
-                        {task.status.replace("-", " ").toUpperCase()}
-                      </Badge>
-                      {getDeadlineBadge(task.due_date)}
-                    </div>
+                <div className="flex gap-4">
+                  {/* Checkbox */}
+                  <div
+                    className={`size-6 rounded border-2 flex items-center justify-center transition-colors shrink-0 cursor-pointer ${
+                      task.is_completed
+                        ? "bg-primary border-primary"
+                        : "border-muted-foreground/30 hover:border-primary hover:bg-primary/10"
+                    }`}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      updateTaskStatus(task.id, task.is_completed ? "todo" : "completed")
+                    }}
+                  >
+                    {task.is_completed && <CheckCircle2 size={16} className="text-primary-foreground" />}
                   </div>
+
+                  {/* Task Content */}
+                  <div className="flex-1 min-w-0">
+                    <h3 className={`font-semibold mb-2 ${task.is_completed ? "line-through opacity-60" : ""}`}>
+                      {task.title}
+                    </h3>
+
+                    {/* Badges */}
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      <Badge
+                        className={`text-[9px] font-bold uppercase tracking-widest ${getPriorityColor(task.priority)}`}
+                      >
+                        {task.priority}
+                      </Badge>
+                      <Badge
+                        variant="outline"
+                        className={`text-[9px] font-bold uppercase tracking-widest ${getStatusColor(task.status)}`}
+                      >
+                        {task.status.replace("-", " ")}
+                      </Badge>
+                      {task.due_date && getDeadlineBadge(task.due_date)}
+                    </div>
+
+                    {/* Status Dropdown */}
+                    <Select value={task.status} onValueChange={(v) => updateTaskStatus(task.id, v)}>
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {STATUSES.map((s) => (
+                          <SelectItem key={s} value={s} className="text-xs capitalize">
+                            {s.replace("-", " ")}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Action Buttons */}
                   {clientData?.can_create_tasks && (
-                    <div className="flex gap-2 flex-shrink-0">
-                      <button
+                    <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 text-muted-foreground hover:text-primary hover:bg-primary/10"
                         onClick={() => handleEditClick(task)}
-                        className="text-muted-foreground hover:text-primary transition-colors p-1"
+                        title="Edit task"
                       >
                         <Pencil size={16} />
-                      </button>
-                      <button
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 text-destructive hover:bg-destructive/10"
                         onClick={() => handleDeleteClick(task)}
-                        className="text-muted-foreground hover:text-destructive transition-colors p-1"
+                        title="Delete task"
                       >
                         <Trash2 size={16} />
-                      </button>
+                      </Button>
                     </div>
                   )}
                 </div>
               </CardContent>
             </Card>
-          ))}
-        </div>
-      ) : (
-        <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground rounded-lg border border-dashed">
-          <Activity size={40} className="mb-3 opacity-30" />
-          <p className="text-sm">No tasks in this bucket</p>
-        </div>
-      )}
+          ))
+        ) : (
+          <div className="col-span-full flex flex-col items-center justify-center py-12 text-center">
+            <Activity size={32} className="text-muted-foreground/30 mb-4" />
+            <p className="text-muted-foreground">No tasks in this bucket</p>
+          </div>
+        )}
+      </div>
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
@@ -660,7 +707,7 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Task</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete this task? This action cannot be undone.
+              Are you sure you want to delete "{selectedTask?.title}"? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
