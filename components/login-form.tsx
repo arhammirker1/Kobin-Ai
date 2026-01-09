@@ -22,7 +22,6 @@ export function LoginForm() {
 
   const supabase = createClient()
 
-  // useEffect to handle email confirmation error
   React.useEffect(() => {
     const error = searchParams.get("error")
     if (error === "email_confirmation_failed") {
@@ -90,12 +89,24 @@ export function LoginForm() {
         }
 
         console.log("[v0] Signin successful")
-        toast.success("Signed in successfully!")
 
-        setTimeout(() => {
-          router.push("/")
-          router.refresh()
-        }, 500)
+        const { data: profile } = await supabase.from("profiles").select("user_type").eq("id", data.user.id).single()
+
+        if (profile?.user_type === "client") {
+          await supabase.from("clients").update({ last_login: new Date().toISOString() }).eq("portal_email", email)
+
+          toast.success("Welcome to your client portal!")
+          setTimeout(() => {
+            router.push("/client-portal")
+            router.refresh()
+          }, 500)
+        } else {
+          toast.success("Signed in successfully!")
+          setTimeout(() => {
+            router.push("/")
+            router.refresh()
+          }, 500)
+        }
       }
     } catch (error: any) {
       console.error("[v0] Auth error:", error)
@@ -110,8 +121,6 @@ export function LoginForm() {
       <CardHeader>
         <CardTitle className="text-xl font-semibold text-center">{isSignUp ? "Create Account" : "Sign In"}</CardTitle>
       </CardHeader>
-
-      {/** Removed confirmation message section since email confirmation is disabled */}
 
       <form onSubmit={handleAuth}>
         <CardContent className="space-y-4 mt-4">
