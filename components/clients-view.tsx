@@ -7,11 +7,12 @@ import { Input, Textarea } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Search, Plus, Video, CalendarIcon, Mail, Phone, Edit, Trash2, User } from "lucide-react"
+import { Search, Plus, Video, CalendarIcon, Mail, Phone, Edit, Trash2, User, Lock } from "lucide-react"
 import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { toast } from "sonner"
 import { format, parseISO } from "date-fns"
+import { Switch } from "@/components/ui/switch" // Assuming Switch is imported from a UI component library
 
 type Client = {
   id: string
@@ -24,6 +25,9 @@ type Client = {
   status: "active" | "inactive" | "archived"
   notes: string | null
   tags: string[]
+  portal_email: string | null
+  has_portal_access: boolean
+  can_create_tasks: boolean
   created_at: string
   updated_at: string
 }
@@ -51,6 +55,7 @@ export function ClientsView({ permissions }: { permissions?: { can_create_projec
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isMeetingDialogOpen, setIsMeetingDialogOpen] = useState(false)
+  const [isCredentialsDialogOpen, setIsCredentialsDialogOpen] = useState(false)
   const [selectedClient, setSelectedClient] = useState<Client | null>(null)
   const [upcomingMeetings, setUpcomingMeetings] = useState<Record<string, CalendarEvent | null>>({})
 
@@ -73,6 +78,12 @@ export function ClientsView({ permissions }: { permissions?: { can_create_projec
     endTime: "10:00",
     meetingLink: "",
     purpose: "",
+  })
+
+  const [credentialsForm, setCredentialsForm] = useState({
+    portal_email: "",
+    password: "",
+    can_create_tasks: false,
   })
 
   const supabase = createClient()
@@ -143,7 +154,6 @@ export function ClientsView({ permissions }: { permissions?: { can_create_projec
       return
     }
 
-    // Get founder_id
     const founderId = permissions?.founder_id || user.id
 
     const { error } = await supabase.from("clients").insert({
@@ -260,6 +270,50 @@ export function ClientsView({ permissions }: { permissions?: { can_create_projec
         purpose: "",
       })
       fetchNextMeeting(selectedClient.id)
+    }
+  }
+
+  const handleCreateCredentials = async () => {
+    if (!selectedClient) return
+
+    if (!credentialsForm.portal_email || !credentialsForm.password) {
+      toast.error("Email and password are required")
+      return
+    }
+
+    if (credentialsForm.password.length < 6) {
+      toast.error("Password must be at least 6 characters")
+      return
+    }
+
+    try {
+      const response = await fetch("/api/create-client-credentials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_id: selectedClient.id,
+          email: credentialsForm.portal_email,
+          password: credentialsForm.password,
+          can_create_tasks: credentialsForm.can_create_tasks,
+        }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.message || "Failed to create credentials")
+      }
+
+      toast.success("Client portal access created successfully")
+      setIsCredentialsDialogOpen(false)
+      setCredentialsForm({
+        portal_email: "",
+        password: "",
+        can_create_tasks: false,
+      })
+      fetchClients()
+    } catch (error: any) {
+      console.error("[v0] Error creating client credentials:", error)
+      toast.error(error.message || "Failed to create credentials")
     }
   }
 
@@ -443,6 +497,24 @@ export function ClientsView({ permissions }: { permissions?: { can_create_projec
                       {client.role && <p className="text-xs text-muted-foreground mt-1">{client.role}</p>}
                     </div>
                     <div className="flex gap-1">
+                      {!client.has_portal_access && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => {
+                            setSelectedClient(client)
+                            setCredentialsForm({
+                              portal_email: client.email || "",
+                              password: "",
+                              can_create_tasks: false,
+                            })
+                            setIsCredentialsDialogOpen(true)
+                          }}
+                        >
+                          <Lock className="h-4 w-4" />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"
@@ -467,6 +539,12 @@ export function ClientsView({ permissions }: { permissions?: { can_create_projec
                   {projectName && (
                     <Badge variant="outline" className="mt-2 w-fit bg-primary/5 text-primary border-primary/20">
                       {projectName}
+                    </Badge>
+                  )}
+                  {client.has_portal_access && (
+                    <Badge variant="secondary" className="mt-1 w-fit text-[10px]">
+                      Portal Access
+                      {client.can_create_tasks && " • Can Create Tasks"}
                     </Badge>
                   )}
                   {client.tags && client.tags.length > 0 && (
@@ -536,7 +614,6 @@ export function ClientsView({ permissions }: { permissions?: { can_create_projec
         </div>
       )}
 
-      {/* Edit Client Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -639,7 +716,6 @@ export function ClientsView({ permissions }: { permissions?: { can_create_projec
         </DialogContent>
       </Dialog>
 
-      {/* Schedule Meeting Dialog */}
       <Dialog open={isMeetingDialogOpen} onOpenChange={setIsMeetingDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -706,6 +782,64 @@ export function ClientsView({ permissions }: { permissions?: { can_create_projec
           </div>
           <DialogFooter>
             <Button onClick={handleScheduleMeeting}>Schedule Meeting</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isCredentialsDialogOpen} onOpenChange={setIsCredentialsDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create Client Portal Access</DialogTitle>
+          </DialogHeader>
+          {selectedClient && (
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="portal-email">Portal Email *</Label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    id="portal-email"
+                    type="email"
+                    className="pl-10"
+                    value={credentialsForm.portal_email}
+                    onChange={(e) => setCredentialsForm({ ...credentialsForm, portal_email: e.target.value })}
+                    placeholder="client@example.com"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="portal-password">Password *</Label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    id="portal-password"
+                    type="password"
+                    className="pl-10"
+                    value={credentialsForm.password}
+                    onChange={(e) => setCredentialsForm({ ...credentialsForm, password: e.target.value })}
+                    placeholder="Minimum 6 characters"
+                    minLength={6}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">Minimum 6 characters</p>
+              </div>
+              <div className="flex items-center justify-between pt-2">
+                <Label htmlFor="can-create-tasks" className="font-normal">
+                  Allow Creating Tasks (Optional)
+                </Label>
+                <Switch
+                  id="can-create-tasks"
+                  checked={credentialsForm.can_create_tasks}
+                  onCheckedChange={(checked) => setCredentialsForm({ ...credentialsForm, can_create_tasks: checked })}
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsCredentialsDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateCredentials}>Create Access</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
