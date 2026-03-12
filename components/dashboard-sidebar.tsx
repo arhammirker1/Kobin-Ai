@@ -11,6 +11,7 @@ import {
   Settings,
   FolderOpen,
   UserCircle,
+  Inbox,
 } from "lucide-react"
 import {
   Sidebar,
@@ -35,6 +36,7 @@ const mainNav = [
   { title: "LinkedIn", icon: Linkedin },
   { title: "Relationships", icon: Users },
   { title: "Vault", icon: FileText },
+  { title: "Inbox", icon: Inbox },
 ]
 
 const extraNav = [

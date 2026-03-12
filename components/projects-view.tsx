@@ -2,6 +2,7 @@
 
 import type React from "react"
 
+import { createProjectChatRoom } from "@/lib/create-project-room"
 import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -246,10 +247,22 @@ export function ProjectsView({ permissions }: ProjectsViewProps = {}) {
         created_by: user.id,
         founder_id: founderId,
       }
-
-      const { error } = await supabase.from("projects").insert(projectData)
-
+      const { data: newProject, error } = await supabase
+        .from("projects")
+        .insert(projectData)
+        .select("id, name")
+        .single()
       if (error) throw error
+
+      if (newProject) {
+        await createProjectChatRoom(
+          supabase,
+          newProject.id,
+          newProject.name,
+          user.id,
+          founderId
+        )  
+      }
 
       toast({
         title: "Success",

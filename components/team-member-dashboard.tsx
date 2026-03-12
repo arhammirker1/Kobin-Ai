@@ -17,6 +17,7 @@ import {
   LayoutDashboard,
   FolderOpen,
   UserCircle,
+  Inbox
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import {
@@ -41,6 +42,7 @@ import { TaskView } from "@/components/task-view"
 import { ProjectsView } from "@/components/projects-view"
 import { ClientsView } from "@/components/clients-view"
 import useSWR, { mutate } from "swr"
+import InboxView from "@/components/inbox-view"
 
 interface TeamMemberPermissions {
   id: string
@@ -59,6 +61,7 @@ interface TeamMemberPermissions {
   can_view_projects: boolean // Added can_view_projects permission
   can_create_projects: boolean // Added can_create_projects permission
   can_access_clients: boolean // Added can_access_clients permission
+  can_access_inbox: boolean
 }
 
 interface Task {
@@ -174,6 +177,8 @@ export function TeamMemberDashboard({ permissions }: { permissions: TeamMemberPe
     { title: "Vault", icon: FileText, show: permissions.can_view_vault },
     { title: "Clients", icon: UserCircle, show: permissions.can_access_clients }, // Added Clients navigation item
     { title: "Settings", icon: Settings, show: true },
+    { title: "Inbox", icon: Inbox, permission: "can_access_inbox" }
+
   ]
 
   if (!profile) {
@@ -306,9 +311,12 @@ export function TeamMemberDashboard({ permissions }: { permissions: TeamMemberPe
                   can_create_projects: permissions.can_create_projects,
                   founder_id: permissions.founder_id,
                 }}
-              />
+              />  
             )}
             {activeTab === "Settings" && <SettingsView />}
+            {activeTab === "Inbox" && permissions.can_access_inbox && (
+              <InboxView canSendMessages={permissions.can_access_inbox} />
+            )}
           </div>
         </main>
       </div>

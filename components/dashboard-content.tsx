@@ -11,7 +11,18 @@ import { TeamView } from "@/components/team-view"
 import { ProjectsView } from "@/components/projects-view"
 import { Header } from "@/components/header"
 import { FileText } from "lucide-react"
+import { InboxView } from "@/components/inbox-view"
 import { ClientsView } from "@/components/clients-view"
+
+
+
+const KNOWN_TABS = [
+  "Home", "Tasks", "Calendar", "Projects",
+  "LinkedIn", "Relationships", "Vault",
+  "Team", "Clients", "Inbox", "Settings",
+]
+
+
 
 export function DashboardContent({ activeTab, userType }: { activeTab: string; userType?: string }) {
   return (
@@ -28,6 +39,7 @@ export function DashboardContent({ activeTab, userType }: { activeTab: string; u
         {activeTab === "Team" && <TeamView />}
         {activeTab === "Clients" && <ClientsView />}
         {activeTab === "Settings" && <SettingsView />}
+        {activeTab === "Inbox" && <InboxView canSendMessages={true} />}
         {/* Placeholder for other views */}
         {activeTab !== "Home" &&
           activeTab !== "Tasks" &&

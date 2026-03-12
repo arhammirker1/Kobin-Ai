@@ -21,6 +21,7 @@ export async function POST(request: Request) {
       can_view_projects,
       can_create_projects,
       can_access_clients,
+      can_access_inbox,
     } = body
 
     const supabase = await createClient()
@@ -81,6 +82,7 @@ export async function POST(request: Request) {
       can_view_projects: can_view_projects ?? true,
       can_create_projects: can_create_projects ?? false,
       can_access_clients: can_access_clients ?? false,
+      can_access_inbox: can_access_inbox ?? true,
     })
 
     return NextResponse.json({ success: true })

@@ -49,7 +49,9 @@ interface TeamMember {
   can_view_projects: boolean // Added can_view_projects permission
   can_create_projects: boolean
   can_access_clients: boolean // Added can_access_clients permission
+  can_access_inbox: boolean
   created_at: string
+  
   profile: {
     full_name: string
     email: string
@@ -71,7 +73,8 @@ interface TeamMemberFormData {
   can_view_analytics: boolean
   can_view_projects: boolean
   can_create_projects: boolean
-  can_access_clients: boolean // Added can_access_clients permission
+  can_access_clients: boolean
+  can_access_inbox: boolean // Added can_access_clients permission
 }
 
 export function TeamView() {
@@ -100,7 +103,8 @@ export function TeamView() {
     can_view_analytics: false,
     can_view_projects: false,
     can_create_projects: false,
-    can_access_clients: false, // Added can_access_clients to form state
+    can_access_clients: false,
+    can_access_inbox: true // Added can_access_clients to form state
   }
 
   const [formData, setFormData] = useState<TeamMemberFormData>(defaultForm)
@@ -443,7 +447,22 @@ export function TeamView() {
                         checked={formData.can_access_clients}
                         onCheckedChange={(checked) => setFormData({ ...formData, can_access_clients: checked })}
                       />
+
                     </div>
+
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="can_access_inbox" className="font-normal">
+                        Inbox Access
+                      </Label>
+                      <Switch
+                        id="can_access_inbox"
+                        checked={formData.can_access_inbox}
+                        onCheckedChange={(checked) => setFormData({ ...formData, can_access_inbox: checked })}
+                      />
+                    </div>    
+
+
+                    
                   </div>
                 </div>
 
@@ -536,6 +555,7 @@ export function TeamView() {
                       {member.can_view_vault && <Badge variant="outline">Vault</Badge>}
                       {member.can_view_analytics && <Badge variant="outline">Analytics</Badge>}
                       {member.can_access_clients && <Badge variant="outline">Client Portal</Badge>}
+                      {member.can_access_inbox && <Badge variant="outline">Inbox</Badge>}
                     </div>
                   </div>
                 </div>
@@ -585,6 +605,7 @@ export function TeamView() {
                       { key: "can_view_vault", label: "View Vault" },
                       { key: "can_view_analytics", label: "View Analytics" },
                       { key: "can_access_clients", label: "Client Portal" },
+                      { key: "can_access_inbox", label: "Inbox Access" }
                     ].map(({ key, label }) => (
                       <div key={key} className="flex items-center justify-between">
                         <Label htmlFor={`edit_${key}`} className="text-sm font-normal cursor-pointer">
