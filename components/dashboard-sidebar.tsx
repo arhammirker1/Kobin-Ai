@@ -9,7 +9,6 @@ import {
   Users2,
   DollarSign,
   Settings,
-  LayoutDashboard,
   FolderOpen,
   UserCircle,
 } from "lucide-react"
@@ -25,7 +24,7 @@ import {
   SidebarGroupLabel,
   SidebarGroupContent,
 } from "@/components/ui/sidebar"
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { createClient } from "@/lib/supabase/client"
 
 const mainNav = [
@@ -41,7 +40,6 @@ const mainNav = [
 const extraNav = [
   { title: "Team", icon: Users2 },
   { title: "Clients", icon: UserCircle },
-  { title: "Financials", icon: DollarSign },
   { title: "Settings", icon: Settings },
 ]
 
@@ -54,7 +52,7 @@ export function DashboardSidebar({
 }) {
   const [userName, setUserName] = useState<string>("User")
   const [userInitials, setUserInitials] = useState<string>("U")
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
 
   useEffect(() => {
     const getUserData = async () => {
@@ -64,21 +62,24 @@ export function DashboardSidebar({
         } = await supabase.auth.getUser()
 
         if (user) {
-          const { data: profile } = await supabase.from("profiles").select("full_name").eq("id", user.id).single()
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("full_name")
+            .eq("id", user.id)
+            .single()
 
           if (profile?.full_name) {
             setUserName(profile.full_name)
-            // Generate initials from full name
-            const initials = profile.full_name
-              .split(" ")
-              .map((n) => n[0])
-              .join("")
-              .toUpperCase()
-            setUserInitials(initials)
+            const parts = profile.full_name.trim().split(" ")
+            setUserInitials(
+              parts.length >= 2
+                ? `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
+                : parts[0][0].toUpperCase()
+            )
           }
         }
-      } catch (error) {
-        console.error("[v0] Failed to fetch user data:", error)
+      } catch {
+        // silently ignore — non-critical
       }
     }
 
@@ -86,26 +87,28 @@ export function DashboardSidebar({
   }, [supabase])
 
   return (
-    <Sidebar collapsible="icon">
-      <SidebarHeader className="h-16 flex items-center px-6">
-        <div className="flex items-center gap-2 font-semibold">
-          <div className="size-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground">
-            <LayoutDashboard size={20} />
+    <Sidebar>
+      <SidebarHeader>
+        <div className="flex items-center gap-3 px-2 py-3">
+          <div className="size-8 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-xs font-bold">
+            {userInitials}
           </div>
-          <span className="group-data-[collapsible=icon]:hidden">Command Center</span>
+          <div className="flex flex-col min-w-0">
+            <span className="text-sm font-semibold truncate">{userName}</span>
+            <span className="text-[10px] text-muted-foreground">Command Center</span>
+          </div>
         </div>
       </SidebarHeader>
+
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel className="px-6">Primary</SidebarGroupLabel>
+          <SidebarGroupLabel>Workspace</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {mainNav.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
-                    tooltip={item.title}
                     isActive={activeTab === item.title}
-                    className="px-6 h-11"
                     onClick={() => setActiveTab(item.title)}
                   >
                     <item.icon />
@@ -116,17 +119,16 @@ export function DashboardSidebar({
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
         <SidebarGroup>
-          <SidebarGroupLabel className="px-6">Workspace</SidebarGroupLabel>
+          <SidebarGroupLabel>Management</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {extraNav.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
-                    tooltip={item.title}
-                    className="px-6 h-11"
-                    onClick={() => setActiveTab(item.title)}
                     isActive={activeTab === item.title}
+                    onClick={() => setActiveTab(item.title)}
                   >
                     <item.icon />
                     <span>{item.title}</span>
@@ -137,17 +139,8 @@ export function DashboardSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="p-4">
-        <div className="flex items-center gap-3 px-2 group-data-[collapsible=icon]:hidden">
-          <div className="size-8 rounded-full bg-muted flex items-center justify-center text-xs font-medium">
-            {userInitials}
-          </div>
-          <div className="flex flex-col">
-            <span className="text-sm font-medium">{userName}</span>
-            <span className="text-xs text-muted-foreground">Founder & CEO</span>
-          </div>
-        </div>
-      </SidebarFooter>
+
+      <SidebarFooter />
     </Sidebar>
   )
 }

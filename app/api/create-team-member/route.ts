@@ -20,10 +20,9 @@ export async function POST(request: Request) {
       can_view_analytics,
       can_view_projects,
       can_create_projects,
-      can_access_clients, // Added can_access_clients permission
+      can_access_clients,
     } = body
 
-    // 1️⃣ USER CLIENT — CHECK FOUNDER
     const supabase = await createClient()
     const {
       data: { user },
@@ -33,13 +32,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "Not authenticated" }, { status: 401 })
     }
 
-    const { data: profile } = await supabase.from("profiles").select("user_type").eq("id", user.id).single()
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("user_type")
+      .eq("id", user.id)
+      .single()
 
     if (!profile || profile.user_type !== "founder") {
       return NextResponse.json({ message: "User not allowed" }, { status: 403 })
     }
 
-    // 2️⃣ ADMIN CLIENT — CREATE USER
     const { data: createdUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
@@ -48,12 +50,14 @@ export async function POST(request: Request) {
     })
 
     if (createError || !createdUser.user) {
-      return NextResponse.json({ message: createError?.message }, { status: 400 })
+      return NextResponse.json(
+        { message: createError?.message || "Failed to create user" },
+        { status: 400 }
+      )
     }
 
     const newUserId = createdUser.user.id
 
-    // 3️⃣ ADMIN CLIENT — UPDATE PROFILE
     await supabaseAdmin.from("profiles").upsert({
       id: newUserId,
       full_name,
@@ -62,7 +66,6 @@ export async function POST(request: Request) {
       created_by: user.id,
     })
 
-    // 4️⃣ ADMIN CLIENT — INSERT TEAM MEMBER
     await supabaseAdmin.from("team_members").insert({
       user_id: newUserId,
       founder_id: user.id,
@@ -77,11 +80,12 @@ export async function POST(request: Request) {
       can_view_analytics,
       can_view_projects: can_view_projects ?? true,
       can_create_projects: can_create_projects ?? false,
-      can_access_clients: can_access_clients ?? false, // Added can_access_clients with default false
+      can_access_clients: can_access_clients ?? false,
     })
 
     return NextResponse.json({ success: true })
-  } catch (error: any) {
-    return NextResponse.json({ message: error.message || "Server error" }, { status: 500 })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Server error"
+    return NextResponse.json({ message }, { status: 500 })
   }
 }

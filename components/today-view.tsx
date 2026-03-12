@@ -1,51 +1,94 @@
 "use client"
-
+ 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { format } from "date-fns"
 import { CalendarIcon, Zap, ChevronRight, Linkedin, CheckSquare, Users, Video, Plus, Activity } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 import { differenceInHours } from "date-fns"
-
+ 
+// ─── Types ────────────────────────────────────────────────────────────────────
+ 
+interface CalendarEvent {
+  id: string
+  title: string
+  start_time: string
+  end_time: string
+  type: string
+  meeting_link: string | null
+  purpose: string | null
+  outcome: string | null
+  relationship_id: string | null
+  relationships?: {
+    id: string
+    full_name: string
+    company: string | null
+    tags: string[] | null
+  } | null
+}
+ 
+interface Task {
+  id: string
+  title: string
+  status: string
+  priority: string
+  due_date: string | null
+}
+ 
+interface Priority {
+  title: string
+  tag: string
+  status: string
+  due_date: string | null
+  isUrgent: boolean
+  type: "meeting" | "task"
+}
+ 
+interface TaskStats {
+  inProgress: number
+  blocked: number
+  completed: number
+  todo: number
+}
+ 
 export function TodayView() {
-  const [upcomingMeetings, setUpcomingMeetings] = useState<any[]>([])
-  const [priorities, setPriorities] = useState<any[]>([])
-  const [taskStats, setTaskStats] = useState({
+  const supabase = useMemo(() => createClient(), [])
+ 
+  const [upcomingMeetings, setUpcomingMeetings] = useState<CalendarEvent[]>([])
+  const [priorities, setPriorities] = useState<Priority[]>([])
+  const [taskStats, setTaskStats] = useState<TaskStats>({
     inProgress: 0,
     blocked: 0,
     completed: 0,
     todo: 0,
   })
-  const [realStats, setRealStats] = useState({
-    leads: 0,
-    posts: 0,
-  })
-  const [activeTasks, setActiveTasks] = useState<any[]>([])
-
-  const supabase = createClient()
-
+  const [realStats, setRealStats] = useState({ leads: 0, posts: 0 })
+ 
   useEffect(() => {
     const loadDashboardData = async () => {
       const {
         data: { user },
       } = await supabase.auth.getUser()
       if (!user) return
-
-      await Promise.all([fetchMeetingsAndMergePriorities(user.id), fetchTaskStats(user.id), fetchRealStats(user.id)])
+ 
+      await Promise.all([
+        fetchMeetingsAndMergePriorities(user.id),
+        fetchTaskStats(user.id),
+        fetchRealStats(user.id),
+      ])
     }
-
+ 
     loadDashboardData()
-  }, [])
-
+  }, [supabase])
+ 
   const fetchMeetingsAndMergePriorities = async (userId: string) => {
     const now = new Date()
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
     const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
-
-    // Fetch events first
+ 
     const { data: events, error: eventsError } = await supabase
       .from("events")
       .select(`
@@ -63,25 +106,26 @@ export function TodayView() {
       .gte("start_time", startOfToday.toISOString())
       .lte("start_time", endOfToday.toISOString())
       .order("start_time", { ascending: true })
-
+ 
     if (eventsError) {
-      console.error("[v0] Error fetching events for Meeting Hub:", eventsError)
+      console.warn("Failed to fetch today's events:", eventsError.message)
     }
-
-    let eventsWithRelationships = events || []
-
+ 
+    let eventsWithRelationships: CalendarEvent[] = events || []
+ 
     if (events && events.length > 0) {
-      const relationshipIds = [...new Set(events.map((e) => e.relationship_id).filter(Boolean))]
-
+      const relationshipIds = [
+        ...new Set(events.map((e) => e.relationship_id).filter(Boolean)),
+      ] as string[]
+ 
       if (relationshipIds.length > 0) {
         const { data: relationships, error: relError } = await supabase
           .from("relationships")
           .select("id, full_name, company, tags")
           .in("id", relationshipIds)
-
+ 
         if (!relError && relationships) {
           const relationshipMap = Object.fromEntries(relationships.map((r) => [r.id, r]))
-
           eventsWithRelationships = events.map((event) => ({
             ...event,
             relationships: relationshipMap[event.relationship_id] || null,
@@ -89,42 +133,44 @@ export function TodayView() {
         }
       }
     }
-
+ 
     const upcomingEvents = eventsWithRelationships.filter((event) => {
       const eventEndTime = new Date(event.end_time || event.start_time)
       return eventEndTime >= now
     })
-
+ 
+    setUpcomingMeetings(upcomingEvents)
+ 
     const { data: tasks } = await supabase
       .from("tasks")
       .select("id, title, status, priority, due_date")
       .eq("user_id", userId)
       .neq("status", "completed")
       .order("due_date", { ascending: true })
-
-    const allMeetings = upcomingEvents
-    setUpcomingMeetings(allMeetings)
-
-    const meetingPriorities = allMeetings.map((e: any) => ({
+ 
+    const meetingPriorities: Priority[] = upcomingEvents.map((e) => ({
       title: `${e.title}${e.relationships?.full_name ? ` w/ ${e.relationships.full_name}` : ""}`,
       tag: "Meeting",
       status: "scheduled",
       due_date: e.start_time,
-      isUrgent: e.relationships?.tags?.some((t: string) => ["urgent", "follow-up"].includes(t.toLowerCase())) || false,
+      isUrgent:
+        e.relationships?.tags?.some((t) =>
+          ["urgent", "follow-up"].includes(t.toLowerCase())
+        ) || false,
       type: "meeting",
     }))
-
-    const taskPriorities = (tasks || []).map((t: any) => ({
+ 
+    const taskPriorities: Priority[] = (tasks || []).map((t: Task) => ({
       title: t.title,
       tag: t.priority,
       status: t.status,
       due_date: t.due_date,
       isUrgent:
         t.priority.toLowerCase() === "urgent" ||
-        (t.due_date && differenceInHours(new Date(t.due_date), new Date()) < 5),
+        (t.due_date ? differenceInHours(new Date(t.due_date), new Date()) < 5 : false),
       type: "task",
     }))
-
+ 
     const merged = [...meetingPriorities, ...taskPriorities]
       .sort((a, b) => {
         const aTime = a.due_date ? new Date(a.due_date).getTime() : Number.POSITIVE_INFINITY
@@ -132,16 +178,16 @@ export function TodayView() {
         return aTime - bTime
       })
       .slice(0, 3)
-
+ 
     setPriorities(merged)
   }
-
+ 
   const fetchTaskStats = async (userId: string) => {
     const { data, error } = await supabase
       .from("tasks")
-      .select("status, title, priority, is_completed")
+      .select("status")
       .eq("user_id", userId)
-
+ 
     if (!error && data) {
       const stats = data.reduce(
         (acc, task) => {
@@ -155,10 +201,9 @@ export function TodayView() {
         { inProgress: 0, blocked: 0, completed: 0, todo: 0 },
       )
       setTaskStats(stats)
-      setActiveTasks(data.filter((t: any) => t.status === "in-progress" || t.status === "blocked").slice(0, 5))
     }
   }
-
+ 
   const fetchRealStats = async (userId: string) => {
     const [leadsRes, postsRes] = await Promise.all([
       supabase
@@ -166,9 +211,13 @@ export function TodayView() {
         .select("id", { count: "exact" })
         .eq("user_id", userId)
         .eq("relationship_type", "lead"),
-      supabase.from("linkedin_posts").select("id", { count: "exact" }).eq("user_id", userId).eq("status", "Published"),
+      supabase
+        .from("linkedin_posts")
+        .select("id", { count: "exact" })
+        .eq("user_id", userId)
+        .eq("status", "Published"),
     ])
-
+ 
     setRealStats({
       leads: leadsRes.count || 0,
       posts: postsRes.count || 0,

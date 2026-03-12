@@ -1,73 +1,112 @@
 "use client"
-
+ 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { format } from "date-fns"
 import { CalendarIcon, Zap, ChevronRight, CheckSquare, Video, Activity } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 import { differenceInHours } from "date-fns"
-
-export function ClientHomeView({ clientData }: { clientData: any }) {
-  const [upcomingMeetings, setUpcomingMeetings] = useState<any[]>([])
-  const [priorities, setPriorities] = useState<any[]>([])
-  const [taskStats, setTaskStats] = useState({
+ 
+// ─── Types ────────────────────────────────────────────────────────────────────
+ 
+interface ClientData {
+  id: string
+  project_id: string
+  name: string
+}
+ 
+interface CalendarEvent {
+  id: string
+  title: string
+  start_time: string
+  end_time: string
+  type: string
+  meeting_link: string | null
+  purpose: string | null
+}
+ 
+interface Task {
+  id: string
+  title: string
+  status: string
+  priority: string
+  due_date: string | null
+}
+ 
+interface Priority {
+  title: string
+  tag: string
+  status: string
+  due_date: string | null
+  isUrgent: boolean
+  type: "meeting" | "task"
+}
+ 
+interface TaskStats {
+  inProgress: number
+  blocked: number
+  completed: number
+  todo: number
+}
+ 
+// ─── Component ────────────────────────────────────────────────────────────────
+ 
+export function ClientHomeView({ clientData }: { clientData: ClientData }) {
+  const supabase = useMemo(() => createClient(), [])
+ 
+  const [upcomingMeetings, setUpcomingMeetings] = useState<CalendarEvent[]>([])
+  const [priorities, setPriorities] = useState<Priority[]>([])
+  const [taskStats, setTaskStats] = useState<TaskStats>({
     inProgress: 0,
     blocked: 0,
     completed: 0,
     todo: 0,
   })
-  const [activeTasks, setActiveTasks] = useState<any[]>([])
-
-  const supabase = createClient()
-
+ 
   useEffect(() => {
+    if (!clientData) return
+ 
     const loadDashboardData = async () => {
       const {
         data: { user },
       } = await supabase.auth.getUser()
-      if (!user || !clientData) return
-
-      await Promise.all([fetchMeetingsAndMergePriorities(user.id), fetchTaskStats(user.id)])
+      if (!user) return
+ 
+      await Promise.all([
+        fetchMeetingsAndMergePriorities(),
+        fetchTaskStats(),
+      ])
     }
-
+ 
     loadDashboardData()
-  }, [clientData])
-
-  const fetchMeetingsAndMergePriorities = async (userId: string) => {
+  }, [clientData, supabase])
+ 
+  const fetchMeetingsAndMergePriorities = async () => {
     const { data: events, error: eventsError } = await supabase
       .from("events")
-      .select(`
-        id, 
-        title, 
-        start_time, 
-        end_time, 
-        type, 
-        meeting_link, 
-        purpose
-      `)
+      .select("id, title, start_time, end_time, type, meeting_link, purpose")
       .eq("client_id", clientData.id)
       .gte("start_time", new Date().toISOString())
       .order("start_time", { ascending: true })
-
+ 
     if (eventsError) {
-      console.error("[v0] Error fetching client meetings:", eventsError)
+      console.warn("Failed to fetch client meetings:", eventsError.message)
     }
-
-    const upcomingEvents = events || []
+ 
+    const upcomingEvents: CalendarEvent[] = events || []
     setUpcomingMeetings(upcomingEvents)
-
-    // Fetch client's tasks
+ 
     const { data: tasks } = await supabase
       .from("tasks")
       .select("id, title, status, priority, due_date")
       .eq("project_id", clientData.project_id)
       .neq("status", "completed")
       .order("due_date", { ascending: true })
-
-    const meetingPriorities = upcomingEvents.map((e: any) => ({
+ 
+    const meetingPriorities: Priority[] = upcomingEvents.map((e) => ({
       title: e.title,
       tag: "Meeting",
       status: "scheduled",
@@ -75,18 +114,18 @@ export function ClientHomeView({ clientData }: { clientData: any }) {
       isUrgent: false,
       type: "meeting",
     }))
-
-    const taskPriorities = (tasks || []).map((t: any) => ({
+ 
+    const taskPriorities: Priority[] = (tasks || []).map((t: Task) => ({
       title: t.title,
       tag: t.priority,
       status: t.status,
       due_date: t.due_date,
       isUrgent:
         t.priority.toLowerCase() === "urgent" ||
-        (t.due_date && differenceInHours(new Date(t.due_date), new Date()) < 5),
+        (t.due_date ? differenceInHours(new Date(t.due_date), new Date()) < 5 : false),
       type: "task",
     }))
-
+ 
     const merged = [...meetingPriorities, ...taskPriorities]
       .sort((a, b) => {
         const aTime = a.due_date ? new Date(a.due_date).getTime() : Number.POSITIVE_INFINITY
@@ -94,13 +133,16 @@ export function ClientHomeView({ clientData }: { clientData: any }) {
         return aTime - bTime
       })
       .slice(0, 3)
-
+ 
     setPriorities(merged)
   }
-
-  const fetchTaskStats = async (userId: string) => {
-    const { data } = await supabase.from("tasks").select("status").eq("project_id", clientData.project_id)
-
+ 
+  const fetchTaskStats = async () => {
+    const { data } = await supabase
+      .from("tasks")
+      .select("status")
+      .eq("project_id", clientData.project_id)
+ 
     if (data) {
       const stats = data.reduce(
         (acc, task) => {

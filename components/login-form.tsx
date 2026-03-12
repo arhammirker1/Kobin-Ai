@@ -1,7 +1,6 @@
 "use client"
 
 import React from "react"
-
 import { useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
@@ -19,8 +18,7 @@ export function LoginForm() {
   const [isSignUp, setIsSignUp] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
-
-  const supabase = createClient()
+  const supabase = React.useMemo(() => createClient(), [])
 
   React.useEffect(() => {
     const error = searchParams.get("error")
@@ -35,144 +33,119 @@ export function LoginForm() {
 
     try {
       if (isSignUp) {
-        console.log("[v0] Starting signup with:", { email, fullName })
-
         const { error, data } = await supabase.auth.signUp({
           email,
           password,
-          options: {
-            data: {
-              full_name: fullName,
-            },
-          },
+          options: { data: { full_name: fullName } },
         })
 
-        if (error) {
-          console.error("[v0] Signup error:", error)
-          throw error
-        }
-
-        console.log("[v0] Signup successful, user:", data?.user?.id)
+        if (error) throw error
 
         if (data?.user) {
-          const { error: signinError } = await supabase.auth.signInWithPassword({
-            email,
-            password,
-          })
+          const { error: signinError } = await supabase.auth.signInWithPassword({ email, password })
 
           if (signinError) {
-            console.error("[v0] Auto-signin failed:", signinError)
-            toast.error("Account created but signin failed. Please try signing in manually.")
+            toast.error("Account created but sign-in failed. Please sign in manually.")
             setIsSignUp(false)
             return
           }
 
-          console.log("[v0] Auto-signin successful")
           toast.success("Account created and signed in!")
-
-          setTimeout(() => {
-            router.push("/")
-            router.refresh()
-          }, 500)
+          await router.push("/")
+          router.refresh()
         }
       } else {
-        console.log("[v0] Starting signin with:", { email })
+        const { error, data } = await supabase.auth.signInWithPassword({ email, password })
 
-        const { error, data } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        })
+        if (error) throw error
 
-        if (error) {
-          console.error("[v0] Signin error:", error)
-          throw error
-        }
-
-        console.log("[v0] Signin successful")
-
-        const { data: profile } = await supabase.from("profiles").select("user_type").eq("id", data.user.id).single()
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("user_type")
+          .eq("id", data.user.id)
+          .single()
 
         if (profile?.user_type === "client") {
-          await supabase.from("clients").update({ last_login: new Date().toISOString() }).eq("portal_email", email)
+          await supabase
+            .from("clients")
+            .update({ last_login: new Date().toISOString() })
+            .eq("portal_email", email)
 
           toast.success("Welcome to your client portal!")
-          setTimeout(() => {
-            router.push("/client-portal")
-            router.refresh()
-          }, 500)
-        } else {
-          toast.success("Signed in successfully!")
-          setTimeout(() => {
-            router.push("/")
-            router.refresh()
-          }, 500)
+          await router.push("/client-portal")
+          router.refresh()
+          return
         }
+
+        if (profile?.user_type === "team_member") {
+          toast.success("Welcome back!")
+          await router.push("/team-dashboard")
+          router.refresh()
+          return
+        }
+
+        toast.success("Welcome back!")
+        await router.push("/")
+        router.refresh()
       }
-    } catch (error: any) {
-      console.error("[v0] Auth error:", error)
-      toast.error(error.message || "Authentication failed")
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Authentication failed"
+      toast.error(message)
     } finally {
       setIsLoading(false)
     }
   }
 
   return (
-    <Card className="border-none shadow-lg bg-card/50 backdrop-blur-sm">
+    <Card>
       <CardHeader>
-        <CardTitle className="text-xl font-semibold text-center">{isSignUp ? "Create Account" : "Sign In"}</CardTitle>
+        <CardTitle>{isSignUp ? "Create Account" : "Sign In"}</CardTitle>
       </CardHeader>
-
       <form onSubmit={handleAuth}>
-        <CardContent className="space-y-4 mt-4">
+        <CardContent className="space-y-4">
           {isSignUp && (
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <Label htmlFor="fullName">Full Name</Label>
               <Input
                 id="fullName"
-                type="text"
-                placeholder="John Doe"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
+                placeholder="Your name"
                 required
               />
             </div>
           )}
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <Label htmlFor="email">Email</Label>
             <Input
               id="email"
               type="email"
-              placeholder="founder@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
               required
             />
           </div>
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <Label htmlFor="password">Password</Label>
             <Input
               id="password"
               type="password"
-              placeholder={isSignUp ? "Create a strong password" : "Enter your password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
               required
             />
           </div>
         </CardContent>
-        <CardFooter className="flex flex-col space-y-4">
-          <Button className="w-full" type="submit" disabled={isLoading}>
-            {isLoading ? "Please wait..." : isSignUp ? "Sign Up" : "Sign In"}
+        <CardFooter className="flex flex-col gap-3">
+          <Button type="submit" className="w-full" disabled={isLoading}>
+            {isLoading ? "Please wait…" : isSignUp ? "Create Account" : "Sign In"}
           </Button>
           <button
             type="button"
-            onClick={() => {
-              setIsSignUp(!isSignUp)
-              setEmail("")
-              setPassword("")
-              setFullName("")
-            }}
-            className="text-sm text-muted-foreground hover:text-primary transition-colors"
+            onClick={() => setIsSignUp(!isSignUp)}
+            className="text-sm text-muted-foreground underline"
           >
             {isSignUp ? "Already have an account? Sign in" : "Don't have an account? Sign up"}
           </button>

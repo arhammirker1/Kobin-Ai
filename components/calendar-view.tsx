@@ -1,141 +1,729 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { ChevronLeft, ChevronRight, Plus, Clock, Settings, Edit2, Trash2 } from "lucide-react"
+import {
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  X,
+  Video,
+  Clock,
+  Calendar as CalendarIcon,
+  MoreHorizontal,
+  Trash2,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { format, addDays, startOfWeek, parseISO, isSameDay } from "date-fns"
+import {
+  format,
+  addDays,
+  addWeeks,
+  subWeeks,
+  addMonths,
+  subMonths,
+  startOfWeek,
+  endOfWeek,
+  startOfMonth,
+  endOfMonth,
+  eachDayOfInterval,
+  parseISO,
+  isSameDay,
+  isSameMonth,
+  isToday,
+  differenceInMinutes,
+  setHours,
+  setMinutes,
+} from "date-fns"
 import { toast } from "sonner"
 
-export function CalendarView() {
-  const [currentDate, setCurrentDate] = useState(new Date())
-  const [events, setEvents] = useState<any[]>([])
-  const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
-  const [editingEvent, setEditingEvent] = useState<any>(null)
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
-  const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone)
-  const [newEvent, setNewEvent] = useState({
-    title: "",
-    date: format(new Date(), "yyyy-MM-dd"),
-    startTime: "09:00",
-    endTime: "10:00",
-    type: "internal",
-    meeting_link: "",
-    purpose: "",
-  })
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-  const supabase = createClient()
+interface CalendarEvent {
+  id: string
+  title: string
+  start_time: string
+  end_time: string
+  type: "internal" | "deal" | "hiring"
+  meeting_link: string | null
+  purpose: string | null
+  relationship_id: string | null
+}
+
+interface EventFormState {
+  title: string
+  date: string
+  startTime: string
+  endTime: string
+  type: "internal" | "deal" | "hiring"
+  meeting_link: string
+  purpose: string
+}
+
+type ViewMode = "week" | "month" | "day"
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const EVENT_COLORS: Record<string, { bg: string; border: string; text: string }> = {
+  internal: {
+    bg: "bg-blue-500/90",
+    border: "border-blue-600",
+    text: "text-white",
+  },
+  deal: {
+    bg: "bg-emerald-500/90",
+    border: "border-emerald-600",
+    text: "text-white",
+  },
+  hiring: {
+    bg: "bg-violet-500/90",
+    border: "border-violet-600",
+    text: "text-white",
+  },
+}
+
+const HOURS = Array.from({ length: 24 }, (_, i) => i)
+const HOUR_HEIGHT = 64 // px per hour
+
+const EMPTY_FORM: EventFormState = {
+  title: "",
+  date: format(new Date(), "yyyy-MM-dd"),
+  startTime: "09:00",
+  endTime: "10:00",
+  type: "internal",
+  meeting_link: "",
+  purpose: "",
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function formatHour(hour: number): string {
+  if (hour === 0) return "12 AM"
+  if (hour < 12) return `${hour} AM`
+  if (hour === 12) return "12 PM"
+  return `${hour - 12} PM`
+}
+
+function getEventStyle(event: CalendarEvent): { top: number; height: number } {
+  const start = parseISO(event.start_time)
+  const end = parseISO(event.end_time)
+  const startMinutes = start.getHours() * 60 + start.getMinutes()
+  const durationMinutes = Math.max(differenceInMinutes(end, start), 30)
+  return {
+    top: (startMinutes / 60) * HOUR_HEIGHT,
+    height: Math.max((durationMinutes / 60) * HOUR_HEIGHT, 28),
+  }
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function EventChip({
+  event,
+  compact = false,
+  onClick,
+}: {
+  event: CalendarEvent
+  compact?: boolean
+  onClick: (e: React.MouseEvent) => void
+}) {
+  const colors = EVENT_COLORS[event.type] ?? EVENT_COLORS.internal
+  const start = parseISO(event.start_time)
+  const end = parseISO(event.end_time)
+
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full text-left rounded-md px-2 py-1 border-l-2 text-[11px] font-medium overflow-hidden hover:brightness-110 transition-all shadow-sm ${colors.bg} ${colors.border} ${colors.text}`}
+    >
+      <div className="font-semibold truncate">{event.title}</div>
+      {!compact && (
+        <div className="opacity-80 text-[10px]">
+          {format(start, "h:mm")}–{format(end, "h:mm a")}
+        </div>
+      )}
+    </button>
+  )
+}
+
+// ─── Event Form ───────────────────────────────────────────────────────────────
+
+function EventFormDialog({
+  open,
+  onOpenChange,
+  initial,
+  onSave,
+  onDelete,
+  mode,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  initial: EventFormState
+  onSave: (data: EventFormState) => Promise<void>
+  onDelete?: () => Promise<void>
+  mode: "create" | "edit"
+}) {
+  const [form, setForm] = useState<EventFormState>(initial)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setForm(initial)
+  }, [initial, open])
+
+  const set = (key: keyof EventFormState, value: string) =>
+    setForm((f) => ({ ...f, [key]: value }))
+
+  const handleSave = async () => {
+    if (!form.title.trim()) {
+      toast.error("Title is required")
+      return
+    }
+    setSaving(true)
+    await onSave(form)
+    setSaving(false)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{mode === "create" ? "New Event" : "Edit Event"}</DialogTitle>
+        </DialogHeader>
+
+        <div className="grid gap-3 py-2">
+          <div className="grid gap-1.5">
+            <Label htmlFor="ef-title">Title *</Label>
+            <Input id="ef-title" value={form.title} onChange={(e) => set("title", e.target.value)} placeholder="Event title" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-1.5">
+              <Label htmlFor="ef-date">Date</Label>
+              <Input id="ef-date" type="date" value={form.date} onChange={(e) => set("date", e.target.value)} />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="ef-type">Type</Label>
+              <Select value={form.type} onValueChange={(v) => set("type", v)}>
+                <SelectTrigger id="ef-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="internal">Internal</SelectItem>
+                  <SelectItem value="deal">Deal</SelectItem>
+                  <SelectItem value="hiring">Hiring</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-1.5">
+              <Label htmlFor="ef-start">Start</Label>
+              <Input id="ef-start" type="time" value={form.startTime} onChange={(e) => set("startTime", e.target.value)} />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="ef-end">End</Label>
+              <Input id="ef-end" type="time" value={form.endTime} onChange={(e) => set("endTime", e.target.value)} />
+            </div>
+          </div>
+
+          <div className="grid gap-1.5">
+            <Label htmlFor="ef-link">Meeting Link</Label>
+            <Input id="ef-link" value={form.meeting_link} onChange={(e) => set("meeting_link", e.target.value)} placeholder="https://..." />
+          </div>
+
+          <div className="grid gap-1.5">
+            <Label htmlFor="ef-purpose">Purpose</Label>
+            <Input id="ef-purpose" value={form.purpose} onChange={(e) => set("purpose", e.target.value)} placeholder="What's the goal?" />
+          </div>
+        </div>
+
+        <DialogFooter className="gap-2">
+          {mode === "edit" && onDelete && (
+            <Button variant="destructive" size="sm" onClick={onDelete} className="mr-auto">
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? "Saving…" : mode === "create" ? "Create" : "Save"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ─── Week View ────────────────────────────────────────────────────────────────
+
+function WeekView({
+  currentDate,
+  events,
+  onDayClick,
+  onEventClick,
+  onSlotClick,
+}: {
+  currentDate: Date
+  events: CalendarEvent[]
+  onDayClick: (day: Date) => void
+  onEventClick: (event: CalendarEvent) => void
+  onSlotClick: (day: Date, hour: number) => void
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 })
+  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
+
+  // Scroll to 8am on mount
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = 8 * HOUR_HEIGHT - 20
+    }
+  }, [])
+
+  // Current time indicator
+  const now = new Date()
+  const nowTop = (now.getHours() + now.getMinutes() / 60) * HOUR_HEIGHT
+
+  return (
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden border rounded-xl bg-card">
+      {/* Day headers */}
+      <div className="grid grid-cols-[56px_repeat(7,1fr)] border-b bg-muted/30 sticky top-0 z-20">
+        <div className="border-r" />
+        {weekDays.map((day) => (
+          <button
+            key={day.toISOString()}
+            onClick={() => onDayClick(day)}
+            className={`py-2 text-center border-r last:border-r-0 hover:bg-muted/50 transition-colors ${
+              isToday(day) ? "bg-primary/5" : ""
+            }`}
+          >
+            <div className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider">
+              {format(day, "EEE")}
+            </div>
+            <div
+              className={`text-base font-bold mt-0.5 w-8 h-8 flex items-center justify-center rounded-full mx-auto ${
+                isToday(day) ? "bg-primary text-primary-foreground" : ""
+              }`}
+            >
+              {format(day, "d")}
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {/* Scrollable time grid */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+        <div className="grid grid-cols-[56px_repeat(7,1fr)]" style={{ height: `${HOURS.length * HOUR_HEIGHT}px` }}>
+          {/* Time labels */}
+          <div className="relative border-r">
+            {HOURS.map((hour) => (
+              <div
+                key={hour}
+                className="absolute right-2 text-[10px] text-muted-foreground font-medium"
+                style={{ top: hour * HOUR_HEIGHT - 7 }}
+              >
+                {hour === 0 ? "" : formatHour(hour)}
+              </div>
+            ))}
+          </div>
+
+          {/* Day columns */}
+          {weekDays.map((day) => {
+            const dayEvents = events.filter((e) => isSameDay(parseISO(e.start_time), day))
+            const isCurrentDay = isToday(day)
+
+            return (
+              <div key={day.toISOString()} className="relative border-r last:border-r-0">
+                {/* Hour grid lines */}
+                {HOURS.map((hour) => (
+                  <div
+                    key={hour}
+                    className="absolute inset-x-0 border-t border-border/50 hover:bg-muted/30 cursor-pointer transition-colors"
+                    style={{ top: hour * HOUR_HEIGHT, height: HOUR_HEIGHT }}
+                    onClick={() => onSlotClick(day, hour)}
+                  />
+                ))}
+                {/* Half-hour lines */}
+                {HOURS.map((hour) => (
+                  <div
+                    key={`half-${hour}`}
+                    className="absolute inset-x-0 border-t border-border/25 border-dashed pointer-events-none"
+                    style={{ top: hour * HOUR_HEIGHT + HOUR_HEIGHT / 2 }}
+                  />
+                ))}
+
+                {/* Current time line */}
+                {isCurrentDay && (
+                  <div
+                    className="absolute inset-x-0 z-10 flex items-center pointer-events-none"
+                    style={{ top: nowTop }}
+                  >
+                    <div className="w-2 h-2 rounded-full bg-red-500 -ml-1 flex-shrink-0" />
+                    <div className="flex-1 h-px bg-red-500" />
+                  </div>
+                )}
+
+                {/* Events */}
+                {dayEvents.map((event) => {
+                  const { top, height } = getEventStyle(event)
+                  return (
+                    <div
+                      key={event.id}
+                      className="absolute inset-x-1 z-10"
+                      style={{ top, height }}
+                    >
+                      <EventChip
+                        event={event}
+                        compact={height < 40}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onEventClick(event)
+                        }}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Day View ─────────────────────────────────────────────────────────────────
+
+function DayView({
+  currentDate,
+  events,
+  onEventClick,
+  onSlotClick,
+}: {
+  currentDate: Date
+  events: CalendarEvent[]
+  onEventClick: (event: CalendarEvent) => void
+  onSlotClick: (day: Date, hour: number) => void
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = 8 * HOUR_HEIGHT - 20
+    }
+  }, [])
+
+  const dayEvents = events.filter((e) => isSameDay(parseISO(e.start_time), currentDate))
+  const now = new Date()
+  const nowTop = (now.getHours() + now.getMinutes() / 60) * HOUR_HEIGHT
+
+  return (
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden border rounded-xl bg-card">
+      {/* Header */}
+      <div className="grid grid-cols-[56px_1fr] border-b bg-muted/30 sticky top-0 z-20">
+        <div className="border-r" />
+        <div className="py-2 px-4">
+          <div className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider">
+            {format(currentDate, "EEEE")}
+          </div>
+          <div
+            className={`text-2xl font-bold mt-0.5 ${isToday(currentDate) ? "text-primary" : ""}`}
+          >
+            {format(currentDate, "d")}
+          </div>
+        </div>
+      </div>
+
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+        <div className="grid grid-cols-[56px_1fr]" style={{ height: `${HOURS.length * HOUR_HEIGHT}px` }}>
+          <div className="relative border-r">
+            {HOURS.map((hour) => (
+              <div
+                key={hour}
+                className="absolute right-2 text-[10px] text-muted-foreground font-medium"
+                style={{ top: hour * HOUR_HEIGHT - 7 }}
+              >
+                {hour === 0 ? "" : formatHour(hour)}
+              </div>
+            ))}
+          </div>
+
+          <div className="relative">
+            {HOURS.map((hour) => (
+              <div
+                key={hour}
+                className="absolute inset-x-0 border-t border-border/50 hover:bg-muted/30 cursor-pointer transition-colors"
+                style={{ top: hour * HOUR_HEIGHT, height: HOUR_HEIGHT }}
+                onClick={() => onSlotClick(currentDate, hour)}
+              />
+            ))}
+            {HOURS.map((hour) => (
+              <div
+                key={`half-${hour}`}
+                className="absolute inset-x-0 border-t border-border/25 border-dashed pointer-events-none"
+                style={{ top: hour * HOUR_HEIGHT + HOUR_HEIGHT / 2 }}
+              />
+            ))}
+
+            {isToday(currentDate) && (
+              <div
+                className="absolute inset-x-0 z-10 flex items-center pointer-events-none"
+                style={{ top: nowTop }}
+              >
+                <div className="w-2 h-2 rounded-full bg-red-500 -ml-1" />
+                <div className="flex-1 h-px bg-red-500" />
+              </div>
+            )}
+
+            {dayEvents.map((event) => {
+              const { top, height } = getEventStyle(event)
+              return (
+                <div key={event.id} className="absolute left-1 right-4 z-10" style={{ top, height }}>
+                  <EventChip
+                    event={event}
+                    compact={height < 40}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onEventClick(event)
+                    }}
+                  />
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Month View ───────────────────────────────────────────────────────────────
+
+function MonthView({
+  currentDate,
+  events,
+  onDayClick,
+  onEventClick,
+}: {
+  currentDate: Date
+  events: CalendarEvent[]
+  onDayClick: (day: Date) => void
+  onEventClick: (event: CalendarEvent) => void
+}) {
+  const monthStart = startOfMonth(currentDate)
+  const monthEnd = endOfMonth(currentDate)
+  const calStart = startOfWeek(monthStart, { weekStartsOn: 1 })
+  const calEnd = endOfWeek(monthEnd, { weekStartsOn: 1 })
+  const days = eachDayOfInterval({ start: calStart, end: calEnd })
+
+  return (
+    <div className="flex flex-col flex-1 border rounded-xl overflow-hidden bg-card">
+      {/* Weekday headers */}
+      <div className="grid grid-cols-7 border-b bg-muted/30">
+        {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+          <div key={d} className="py-2 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-r last:border-r-0">
+            {d}
+          </div>
+        ))}
+      </div>
+
+      {/* Days grid */}
+      <div className="flex-1 grid grid-cols-7" style={{ gridAutoRows: "1fr" }}>
+        {days.map((day) => {
+          const dayEvents = events.filter((e) => isSameDay(parseISO(e.start_time), day))
+          const isCurrentMonth = isSameMonth(day, currentDate)
+          const isCurrentDay = isToday(day)
+
+          return (
+            <div
+              key={day.toISOString()}
+              onClick={() => onDayClick(day)}
+              className={`border-r border-b last-of-type:border-r-0 p-1.5 cursor-pointer hover:bg-muted/20 transition-colors min-h-[90px] flex flex-col gap-1 ${
+                !isCurrentMonth ? "bg-muted/10" : ""
+              }`}
+            >
+              <div className="flex items-center justify-end">
+                <span
+                  className={`text-xs font-semibold w-6 h-6 flex items-center justify-center rounded-full ${
+                    isCurrentDay
+                      ? "bg-primary text-primary-foreground"
+                      : isCurrentMonth
+                      ? "text-foreground"
+                      : "text-muted-foreground/50"
+                  }`}
+                >
+                  {format(day, "d")}
+                </span>
+              </div>
+              <div className="flex flex-col gap-0.5 overflow-hidden">
+                {dayEvents.slice(0, 3).map((event) => (
+                  <button
+                    key={event.id}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onEventClick(event)
+                    }}
+                    className={`text-left text-[10px] font-medium px-1.5 py-0.5 rounded truncate ${
+                      EVENT_COLORS[event.type]?.bg ?? "bg-blue-500/90"
+                    } ${EVENT_COLORS[event.type]?.text ?? "text-white"}`}
+                  >
+                    {event.title}
+                  </button>
+                ))}
+                {dayEvents.length > 3 && (
+                  <span className="text-[10px] text-muted-foreground px-1">+{dayEvents.length - 3} more</span>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ─── Mini Calendar (sidebar) ──────────────────────────────────────────────────
+
+function MiniCalendar({
+  currentDate,
+  onDateSelect,
+}: {
+  currentDate: Date
+  onDateSelect: (date: Date) => void
+}) {
+  const [miniDate, setMiniDate] = useState(currentDate)
+
+  const monthStart = startOfMonth(miniDate)
+  const calStart = startOfWeek(monthStart, { weekStartsOn: 1 })
+  const days = eachDayOfInterval({ start: calStart, end: addDays(calStart, 41) })
+
+  return (
+    <div className="w-full select-none">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-sm font-semibold">{format(miniDate, "MMMM yyyy")}</span>
+        <div className="flex gap-1">
+          <button
+            onClick={() => setMiniDate(subMonths(miniDate, 1))}
+            className="p-1 rounded hover:bg-muted transition-colors"
+          >
+            <ChevronLeft className="h-3 w-3" />
+          </button>
+          <button
+            onClick={() => setMiniDate(addMonths(miniDate, 1))}
+            className="p-1 rounded hover:bg-muted transition-colors"
+          >
+            <ChevronRight className="h-3 w-3" />
+          </button>
+        </div>
+      </div>
+      <div className="grid grid-cols-7 gap-0">
+        {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => (
+          <div key={i} className="text-center text-[9px] font-semibold text-muted-foreground py-1">
+            {d}
+          </div>
+        ))}
+        {days.map((day) => (
+          <button
+            key={day.toISOString()}
+            onClick={() => onDateSelect(day)}
+            className={`text-center text-xs h-7 w-full rounded transition-colors ${
+              isSameDay(day, currentDate)
+                ? "bg-primary text-primary-foreground font-bold"
+                : isToday(day)
+                ? "text-primary font-bold"
+                : isSameMonth(day, miniDate)
+                ? "hover:bg-muted text-foreground"
+                : "text-muted-foreground/40 hover:bg-muted/50"
+            }`}
+          >
+            {format(day, "d")}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+
+export function CalendarView() {
+  const supabase = useMemo(() => createClient(), [])
+
+  const [currentDate, setCurrentDate] = useState(new Date())
+  const [viewMode, setViewMode] = useState<ViewMode>("week")
+  const [events, setEvents] = useState<CalendarEvent[]>([])
+
+  // Dialog state
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [createForm, setCreateForm] = useState<EventFormState>(EMPTY_FORM)
+  const [editingEvent, setEditingEvent] = useState<(EventFormState & { id: string }) | null>(null)
+
+  // Fetch events
+  const fetchEvents = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
+    const { data, error } = await supabase
+      .from("events")
+      .select("id, title, start_time, end_time, type, meeting_link, purpose, relationship_id")
+      .eq("user_id", user.id)
+      .order("start_time", { ascending: true })
+
+    if (error) {
+      toast.error("Failed to load events")
+    } else {
+      setEvents((data as CalendarEvent[]) || [])
+    }
+  }, [supabase])
 
   useEffect(() => {
     fetchEvents()
-  }, [currentDate])
+  }, [fetchEvents])
 
-  const fetchEvents = async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { data, error } = await supabase.from("events").select("*").eq("user_id", user.id)
-
-    if (error) {
-      console.error("[v0] Error fetching events:", error)
-    } else {
-      setEvents(data || [])
-    }
+  // Navigation
+  const navigate = (dir: -1 | 1) => {
+    if (viewMode === "day") setCurrentDate((d) => addDays(d, dir))
+    else if (viewMode === "week") setCurrentDate((d) => (dir === 1 ? addWeeks(d, 1) : subWeeks(d, 1)))
+    else setCurrentDate((d) => (dir === 1 ? addMonths(d, 1) : subMonths(d, 1)))
   }
 
-  const handleAddEvent = async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) return
+  const goToToday = () => setCurrentDate(new Date())
 
-    const start = parseISO(`${newEvent.date}T${newEvent.startTime}`)
-    const end = parseISO(`${newEvent.date}T${newEvent.endTime}`)
+  // Title
+  const navTitle = useMemo(() => {
+    if (viewMode === "day") return format(currentDate, "MMMM d, yyyy")
+    if (viewMode === "week") {
+      const ws = startOfWeek(currentDate, { weekStartsOn: 1 })
+      const we = endOfWeek(currentDate, { weekStartsOn: 1 })
+      return isSameMonth(ws, we)
+        ? `${format(ws, "MMM d")} – ${format(we, "d, yyyy")}`
+        : `${format(ws, "MMM d")} – ${format(we, "MMM d, yyyy")}`
+    }
+    return format(currentDate, "MMMM yyyy")
+  }, [currentDate, viewMode])
 
-    const { error } = await supabase.from("events").insert({
-      user_id: user.id,
-      title: newEvent.title,
-      start_time: start.toISOString(),
-      end_time: end.toISOString(),
-      type: newEvent.type,
-      meeting_link: newEvent.meeting_link,
-      purpose: newEvent.purpose || "",
-      relationship_id: null,
+  // Slot click → prefill form
+  const handleSlotClick = (day: Date, hour: number) => {
+    setCreateForm({
+      ...EMPTY_FORM,
+      date: format(day, "yyyy-MM-dd"),
+      startTime: `${String(hour).padStart(2, "0")}:00`,
+      endTime: `${String(Math.min(hour + 1, 23)).padStart(2, "0")}:00`,
     })
-
-    if (error) {
-      console.error("[v0] Error creating event:", error)
-      toast.error("Failed to add event")
-    } else {
-      toast.success("Event created")
-      setNewEvent({
-        title: "",
-        date: format(new Date(), "yyyy-MM-dd"),
-        startTime: "09:00",
-        endTime: "10:00",
-        type: "internal",
-        meeting_link: "",
-        purpose: "",
-      })
-      setIsDialogOpen(false)
-      fetchEvents()
-    }
+    setCreateDialogOpen(true)
   }
 
-  const handleEditEvent = async () => {
-    if (!editingEvent) return
-
-    const start = parseISO(`${editingEvent.date}T${editingEvent.startTime}`)
-    const end = parseISO(`${editingEvent.date}T${editingEvent.endTime}`)
-
-    const { error } = await supabase
-      .from("events")
-      .update({
-        title: editingEvent.title,
-        start_time: start.toISOString(),
-        end_time: end.toISOString(),
-        type: editingEvent.type,
-        meeting_link: editingEvent.meeting_link,
-        purpose: editingEvent.purpose || "",
-        relationship_id: editingEvent.relationship_id || null,
-      })
-      .eq("id", editingEvent.id)
-
-    if (error) {
-      toast.error("Failed to update event")
-    } else {
-      toast.success("Event updated")
-      setIsEditDialogOpen(false)
-      setEditingEvent(null)
-      fetchEvents()
-    }
+  const handleDayClick = (day: Date) => {
+    setCurrentDate(day)
+    setViewMode("day")
   }
 
-  const handleDeleteEvent = async (eventId: string) => {
-    const { error } = await supabase.from("events").delete().eq("id", eventId)
-
-    if (error) {
-      toast.error("Failed to delete event")
-    } else {
-      toast.success("Event deleted")
-      setIsEditDialogOpen(false)
-      setEditingEvent(null)
-      fetchEvents()
-    }
-  }
-
-  const openEditDialog = (event: any) => {
+  const handleEventClick = (event: CalendarEvent) => {
     const start = parseISO(event.start_time)
     const end = parseISO(event.end_time)
-
     setEditingEvent({
       id: event.id,
       title: event.title,
@@ -143,356 +731,203 @@ export function CalendarView() {
       startTime: format(start, "HH:mm"),
       endTime: format(end, "HH:mm"),
       type: event.type,
-      meeting_link: event.meeting_link,
-      purpose: event.purpose || "",
-      relationship_id: event.relationship_id || null,
+      meeting_link: event.meeting_link ?? "",
+      purpose: event.purpose ?? "",
     })
-    setIsEditDialogOpen(true)
+    setEditDialogOpen(true)
   }
 
-  const generateHours = () => {
-    return Array.from({ length: 24 }, (_, hour) => hour)
-  }
+  const handleCreate = async (form: EventFormState) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
 
-  const generateTimeSlots = () => {
-    const slots = []
-    for (let hour = 0; hour < 24; hour++) {
-      slots.push({ hour, minute: 0 })
-      slots.push({ hour, minute: 30 })
+    const startISO = parseISO(`${form.date}T${form.startTime}`).toISOString()
+    const endISO = parseISO(`${form.date}T${form.endTime}`).toISOString()
+
+    const { error } = await supabase.from("events").insert({
+      user_id: user.id,
+      title: form.title,
+      start_time: startISO,
+      end_time: endISO,
+      type: form.type,
+      meeting_link: form.meeting_link || null,
+      purpose: form.purpose || null,
+      relationship_id: null,
+    })
+
+    if (error) {
+      toast.error("Failed to create event")
+    } else {
+      toast.success("Event created")
+      setCreateDialogOpen(false)
+      fetchEvents()
     }
-    return slots
   }
 
-  const hours = generateHours()
-  const timeSlots = generateTimeSlots()
-  const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 })
-  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
+  const handleUpdate = async (form: EventFormState) => {
+    if (!editingEvent) return
 
-  const slotHeight = 60
-  const hourHeight = slotHeight * 2 // 120px per hour
-  const totalHeight = hours.length * hourHeight
+    const startISO = parseISO(`${form.date}T${form.startTime}`).toISOString()
+    const endISO = parseISO(`${form.date}T${form.endTime}`).toISOString()
 
-  const commonTimezones = [
-    "America/New_York",
-    "America/Chicago",
-    "America/Denver",
-    "America/Los_Angeles",
-    "Europe/London",
-    "Europe/Paris",
-    "Asia/Dubai",
-    "Asia/Kolkata",
-    "Asia/Singapore",
-    "Asia/Tokyo",
-    "Australia/Sydney",
-    "Pacific/Auckland",
-  ]
+    const { error } = await supabase
+      .from("events")
+      .update({
+        title: form.title,
+        start_time: startISO,
+        end_time: endISO,
+        type: form.type,
+        meeting_link: form.meeting_link || null,
+        purpose: form.purpose || null,
+      })
+      .eq("id", editingEvent.id)
+
+    if (error) {
+      toast.error("Failed to update event")
+    } else {
+      toast.success("Event updated")
+      setEditDialogOpen(false)
+      setEditingEvent(null)
+      fetchEvents()
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!editingEvent) return
+
+    const { error } = await supabase.from("events").delete().eq("id", editingEvent.id)
+
+    if (error) {
+      toast.error("Failed to delete event")
+    } else {
+      toast.success("Event deleted")
+      setEditDialogOpen(false)
+      setEditingEvent(null)
+      fetchEvents()
+    }
+  }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <h2 className="text-2xl font-bold tracking-tight">Calendar</h2>
-        <div className="flex items-center gap-4 flex-wrap">
-          <div className="flex items-center gap-1 border rounded-md p-1 bg-muted/50">
-            <Button variant="ghost" size="icon" onClick={() => setCurrentDate(addDays(currentDate, -7))}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <span className="px-2 font-medium text-sm">
-              {format(weekStart, "MMM d")} - {format(addDays(weekStart, 6), "MMM d, yyyy")}
-            </span>
-            <Button variant="ghost" size="icon" onClick={() => setCurrentDate(addDays(currentDate, 7))}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
+    <div className="flex h-[calc(100vh-120px)] gap-4">
+      {/* ── Sidebar ── */}
+      <aside className="hidden lg:flex flex-col gap-5 w-[200px] flex-shrink-0">
+        <Button
+          onClick={() => {
+            setCreateForm({ ...EMPTY_FORM, date: format(new Date(), "yyyy-MM-dd") })
+            setCreateDialogOpen(true)
+          }}
+          className="gap-2 w-full shadow-sm"
+        >
+          <Plus className="h-4 w-4" />
+          New Event
+        </Button>
 
-          <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm">
-                <Settings className="h-4 w-4 mr-2" />
-                Settings
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Calendar Settings</DialogTitle>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="timezone">Timezone</Label>
-                  <Select value={timezone} onValueChange={setTimezone}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {commonTimezones.map((tz) => (
-                        <SelectItem key={tz} value={tz}>
-                          {tz.replace(/_/g, " ")}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  The calendar now displays all 24 hours. Scroll to view different times throughout the day.
-                </p>
-              </div>
-              <DialogFooter>
-                <Button onClick={() => setIsSettingsOpen(false)}>Save Changes</Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+        <MiniCalendar currentDate={currentDate} onDateSelect={(d) => setCurrentDate(d)} />
 
-          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="h-4 w-4 mr-2" />
-                <span className="hidden sm:inline">New Event</span>
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Add New Event</DialogTitle>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="title">Title</Label>
-                  <Input
-                    id="title"
-                    value={newEvent.title}
-                    onChange={(e) => setNewEvent({ ...newEvent, title: e.target.value })}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="date">Date</Label>
-                    <Input
-                      id="date"
-                      type="date"
-                      value={newEvent.date}
-                      onChange={(e) => setNewEvent({ ...newEvent, date: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="type">Type</Label>
-                    <Select value={newEvent.type} onValueChange={(v) => setNewEvent({ ...newEvent, type: v })}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="internal">Internal</SelectItem>
-                        <SelectItem value="deal">Deal</SelectItem>
-                        <SelectItem value="hiring">Hiring</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="start">Start Time</Label>
-                    <Input
-                      id="start"
-                      type="time"
-                      value={newEvent.startTime}
-                      onChange={(e) => setNewEvent({ ...newEvent, startTime: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="end">End Time</Label>
-                    <Input
-                      id="end"
-                      type="time"
-                      value={newEvent.endTime}
-                      onChange={(e) => setNewEvent({ ...newEvent, endTime: e.target.value })}
-                    />
-                  </div>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="meeting_link">Meeting Link</Label>
-                  <Input
-                    id="meeting_link"
-                    value={newEvent.meeting_link}
-                    onChange={(e) => setNewEvent({ ...newEvent, meeting_link: e.target.value })}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="purpose">Purpose</Label>
-                  <Input
-                    id="purpose"
-                    value={newEvent.purpose}
-                    onChange={(e) => setNewEvent({ ...newEvent, purpose: e.target.value })}
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button onClick={handleAddEvent}>Create Event</Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-
-          <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Edit Event</DialogTitle>
-              </DialogHeader>
-              {editingEvent && (
-                <div className="grid gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="edit-title">Title</Label>
-                    <Input
-                      id="edit-title"
-                      value={editingEvent.title}
-                      onChange={(e) => setEditingEvent({ ...editingEvent, title: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="grid gap-2">
-                      <Label htmlFor="edit-date">Date</Label>
-                      <Input
-                        id="edit-date"
-                        type="date"
-                        value={editingEvent.date}
-                        onChange={(e) => setEditingEvent({ ...editingEvent, date: e.target.value })}
-                      />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="edit-type">Type</Label>
-                      <Select
-                        value={editingEvent.type}
-                        onValueChange={(v) => setEditingEvent({ ...editingEvent, type: v })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="internal">Internal</SelectItem>
-                          <SelectItem value="deal">Deal</SelectItem>
-                          <SelectItem value="hiring">Hiring</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="grid gap-2">
-                      <Label htmlFor="edit-start">Start Time</Label>
-                      <Input
-                        id="edit-start"
-                        type="time"
-                        value={editingEvent.startTime}
-                        onChange={(e) => setEditingEvent({ ...editingEvent, startTime: e.target.value })}
-                      />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="edit-end">End Time</Label>
-                      <Input
-                        id="edit-end"
-                        type="time"
-                        value={editingEvent.endTime}
-                        onChange={(e) => setEditingEvent({ ...editingEvent, endTime: e.target.value })}
-                      />
-                    </div>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="edit-meeting_link">Meeting Link</Label>
-                    <Input
-                      id="edit-meeting_link"
-                      value={editingEvent.meeting_link}
-                      onChange={(e) => setEditingEvent({ ...editingEvent, meeting_link: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="edit-purpose">Purpose</Label>
-                    <Input
-                      id="edit-purpose"
-                      value={editingEvent.purpose}
-                      onChange={(e) => setEditingEvent({ ...editingEvent, purpose: e.target.value })}
-                    />
-                  </div>
-                </div>
-              )}
-              <DialogFooter className="gap-2">
-                <Button variant="destructive" onClick={() => handleDeleteEvent(editingEvent?.id)}>
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Delete
-                </Button>
-                <Button onClick={handleEditEvent}>Save Changes</Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </div>
-      </div>
-
-      <ScrollArea className="h-[calc(100vh-220px)]">
-        <div className="grid grid-cols-8 border rounded-lg overflow-hidden bg-card">
-          <div className="border-r bg-muted/20">
-            <div className="h-12 border-b sticky top-0 bg-muted/20 z-20" />
-            {hours.map((hour) => (
-              <div
-                key={hour}
-                className="border-b text-xs text-muted-foreground text-right pr-2 pt-1"
-                style={{ height: `${hourHeight}px` }}
-              >
-                {hour === 0 ? "12 AM" : hour < 12 ? `${hour} AM` : hour === 12 ? "12 PM" : `${hour - 12} PM`}
-              </div>
-            ))}
-          </div>
-
-          {weekDays.map((day) => (
-            <div key={day.toString()} className="border-r last:border-r-0">
-              <div
-                className={`h-12 border-b p-2 text-center flex flex-col justify-center sticky top-0 z-20 ${isSameDay(day, new Date()) ? "bg-primary/5" : "bg-card"}`}
-              >
-                <span className="text-xs uppercase font-semibold text-muted-foreground">{format(day, "EEE")}</span>
-                <span className={`text-sm font-bold ${isSameDay(day, new Date()) ? "text-primary" : ""}`}>
-                  {format(day, "d")}
-                </span>
-              </div>
-              <div className="relative" style={{ height: `${totalHeight}px` }}>
-                {timeSlots.map((slot, idx) => (
-                  <div key={idx} className="border-b border-muted/30" style={{ height: `${slotHeight}px` }} />
-                ))}
-                {events
-                  .filter((e) => isSameDay(parseISO(e.start_time), day))
-                  .map((event) => {
-                    const start = parseISO(event.start_time)
-                    const end = parseISO(event.end_time)
-                    const startHourDecimal = start.getHours() + start.getMinutes() / 60
-                    const duration = (end.getTime() - start.getTime()) / (1000 * 60 * 60)
-
-                    const slotsFromStart = startHourDecimal * 2
-                    const top = slotsFromStart * slotHeight
-                    const calculatedHeight = duration * 2 * slotHeight
-                    const height = Math.max(80, calculatedHeight)
-
-                    return (
-                      <div
-                        key={event.id}
-                        onClick={() => openEditDialog(event)}
-                        className="absolute inset-x-1 rounded-md p-2 text-xs font-medium border shadow-sm z-10 overflow-hidden flex flex-col cursor-pointer hover:shadow-md hover:ring-2 hover:ring-primary/50 transition-all group"
-                        style={{
-                          top: `${Math.max(0, top)}px`,
-                          height: `${height}px`,
-                          backgroundColor: event.type === "deal" ? "hsl(var(--primary) / 0.1)" : "hsl(var(--muted))",
-                          borderColor: "hsl(var(--primary))",
-                          color: "hsl(var(--foreground))",
-                        }}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="truncate font-bold text-sm flex-1">{event.title}</div>
-                          <Edit2 className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
-                        </div>
-                        <div className="flex items-center gap-1 opacity-70 mt-1">
-                          <Clock className="h-3 w-3 flex-shrink-0" />
-                          <span className="text-[10px]">{format(start, "h:mm a")}</span>
-                        </div>
-                      </div>
-                    )
-                  })}
-              </div>
+        {/* Legend */}
+        <div className="space-y-1.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Event Types</p>
+          {(["internal", "deal", "hiring"] as const).map((type) => (
+            <div key={type} className="flex items-center gap-2">
+              <div className={`w-2.5 h-2.5 rounded-sm ${EVENT_COLORS[type].bg}`} />
+              <span className="text-xs capitalize text-muted-foreground">{type}</span>
             </div>
           ))}
         </div>
-      </ScrollArea>
+      </aside>
 
-      <div className="text-xs text-muted-foreground text-center">Timezone: {timezone.replace(/_/g, " ")}</div>
+      {/* ── Main ── */}
+      <div className="flex flex-col flex-1 min-w-0 gap-3">
+        {/* Toolbar */}
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={goToToday}>
+              Today
+            </Button>
+            <div className="flex">
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate(-1)}>
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate(1)}>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+            <h2 className="text-lg font-semibold">{navTitle}</h2>
+          </div>
+
+          <div className="flex items-center gap-1 border rounded-lg p-0.5 bg-muted/40">
+            {(["day", "week", "month"] as ViewMode[]).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setViewMode(mode)}
+                className={`px-3 py-1 text-xs font-medium rounded-md capitalize transition-colors ${
+                  viewMode === mode ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
+
+          {/* Mobile new event button */}
+          <Button
+            size="sm"
+            className="lg:hidden gap-1"
+            onClick={() => {
+              setCreateForm({ ...EMPTY_FORM, date: format(new Date(), "yyyy-MM-dd") })
+              setCreateDialogOpen(true)
+            }}
+          >
+            <Plus className="h-4 w-4" /> New
+          </Button>
+        </div>
+
+        {/* Calendar body */}
+        {viewMode === "week" && (
+          <WeekView
+            currentDate={currentDate}
+            events={events}
+            onDayClick={handleDayClick}
+            onEventClick={handleEventClick}
+            onSlotClick={handleSlotClick}
+          />
+        )}
+        {viewMode === "day" && (
+          <DayView
+            currentDate={currentDate}
+            events={events}
+            onEventClick={handleEventClick}
+            onSlotClick={handleSlotClick}
+          />
+        )}
+        {viewMode === "month" && (
+          <MonthView
+            currentDate={currentDate}
+            events={events}
+            onDayClick={handleDayClick}
+            onEventClick={handleEventClick}
+          />
+        )}
+      </div>
+
+      {/* ── Dialogs ── */}
+      <EventFormDialog
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+        initial={createForm}
+        onSave={handleCreate}
+        mode="create"
+      />
+      {editingEvent && (
+        <EventFormDialog
+          open={editDialogOpen}
+          onOpenChange={setEditDialogOpen}
+          initial={editingEvent}
+          onSave={handleUpdate}
+          onDelete={handleDelete}
+          mode="edit"
+        />
+      )}
     </div>
   )
 }

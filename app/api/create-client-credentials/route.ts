@@ -7,7 +7,6 @@ export async function POST(request: Request) {
     const body = await request.json()
     const { client_id, email, password, can_create_tasks } = body
 
-    // 1️⃣ USER CLIENT — CHECK AUTHENTICATION
     const supabase = await createClient()
     const {
       data: { user },
@@ -17,13 +16,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "Not authenticated" }, { status: 401 })
     }
 
-    // 2️⃣ Check if user is founder or has client portal permission
-    const { data: profile } = await supabase.from("profiles").select("user_type").eq("id", user.id).single()
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("user_type")
+      .eq("id", user.id)
+      .single()
 
     const isFounder = profile?.user_type === "founder"
 
     if (!isFounder) {
-      // Check if team member has client portal permission
       const { data: teamMember } = await supabase
         .from("team_members")
         .select("can_access_clients")
@@ -35,7 +36,6 @@ export async function POST(request: Request) {
       }
     }
 
-    // 3️⃣ ADMIN CLIENT — CREATE CLIENT USER ACCOUNT
     const { data: createdUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
@@ -43,12 +43,14 @@ export async function POST(request: Request) {
     })
 
     if (createError || !createdUser.user) {
-      return NextResponse.json({ message: createError?.message || "Failed to create user" }, { status: 400 })
+      return NextResponse.json(
+        { message: createError?.message || "Failed to create user" },
+        { status: 400 }
+      )
     }
 
     const newUserId = createdUser.user.id
 
-    // 4️⃣ ADMIN CLIENT — UPDATE PROFILE
     await supabaseAdmin.from("profiles").upsert({
       id: newUserId,
       email,
@@ -56,7 +58,6 @@ export async function POST(request: Request) {
       created_by: user.id,
     })
 
-    // 5️⃣ ADMIN CLIENT — UPDATE CLIENT WITH AUTH INFO
     const { error: updateError } = await supabaseAdmin
       .from("clients")
       .update({
@@ -67,13 +68,13 @@ export async function POST(request: Request) {
       .eq("id", client_id)
 
     if (updateError) {
-      // Rollback: delete created user if client update fails
       await supabaseAdmin.auth.admin.deleteUser(newUserId)
       return NextResponse.json({ message: updateError.message }, { status: 400 })
     }
 
     return NextResponse.json({ success: true })
-  } catch (error: any) {
-    return NextResponse.json({ message: error.message || "Server error" }, { status: 500 })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Server error"
+    return NextResponse.json({ message }, { status: 500 })
   }
 }
