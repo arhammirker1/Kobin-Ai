@@ -50,7 +50,8 @@ export function DashboardContent({ activeTab, userType }: { activeTab: string; u
           activeTab !== "Vault" &&
           activeTab !== "Team" &&
           activeTab !== "Clients" &&
-          activeTab !== "Settings" && (
+          activeTab !== "Settings" &&
+          activeTab !== "Inbox" && (
             <div className="flex flex-col items-center justify-center h-full text-center py-24">
               <div className="size-20 rounded-full bg-muted flex items-center justify-center mb-6">
                 <FileText size={40} className="text-muted-foreground/30" />
