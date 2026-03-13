@@ -865,7 +865,7 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
     <div className="flex h-[calc(100vh-112px)] rounded-xl border border-border overflow-hidden bg-card">
 
       {/* ── Sidebar ── */}
-      <aside className="w-60 flex-shrink-0 flex flex-col border-r border-border bg-muted/20">
+      <aside className="w-60 flex-shrink-0 flex flex-col border-r border-border bg-muted/20 overflow-hidden">
         {/* Header */}
         <div className="px-3 py-3 border-b border-border">
           <h2 className="text-sm font-bold tracking-tight">Inbox</h2>
@@ -880,7 +880,7 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
           </div>
         </div>
 
-        <ScrollArea className="flex-1">
+        <div className="flex-1 overflow-y-auto">
           {/* Project Channels */}
           {groupedRooms.project.length > 0 && (
             <div className="pt-3 px-2">
@@ -929,11 +929,11 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
               </button>
             )}
           </div>
-        </ScrollArea>
+        </div>
       </aside>
 
       {/* ── Main Chat Area ── */}
-      <div className="flex flex-col flex-1 min-w-0">
+      <div className="flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden">
         {activeRoom ? (
           <>
             {/* Chat header */}
@@ -964,7 +964,7 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
             </div>
 
             {/* Messages */}
-            <ScrollArea className="flex-1 py-2">
+            <div className="flex-1 overflow-y-auto py-2 min-h-0">
               {loadingMessages ? (
                 <div className="flex items-center justify-center h-32">
                   <div className="animate-spin h-5 w-5 border-2 border-primary border-t-transparent rounded-full" />
@@ -1023,7 +1023,7 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
                   <div ref={messagesEndRef} />
                 </div>
               )}
-            </ScrollArea>
+            </div>
 
             {/* Input */}
             <MessageInput
