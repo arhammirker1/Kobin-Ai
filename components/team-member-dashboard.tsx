@@ -41,8 +41,8 @@ import { SettingsView } from "@/components/settings-view"
 import { TaskView } from "@/components/task-view"
 import { ProjectsView } from "@/components/projects-view"
 import { ClientsView } from "@/components/clients-view"
+import { InboxView } from "@/components/inbox-view"
 import useSWR, { mutate } from "swr"
-import InboxView from "@/components/inbox-view"
 
 interface TeamMemberPermissions {
   id: string
