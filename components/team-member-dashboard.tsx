@@ -177,7 +177,7 @@ export function TeamMemberDashboard({ permissions }: { permissions: TeamMemberPe
     { title: "Vault", icon: FileText, show: permissions.can_view_vault },
     { title: "Clients", icon: UserCircle, show: permissions.can_access_clients }, // Added Clients navigation item
     { title: "Settings", icon: Settings, show: true },
-    { title: "Inbox", icon: Inbox, permission: "can_access_inbox" }
+    { title: "Inbox", icon: Inbox, show: permissions.can_access_inbox },
 
   ]
 

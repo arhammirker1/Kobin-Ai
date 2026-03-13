@@ -686,10 +686,10 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
             .from("chat_messages")
             .select(`
               *,
-              sender:profiles!chat_messages_sender_id_fkey(id, full_name),
-              reply_to:chat_messages!chat_messages_reply_to_id_fkey(
+              sender:profiles(id, full_name),
+              reply_to:chat_messages!reply_to_id(
                 id, content, file_name,
-                sender:profiles!chat_messages_sender_id_fkey(id, full_name)
+                sender:profiles(id, full_name)
               )
             `)
             .eq("id", newMsg.id)
@@ -810,7 +810,7 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
       .from("chat_rooms")
       .select("id")
       .eq("dm_key", dmKey)
-      .single()
+      .maybeSingle()
 
     if (existing) {
       setActiveRoomId(existing.id)
