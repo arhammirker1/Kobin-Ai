@@ -51,9 +51,17 @@ export async function POST(request: Request) {
 
     const newUserId = createdUser.user.id
 
+    // Fetch client name to use as full_name
+    const { data: clientRecord } = await supabaseAdmin
+      .from("clients")
+      .select("name")
+      .eq("id", client_id)
+      .single()
+
     await supabaseAdmin.from("profiles").upsert({
       id: newUserId,
       email,
+      full_name: clientRecord?.name || email,
       user_type: "client",
       created_by: user.id,
     })
