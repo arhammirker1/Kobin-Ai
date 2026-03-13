@@ -139,6 +139,76 @@ function Avatar({ user, size = "sm" }: { user: Profile; size?: "sm" | "md" }) {
   )
 }
 
+
+// ─── Image Lightbox ───────────────────────────────────────────────────────────
+
+function ImageLightbox({
+  src,
+  name,
+  onClose,
+}: {
+  src: string
+  name: string
+  onClose: () => void
+}) {
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose()
+    }
+    window.addEventListener("keydown", handleKey as any)
+    return () => window.removeEventListener("keydown", handleKey as any)
+  }, [onClose])
+
+  const handleDownload = async () => {
+    const response = await fetch(src)
+    const blob = await response.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = name
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center"
+      onClick={onClose}
+    >
+      {/* Top bar */}
+      <div
+        className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 py-3 bg-black/50"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <span className="text-sm text-white/80 truncate max-w-xs">{name}</span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleDownload}
+            className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-white text-sm transition-colors"
+          >
+            <Download className="h-4 w-4" />
+            Save
+          </button>
+          <button
+            onClick={onClose}
+            className="p-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Image */}
+      <img
+        src={src}
+        alt={name}
+        className="max-w-[90vw] max-h-[85vh] object-contain rounded-lg"
+        onClick={(e) => e.stopPropagation()}
+      />
+    </div>
+  )
+}
+
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 
 function MessageBubble({
@@ -148,6 +218,7 @@ function MessageBubble({
   onReply,
   onDelete,
   currentUserId,
+  onImageClick,
 }: {
   msg: ChatMessage
   isOwn: boolean
@@ -155,6 +226,7 @@ function MessageBubble({
   onReply: (msg: ChatMessage) => void
   onDelete: (id: string) => void
   currentUserId: string
+  onImageClick: (src: string, name: string) => void
 }) {
   const [hovered, setHovered] = useState(false)
   const FileIcon = getFileIcon(msg.file_type)
@@ -205,13 +277,16 @@ function MessageBubble({
           {msg.file_url && (
             <div className={cn("mt-1", msg.content && "mt-2")}>
               {msg.file_type?.startsWith("image/") ? (
-                <a href={msg.file_url} target="_blank" rel="noreferrer">
+                <button
+                  onClick={() => onImageClick(msg.file_url!, msg.file_name || "image")}
+                  className="block"
+                >
                   <img
-                    src={msg.file_url}
+                    src={msg.file_url!}
                     alt={msg.file_name || "image"}
-                    className="max-w-[240px] max-h-[200px] rounded-lg object-cover"
+                    className="max-w-[240px] max-h-[200px] rounded-lg object-cover hover:opacity-90 transition-opacity cursor-zoom-in"
                   />
-                </a>
+                </button>
               ) : (
                 <a
                   href={msg.file_url}
@@ -465,6 +540,7 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
   const [newDMOpen, setNewDMOpen] = useState(false)
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [sidebarSearch, setSidebarSearch] = useState("")
+  const [lightbox, setLightbox] = useState<{ src: string; name: string } | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const realtimeRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
@@ -1022,6 +1098,7 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
                           onReply={setReplyTo}
                           onDelete={handleDelete}
                           currentUserId={currentUser?.id || ""}
+                          onImageClick={(src, name) => setLightbox({ src, name })}
                         />
                       </div>
                     )
@@ -1060,6 +1137,15 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
         )}
       </div>
 
+      {/* Lightbox */}
+      {lightbox && (
+        <ImageLightbox
+          src={lightbox.src}
+          name={lightbox.name}
+          onClose={() => setLightbox(null)}
+        />
+      )}
+
       {/* Dialogs */}
       <NewDMDialog
         open={newDMOpen}
@@ -1067,6 +1153,8 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
         people={people}
         onSelect={handleStartDM}
       />
+
+
     </div>
   )
 }
