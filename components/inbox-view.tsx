@@ -209,42 +209,112 @@ function ImageLightbox({
   )
 }
 
+// -- Forward Dialogue ----------------------------------
+function ForwardDialog({
+  open,
+  onOpenChange,
+  rooms,
+  onForward,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  rooms: ChatRoom[]
+  onForward: (roomId: string) => void
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Forward message</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-1 max-h-64 overflow-y-auto">
+          {rooms.map((r) => (
+            <button
+              key={r.id}
+              onClick={() => { onForward(r.id); onOpenChange(false) }}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted transition-colors text-left"
+            >
+              {r.type === "direct" && r.other_user ? (
+                <Avatar user={r.other_user} size="sm" />
+              ) : (
+                <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
+                  {r.type === "project" ? <FolderOpen className="h-3.5 w-3.5 text-emerald-500" /> : <Hash className="h-3.5 w-3.5" />}
+                </div>
+              )}
+              <span className="text-sm font-medium">{r.display_name}</span>
+            </button>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 
+
 function MessageBubble({
-  msg, isOwn, showAvatar, onReply, onDelete, currentUserId, onImageClick,
+  msg, isOwn, showAvatar, roomType, onReply, onDelete, onEdit, onForward, currentUserId, onImageClick,
 }: {
-  msg: ChatMessage; isOwn: boolean; showAvatar: boolean
-  onReply: (msg: ChatMessage) => void; onDelete: (id: string) => void
+  msg: ChatMessage; isOwn: boolean; showAvatar: boolean; roomType: string
+  onReply: (msg: ChatMessage) => void
+  onDelete: (id: string) => void
+  onEdit: (msg: ChatMessage) => void
+  onForward: (msg: ChatMessage) => void
   currentUserId: string; onImageClick: (src: string, name: string) => void
 }) {
   const [hovered, setHovered] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const FileIcon = getFileIcon(msg.file_type)
+
+
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [menuOpen])
+
+  const handleCopy = () => {
+    if (msg.content) navigator.clipboard.writeText(msg.content)
+    setMenuOpen(false)
+  }
 
   return (
     <div
-      className={cn("flex items-end gap-2 px-4 py-0.5", isOwn ? "flex-row-reverse" : "flex-row")}
+      className={cn("flex items-end gap-2 px-4 py-0.5 group", isOwn ? "flex-row-reverse" : "flex-row")}
       onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseLeave={() => { setHovered(false) }}
     >
-      {/* Avatar — only for others, only on last in group */}
-      <div className="w-6 flex-shrink-0">
+      {/* Avatar */}
+      <div className="w-6 flex-shrink-0 mb-4">
         {!isOwn && showAvatar && msg.sender && (
           <Avatar user={msg.sender} size="sm" />
         )}
       </div>
 
       <div className={cn("flex flex-col max-w-[65%]", isOwn ? "items-end" : "items-start")}>
+        {/* Sender name for group/project */}
+        {!isOwn && showAvatar && roomType !== "direct" && msg.sender && (
+          <span className="text-[10px] font-semibold text-muted-foreground mb-0.5 px-1">
+            {msg.sender.full_name}
+          </span>
+        )}
+
         {/* Reply preview */}
         {msg.reply_to && (
           <div className={cn(
             "flex items-center gap-1 mb-1 px-2.5 py-1 rounded-2xl text-xs opacity-60 border border-border/40",
             isOwn ? "self-end" : "self-start"
           )}>
-            <Reply className="h-2.5 w-2.5 flex-shrink-0" />
-            <span className="truncate max-w-[140px]">
-              {msg.reply_to.content || msg.reply_to.file_name}
-            </span>
+            <span className="font-medium">{msg.reply_to.sender?.full_name}:</span>
+            <span className="truncate max-w-[120px]">{msg.reply_to.content || msg.reply_to.file_name}</span>
           </div>
         )}
 
@@ -294,33 +364,90 @@ function MessageBubble({
           )}
         </div>
 
-        {/* Timestamp — shows on hover */}
-        {hovered && (
-          <span className="text-[10px] text-muted-foreground mt-1 px-1">
+        {/* Time + edited — always visible */}
+        <div className={cn("flex items-center gap-1 mt-0.5 px-1", isOwn ? "flex-row-reverse" : "flex-row")}>
+          <span className="text-[9px] text-muted-foreground/60">
             {format(new Date(msg.created_at), "h:mm a")}
           </span>
-        )}
+          {msg.edited_at && (
+            <span className="text-[9px] text-muted-foreground/50">
+              · Edited {format(new Date(msg.edited_at), "h:mm a")}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Hover actions */}
       <div className={cn(
-        "flex items-center gap-0.5 transition-opacity flex-shrink-0 mb-1",
-        hovered ? "opacity-100" : "opacity-0"
+        "flex items-center gap-0.5 mb-5 flex-shrink-0 transition-opacity",
+        hovered || menuOpen ? "opacity-100" : "opacity-0",
+        isOwn ? "flex-row-reverse" : "flex-row"
       )}>
+        {/* Reply */}
         <button
           onClick={() => onReply(msg)}
-          className="p-1 rounded-full hover:bg-muted transition-colors text-muted-foreground"
+          className="p-1.5 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+          title="Reply"
         >
           <Reply className="h-3.5 w-3.5" />
         </button>
-        {isOwn && (
+
+        {/* Reaction */}
+        <button
+          className="p-1.5 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground text-sm"
+          title="React"
+        >
+          😊
+        </button>
+
+        {/* More menu */}
+        <div className="relative" ref={menuRef}>
           <button
-            onClick={() => onDelete(msg.id)}
-            className="p-1 rounded-full hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive"
+            onClick={() => setMenuOpen((v) => !v)}
+            className="p-1.5 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+            title="More"
           >
-            <Trash2 className="h-3.5 w-3.5" />
+            <MoreHorizontal className="h-3.5 w-3.5" />
           </button>
-        )}
+
+          {menuOpen && (
+            <div
+              className={cn(
+                "absolute z-50 bottom-8 bg-popover border border-border rounded-xl shadow-lg py-1 min-w-[140px]",
+                isOwn ? "right-0" : "left-0"
+              )}
+              onMouseLeave={() => { setHovered(false); setMenuOpen(false) }}
+            >
+              {msg.content && (
+                <button onClick={handleCopy} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-muted transition-colors text-left">
+                  <span className="text-base">📋</span> Copy
+                </button>
+              )}
+              <button
+                onClick={() => { onForward(msg); setMenuOpen(false) }}
+                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-muted transition-colors text-left"
+              >
+                <span className="text-base">↪️</span> Forward
+              </button>
+              {isOwn && (
+                <button
+                  onClick={() => { onEdit(msg); setMenuOpen(false) }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-muted transition-colors text-left"
+                >
+                  <span className="text-base">✏️</span> Edit
+                </button>
+              )}
+              {isOwn && (
+                <button
+                  onClick={() => { onDelete(msg.id); setMenuOpen(false) }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-muted transition-colors text-destructive text-left"
+                >
+                  <span className="text-base">🔄</span> Unsend
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -329,17 +456,26 @@ function MessageBubble({
 // ─── Message Input ─────────────────────────────────────────────────────────────
 
 function MessageInput({
-  onSend, replyTo, onCancelReply, disabled,
+  onSend, replyTo, onCancelReply, editingMsg, onCancelEdit, disabled,
 }: {
   onSend: (content: string, file?: File) => Promise<void>
-  replyTo: ChatMessage | null; onCancelReply: () => void; disabled?: boolean
+  replyTo: ChatMessage | null; onCancelReply: () => void
+  editingMsg: ChatMessage | null; onCancelEdit: () => void
+  disabled?: boolean
 }) {
   const [text, setText] = useState("")
   const [file, setFile] = useState<File | null>(null)
   const [sending, setSending] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const textRef = useRef<HTMLTextAreaElement>(null)
-
+  
+  
+  useEffect(() => {
+    if (editingMsg) {
+      setText(editingMsg.content || "")
+      textRef.current?.focus()
+    }
+  }, [editingMsg])
   const canSend = (text.trim().length > 0 || file !== null) && !sending && !disabled
 
   const handleSend = async () => {
@@ -348,9 +484,7 @@ function MessageInput({
     await onSend(text.trim(), file || undefined)
     setText("")
     setFile(null)
-    if (textRef.current) {
-      textRef.current.style.height = "20px"
-    }
+    if (textRef.current) textRef.current.style.height = "20px"
     setSending(false)
     textRef.current?.focus()
   }
@@ -370,6 +504,19 @@ function MessageInput({
 
   return (
     <div className="px-3 pb-3 pt-1">
+
+      {/* Edit preview */}
+      {editingMsg && (
+        <div className="flex items-center gap-2 mb-2 px-3 py-1.5 bg-muted/40 rounded-2xl text-xs border border-border/40">
+          <span className="text-[10px]">✏️</span>
+          <span className="text-muted-foreground">Editing message</span>
+          <span className="font-medium truncate flex-1">{editingMsg.content}</span>
+          <button onClick={onCancelEdit} className="text-muted-foreground hover:text-foreground ml-1">
+            <X className="h-3 w-3" />
+          </button>
+        </div>
+      )}
+
       {/* Reply preview */}
       {replyTo && (
         <div className="flex items-center gap-2 mb-2 px-3 py-1.5 bg-muted/40 rounded-2xl text-xs border border-border/40">
@@ -512,6 +659,7 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [people, setPeople] = useState<Profile[]>([])
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
+  const [editingMsg, setEditingMsg] = useState<ChatMessage | null>(null)
   const [newDMOpen, setNewDMOpen] = useState(false)
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [hasMore, setHasMore] = useState(false)
@@ -520,6 +668,7 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
   const [loadingRooms, setLoadingRooms] = useState(true)
   const [sidebarSearch, setSidebarSearch] = useState("")
   const [lightbox, setLightbox] = useState<{ src: string; name: string } | null>(null)
+  const [forwardMsg, setForwardMsg] = useState<ChatMessage | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -878,35 +1027,39 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
   const handleSend = useCallback(async (content: string, file?: File) => {
     if (!activeRoomId || !currentUser) return
 
+    // Edit mode
+    if (editingMsg) {
+      const { error } = await supabase
+        .from("chat_messages")
+        .update({ content, edited_at: new Date().toISOString() })
+        .eq("id", editingMsg.id)
+      if (error) toast.error("Failed to edit message")
+      else {
+        setMessages((prev) => prev.map((m) => m.id === editingMsg.id ? { ...m, content, edited_at: new Date().toISOString() } : m))
+        setEditingMsg(null)
+      }
+      return
+    }
+
     let fileUrl: string | null = null
     let fileName: string | null = null
     let fileType: string | null = null
     let fileSize: number | null = null
 
-    // Upload file if present
     if (file) {
       const ext = file.name.split(".").pop()
       const path = `${currentUser.id}/${Date.now()}.${ext}`
-      const { data: uploadData, error: uploadError } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from("chat_attachment")
-        .upload(path, file, {
-            contentType: file.type,
-            upsert: false,
-        })
+        .upload(path, file, { contentType: file.type, upsert: false })
 
       if (uploadError) {
-        console.error("Upload error:", JSON.stringify(uploadError, null, 2))
         toast.error(`Upload failed: ${uploadError.message}`)
         return
       }
 
-      const { data: urlData } = supabase.storage
-        .from("chat_attachment")
-        .getPublicUrl(path)
-
+      const { data: urlData } = supabase.storage.from("chat_attachment").getPublicUrl(path)
       fileUrl = urlData.publicUrl
-
-      
       fileName = file.name
       fileType = file.type
       fileSize = file.size
@@ -929,7 +1082,6 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
       toast.error("Failed to send message")
     } else {
       setReplyTo(null)
-      // Update room's last message locally
       setRooms((prev) =>
         prev.map((r) =>
           r.id === activeRoomId
@@ -938,13 +1090,35 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
         )
       )
     }
-  }, [activeRoomId, currentUser, replyTo, supabase])
+  }, [activeRoomId, currentUser, replyTo, editingMsg, supabase])
 
   // ── Delete message ─────────────────────────────────────────────────────────
   const handleDelete = useCallback(async (msgId: string) => {
     const { error } = await supabase.from("chat_messages").delete().eq("id", msgId)
     if (error) toast.error("Failed to delete message")
   }, [supabase])
+
+  // ----- Handle Edit --------
+  const handleEdit = useCallback(async (msg: ChatMessage) => {
+    setEditingMsg(msg)
+  }, [])
+  
+
+  // ---- Handle Forward -------------
+  const handleForwardTo = useCallback(async (roomId: string) => {
+    if (!currentUser || !forwardMsg) return
+    await supabase.from("chat_messages").insert({
+      room_id: roomId,
+      sender_id: currentUser.id,
+      content: forwardMsg.content || null,
+      file_url: forwardMsg.file_url || null,
+      file_name: forwardMsg.file_name || null,
+      file_type: forwardMsg.file_type || null,
+      file_size: forwardMsg.file_size || null,
+    })
+    setForwardMsg(null)
+    toast.success("Message forwarded")
+  }, [currentUser, forwardMsg, supabase])
 
   // ── Start DM ───────────────────────────────────────────────────────────────
   const handleStartDM = useCallback(async (otherUser: Profile) => {
@@ -1186,8 +1360,11 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
                           msg={msg}
                           isOwn={msg.sender_id === currentUser?.id}
                           showAvatar={showAvatar}
+                          roomType={activeRoom?.type || "direct"}
                           onReply={setReplyTo}
                           onDelete={handleDelete}
+                          onEdit={handleEdit}
+                          onForward={setForwardMsg}
                           currentUserId={currentUser?.id || ""}
                           onImageClick={(src, name) => setLightbox({ src, name })}
                         />
@@ -1204,6 +1381,8 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
               onSend={handleSend}
               replyTo={replyTo}
               onCancelReply={() => setReplyTo(null)}
+              editingMsg={editingMsg}
+              onCancelEdit={() => setEditingMsg(null)}
               disabled={!canSendMessages}
             />
           </>
@@ -1243,6 +1422,14 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
         onOpenChange={setNewDMOpen}
         people={people}
         onSelect={handleStartDM}
+      />
+
+      {/* Forward Dialogue*/}
+      <ForwardDialog
+        open={!!forwardMsg}
+        onOpenChange={(v) => { if (!v) setForwardMsg(null) }}
+        rooms={rooms}
+        onForward={handleForwardTo}
       />
 
 
