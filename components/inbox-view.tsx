@@ -746,7 +746,7 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
       const ext = file.name.split(".").pop()
       const path = `${currentUser.id}/${Date.now()}.${ext}`
       const { data: uploadData, error: uploadError } = await supabase.storage
-        .from("chat-attachments")
+        .from("chat_attachment")
         .upload(path, file, {
             contentType: file.type,
             upsert: false,
@@ -758,7 +758,7 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
       }
 
       const { data: urlData } = supabase.storage
-        .from("chat-attachments")
+        .from("chat_attachment")
         .getPublicUrl(path)
 
       fileUrl = urlData.publicUrl
