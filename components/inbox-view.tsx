@@ -817,6 +817,14 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
         .eq("user_id", userId)
         .single()
       if (tm) founderId = tm.founder_id
+    } else if (profile?.user_type === "client") {
+      // Find founder via client → project → founder
+      const { data: client } = await supabase
+        .from("clients")
+        .select("founder_id")
+        .eq("portal_user_id", userId)
+        .maybeSingle()
+      if (client) founderId = client.founder_id
     }
 
     // Get all team members under the same founder

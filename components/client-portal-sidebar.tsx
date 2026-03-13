@@ -1,5 +1,5 @@
 "use client"
-import { Home, Calendar, CheckSquare, Settings, LayoutDashboard } from "lucide-react"
+import { Home, Calendar, CheckSquare, Settings, LayoutDashboard, MessageSquare } from "lucide-react"
 import {
   Sidebar,
   SidebarContent,
@@ -17,6 +17,7 @@ import { createClient } from "@/lib/supabase/client"
 
 const mainNav = [
   { title: "Home", icon: Home },
+  { title: "Inbox", icon: MessageSquare },
   { title: "Calendar", icon: Calendar },
   { title: "Tasks", icon: CheckSquare },
 ]
