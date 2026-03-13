@@ -539,6 +539,7 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
   const [newDMOpen, setNewDMOpen] = useState(false)
   const [loadingMessages, setLoadingMessages] = useState(false)
+  const [loadingRooms, setLoadingRooms] = useState(true)
   const [sidebarSearch, setSidebarSearch] = useState("")
   const [lightbox, setLightbox] = useState<{ src: string; name: string } | null>(null)
 
@@ -558,95 +559,118 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
         .single()
 
       if (profile) setCurrentUser(profile as Profile)
-      await loadRooms(user.id)
-      await loadPeople(user.id)
+      await Promise.all([loadRooms(user.id), loadPeople(user.id)])
     }
     init()
   }, [supabase])
 
   // ── Load rooms ─────────────────────────────────────────────────────────────
   const loadRooms = useCallback(async (userId: string) => {
-    // Get rooms the user is a member of
-    const { data: memberships } = await supabase
-      .from("chat_room_members")
-      .select("room_id, last_read_at")
-      .eq("user_id", userId)
+  // Single query for memberships
+    setLoadingRooms(true)
+  const { data: memberships } = await supabase
+    .from("chat_room_members")
+    .select("room_id, last_read_at")
+    .eq("user_id", userId)
 
-    if (!memberships?.length) return
+  if (!memberships?.length) return
 
-    const roomIds = memberships.map((m) => m.room_id)
-    const lastReadMap = Object.fromEntries(memberships.map((m) => [m.room_id, m.last_read_at]))
+  const roomIds = memberships.map((m) => m.room_id)
+  const lastReadMap = Object.fromEntries(memberships.map((m) => [m.room_id, m.last_read_at]))
 
-    const { data: roomData } = await supabase
-      .from("chat_rooms")
-      .select("*")
-      .in("id", roomIds)
-      .order("created_at", { ascending: true })
+  // Single query for all rooms
+  const { data: roomData } = await supabase
+    .from("chat_rooms")
+    .select("*")
+    .in("id", roomIds)
+    .order("created_at", { ascending: true })
 
-    if (!roomData) return
+  if (!roomData) return
 
-    // For each room, get last message + unread count
-    const enriched = await Promise.all(roomData.map(async (room) => {
-      const { data: lastMsgs } = await supabase
-        .from("chat_messages")
-        .select("content, file_name, created_at, sender_id")
-        .eq("room_id", room.id)
-        .order("created_at", { ascending: false })
-        .limit(1)
+  // Single query for ALL last messages across all rooms
+  const { data: allLastMsgs } = await supabase
+    .from("chat_messages")
+    .select("room_id, content, file_name, created_at, sender_id")
+    .in("room_id", roomIds)
+    .order("created_at", { ascending: false })
 
-      const lastMsg = lastMsgs?.[0]
-      const lastReadAt = lastReadMap[room.id]
+  // Single query for ALL members of all rooms (for DM name lookup)
+  const { data: allMembers } = await supabase
+    .from("chat_room_members")
+    .select("room_id, user_id")
+    .in("room_id", roomIds)
+    .neq("user_id", userId)
 
-      const { count: unread } = await supabase
-        .from("chat_messages")
-        .select("id", { count: "exact", head: true })
-        .eq("room_id", room.id)
-        .neq("sender_id", userId)
-        .gt("created_at", lastReadAt || "1970-01-01")
+  // Single query for ALL profiles we need
+  const otherUserIds = [...new Set(allMembers?.map((m) => m.user_id) || [])]
+  const { data: allProfiles } = otherUserIds.length > 0
+    ? await supabase
+        .from("profiles")
+        .select("id, full_name, user_type")
+        .in("id", otherUserIds)
+    : { data: [] }
 
-      // For DMs, find the other person's name
-      let displayName = room.name || "Unnamed"
-      let otherUser: Profile | undefined
+  // Build lookup maps
+  const profileMap = Object.fromEntries((allProfiles || []).map((p) => [p.id, p]))
+  const membersByRoom = (allMembers || []).reduce((acc, m) => {
+    if (!acc[m.room_id]) acc[m.room_id] = []
+    acc[m.room_id].push(m.user_id)
+    return acc
+  }, {} as Record<string, string[]>)
 
-      if (room.type === "direct") {
-        const { data: members } = await supabase
-          .from("chat_room_members")
-          .select("user_id")
-          .eq("room_id", room.id)
-          .neq("user_id", userId)
-          .limit(1)
+  // Group last messages by room (first one per room = most recent)
+  const lastMsgByRoom: Record<string, any> = {}
+  for (const msg of (allLastMsgs || [])) {
+    if (!lastMsgByRoom[msg.room_id]) lastMsgByRoom[msg.room_id] = msg
+  }
 
-        if (members?.[0]) {
-          const { data: otherProfile } = await supabase
-            .from("profiles")
-            .select("id, full_name, user_type")
-            .eq("id", members[0].user_id)
-            .single()
+  // Single query for ALL unread counts
+  const { data: allUnread } = await supabase
+    .from("chat_messages")
+    .select("room_id, created_at, sender_id")
+    .in("room_id", roomIds)
+    .neq("sender_id", userId)
 
-          if (otherProfile) {
-            otherUser = otherProfile as Profile
-            displayName = otherProfile.full_name
-          }
-        }
-      }
-
-      return {
-        ...room,
-        display_name: displayName,
-        unread_count: unread || 0,
-        last_message: lastMsg ? (lastMsg.content || lastMsg.file_name || "Attachment") : undefined,
-        last_message_at: lastMsg?.created_at,
-        other_user: otherUser,
-      } as ChatRoom
-    }))
-
-    setRooms(enriched)
-
-    // Auto-select first room
-    if (enriched.length > 0 && !activeRoomId) {
-      setActiveRoomId(enriched[0].id)
+  // Calculate unread per room
+  const unreadByRoom: Record<string, number> = {}
+  for (const msg of (allUnread || [])) {
+    const lastRead = lastReadMap[msg.room_id] || "1970-01-01"
+    if (msg.created_at > lastRead) {
+      unreadByRoom[msg.room_id] = (unreadByRoom[msg.room_id] || 0) + 1
     }
-  }, [supabase, activeRoomId])
+  }
+
+  // Assemble rooms
+  const enriched = roomData.map((room) => {
+    const lastMsg = lastMsgByRoom[room.id]
+    let displayName = room.name || "Unnamed"
+    let otherUser: Profile | undefined
+
+    if (room.type === "direct") {
+      const otherUserId = membersByRoom[room.id]?.[0]
+      if (otherUserId && profileMap[otherUserId]) {
+        otherUser = profileMap[otherUserId] as Profile
+        displayName = otherUser.full_name
+      }
+    }
+
+    return {
+      ...room,
+      display_name: displayName,
+      unread_count: unreadByRoom[room.id] || 0,
+      last_message: lastMsg ? (lastMsg.content || lastMsg.file_name || "Attachment") : undefined,
+      last_message_at: lastMsg?.created_at,
+      other_user: otherUser,
+    } as ChatRoom
+  })
+
+  setRooms(enriched)
+
+  if (enriched.length > 0 && !activeRoomId) {
+    setActiveRoomId(enriched[0].id)
+  }
+  setLoadingRooms(false)
+}, [supabase, activeRoomId])
 
   // ── Load people (for DMs) ──────────────────────────────────────────────────
   const loadPeople = useCallback(async (userId: string) => {
@@ -963,6 +987,23 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
         </div>
 
         <div className="flex-1 overflow-y-auto">
+            {loadingRooms ? (
+            <div className="px-2 pt-3 space-y-1">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="flex items-center gap-2 px-2 py-1.5 rounded-lg">
+                  <div className="w-7 h-7 rounded-full bg-muted animate-pulse flex-shrink-0" />
+                  <div className="flex-1 space-y-1">
+                    <div className="h-2.5 bg-muted animate-pulse rounded w-3/4" />
+                    <div className="h-2 bg-muted animate-pulse rounded w-1/2" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : rooms.length === 0 ? (
+            <div className="px-4 py-6 text-center">
+              <p className="text-xs text-muted-foreground">No conversations yet</p>
+            </div>
+          ) : null}
           {/* Project Channels */}
           {groupedRooms.project.length > 0 && (
             <div className="pt-3 px-2">
