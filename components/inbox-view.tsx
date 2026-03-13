@@ -747,7 +747,10 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
       const path = `${currentUser.id}/${Date.now()}.${ext}`
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from("chat-attachments")
-        .upload(path, file)
+        .upload(path, file, {
+            contentType: file.type,
+            upsert: false,
+        })
 
       if (uploadError) {
         toast.error("Failed to upload file")
