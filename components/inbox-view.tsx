@@ -212,135 +212,105 @@ function ImageLightbox({
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 
 function MessageBubble({
-  msg,
-  isOwn,
-  showAvatar,
-  onReply,
-  onDelete,
-  currentUserId,
-  onImageClick,
+  msg, isOwn, showAvatar, onReply, onDelete, currentUserId, onImageClick,
 }: {
-  msg: ChatMessage
-  isOwn: boolean
-  showAvatar: boolean
-  onReply: (msg: ChatMessage) => void
-  onDelete: (id: string) => void
-  currentUserId: string
-  onImageClick: (src: string, name: string) => void
+  msg: ChatMessage; isOwn: boolean; showAvatar: boolean
+  onReply: (msg: ChatMessage) => void; onDelete: (id: string) => void
+  currentUserId: string; onImageClick: (src: string, name: string) => void
 }) {
   const [hovered, setHovered] = useState(false)
   const FileIcon = getFileIcon(msg.file_type)
 
   return (
     <div
-      className={cn("group flex gap-2.5 px-4 py-0.5 hover:bg-muted/30 transition-colors", isOwn && "flex-row-reverse")}
+      className={cn("flex items-end gap-2 px-4 py-0.5", isOwn ? "flex-row-reverse" : "flex-row")}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {/* Avatar */}
-      <div className="w-7 flex-shrink-0 pt-0.5">
-        {showAvatar && msg.sender && !isOwn && <Avatar user={msg.sender} size="sm" />}
+      {/* Avatar — only for others, only on last in group */}
+      <div className="w-6 flex-shrink-0">
+        {!isOwn && showAvatar && msg.sender && (
+          <Avatar user={msg.sender} size="sm" />
+        )}
       </div>
 
-      <div className={cn("flex flex-col max-w-[70%]", isOwn && "items-end")}>
-        {/* Sender name + time */}
-        {showAvatar && (
-          <div className={cn("flex items-baseline gap-2 mb-0.5", isOwn && "flex-row-reverse")}>
-            <span className="text-[11px] font-semibold text-foreground">
-              {isOwn ? "You" : msg.sender?.full_name || "Unknown"}
-            </span>
-            <span className="text-[10px] text-muted-foreground">{formatMessageDate(msg.created_at)}</span>
-          </div>
-        )}
-
+      <div className={cn("flex flex-col max-w-[65%]", isOwn ? "items-end" : "items-start")}>
         {/* Reply preview */}
         {msg.reply_to && (
-          <div className={cn("flex items-start gap-1.5 mb-1 px-2 py-1 rounded bg-muted/50 border-l-2 border-primary/40 text-xs text-muted-foreground max-w-full", isOwn && "border-l-0 border-r-2")}>
-            <Reply className="h-3 w-3 mt-0.5 flex-shrink-0" />
-            <span className="truncate">
-              <span className="font-medium text-foreground">{msg.reply_to.sender?.full_name}: </span>
+          <div className={cn(
+            "flex items-center gap-1 mb-1 px-2.5 py-1 rounded-2xl text-xs opacity-60 border border-border/40",
+            isOwn ? "self-end" : "self-start"
+          )}>
+            <Reply className="h-2.5 w-2.5 flex-shrink-0" />
+            <span className="truncate max-w-[140px]">
               {msg.reply_to.content || msg.reply_to.file_name}
             </span>
           </div>
         )}
 
-        {/* Content bubble */}
+        {/* Bubble */}
         <div className={cn(
-          "relative rounded-2xl px-3 py-2 text-sm",
+          "relative px-3.5 py-2 text-sm leading-relaxed",
           isOwn
-            ? "bg-primary text-primary-foreground rounded-tr-sm"
-            : "bg-muted text-foreground rounded-tl-sm"
+            ? "bg-primary text-primary-foreground rounded-[20px] rounded-br-[4px]"
+            : "bg-muted text-foreground rounded-[20px] rounded-bl-[4px]",
+          msg.file_url && !msg.content && "p-1 bg-transparent"
         )}>
-          {msg.content && <p className="whitespace-pre-wrap break-words leading-relaxed">{msg.content}</p>}
+          {msg.content && <p className="whitespace-pre-wrap break-words">{msg.content}</p>}
 
-          {/* File attachment */}
           {msg.file_url && (
-            <div className={cn("mt-1", msg.content && "mt-2")}>
+            <div className={msg.content ? "mt-2" : ""}>
               {msg.file_type?.startsWith("image/") ? (
-                <button
-                  onClick={() => onImageClick(msg.file_url!, msg.file_name || "image")}
-                  className="block"
-                >
+                <button onClick={() => onImageClick(msg.file_url!, msg.file_name || "image")}>
                   <img
-                    src={msg.file_url!}
+                    src={msg.file_url}
                     alt={msg.file_name || "image"}
-                    className="max-w-[240px] max-h-[200px] rounded-lg object-cover hover:opacity-90 transition-opacity cursor-zoom-in"
+                    className="max-w-[220px] max-h-[220px] rounded-[18px] object-cover hover:opacity-95 transition-opacity cursor-zoom-in"
                   />
                 </button>
               ) : (
-                <a
-                  href={msg.file_url}
-                  target="_blank"
-                  rel="noreferrer"
+                
+                  href={msg.file_url} target="_blank" rel="noreferrer"
                   className={cn(
-                    "flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors",
-                    isOwn ? "bg-primary-foreground/10 hover:bg-primary-foreground/20 text-primary-foreground" : "bg-background hover:bg-muted border border-border text-foreground"
+                    "flex items-center gap-2 px-3 py-2 rounded-2xl text-xs font-medium",
+                    isOwn ? "bg-white/10 text-primary-foreground" : "bg-background border border-border text-foreground"
                   )}
                 >
                   <FileIcon className="h-4 w-4 flex-shrink-0" />
                   <div className="min-w-0">
-                    <div className="truncate font-medium">{msg.file_name}</div>
-                    {msg.file_size && <div className="opacity-70">{formatFileSize(msg.file_size)}</div>}
+                    <div className="truncate">{msg.file_name}</div>
+                    {msg.file_size && <div className="opacity-60">{formatFileSize(msg.file_size)}</div>}
                   </div>
-                  <Download className="h-3.5 w-3.5 flex-shrink-0 opacity-70" />
+                  <Download className="h-3 w-3 opacity-60" />
                 </a>
               )}
             </div>
           )}
-
-          {msg.edited_at && (
-            <span className="text-[9px] opacity-50 ml-1">(edited)</span>
-          )}
         </div>
 
-        {/* Timestamp for non-avatar rows */}
-        {!showAvatar && (
-          <span className={cn(
-            "text-[9px] text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity mt-0.5",
-            isOwn ? "text-right" : "text-left"
-          )}>
+        {/* Timestamp — shows on hover */}
+        {hovered && (
+          <span className="text-[10px] text-muted-foreground mt-1 px-1">
             {format(new Date(msg.created_at), "h:mm a")}
           </span>
         )}
       </div>
 
-      {/* Action buttons on hover */}
+      {/* Hover actions */}
       <div className={cn(
-        "flex items-start gap-0.5 pt-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0",
-        isOwn ? "order-first" : "order-last"
+        "flex items-center gap-0.5 transition-opacity flex-shrink-0 mb-1",
+        hovered ? "opacity-100" : "opacity-0"
       )}>
         <button
           onClick={() => onReply(msg)}
-          className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-          title="Reply"
+          className="p-1 rounded-full hover:bg-muted transition-colors text-muted-foreground"
         >
           <Reply className="h-3.5 w-3.5" />
         </button>
         {isOwn && (
           <button
             onClick={() => onDelete(msg.id)}
-            className="p-1 rounded hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive"
-            title="Delete"
+            className="p-1 rounded-full hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive"
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
@@ -353,15 +323,10 @@ function MessageBubble({
 // ─── Message Input ─────────────────────────────────────────────────────────────
 
 function MessageInput({
-  onSend,
-  replyTo,
-  onCancelReply,
-  disabled,
+  onSend, replyTo, onCancelReply, disabled,
 }: {
   onSend: (content: string, file?: File) => Promise<void>
-  replyTo: ChatMessage | null
-  onCancelReply: () => void
-  disabled?: boolean
+  replyTo: ChatMessage | null; onCancelReply: () => void; disabled?: boolean
 }) {
   const [text, setText] = useState("")
   const [file, setFile] = useState<File | null>(null)
@@ -377,6 +342,9 @@ function MessageInput({
     await onSend(text.trim(), file || undefined)
     setText("")
     setFile(null)
+    if (textRef.current) {
+      textRef.current.style.height = "20px"
+    }
     setSending(false)
     textRef.current?.focus()
   }
@@ -388,81 +356,82 @@ function MessageInput({
     }
   }
 
-  // Auto-resize textarea
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setText(e.target.value)
     e.target.style.height = "auto"
-    e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`
+    e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`
   }
 
   return (
-    <div className="px-4 pb-4 pt-2">
+    <div className="px-3 pb-3 pt-1">
       {/* Reply preview */}
       {replyTo && (
-        <div className="flex items-center gap-2 mb-2 px-3 py-2 bg-muted/50 rounded-lg border border-border text-xs">
-          <Reply className="h-3.5 w-3.5 text-primary flex-shrink-0" />
-          <span className="text-muted-foreground">Replying to </span>
-          <span className="font-medium text-foreground">{replyTo.sender?.full_name}</span>
-          <span className="text-muted-foreground truncate flex-1">: {replyTo.content || replyTo.file_name}</span>
-          <button onClick={onCancelReply} className="ml-auto text-muted-foreground hover:text-foreground">
-            <X className="h-3.5 w-3.5" />
+        <div className="flex items-center gap-2 mb-2 px-3 py-1.5 bg-muted/40 rounded-2xl text-xs border border-border/40">
+          <Reply className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+          <span className="text-muted-foreground">Replying to</span>
+          <span className="font-medium truncate flex-1">{replyTo.content || replyTo.file_name}</span>
+          <button onClick={onCancelReply} className="text-muted-foreground hover:text-foreground ml-1">
+            <X className="h-3 w-3" />
           </button>
         </div>
       )}
 
       {/* File preview */}
       {file && (
-        <div className="flex items-center gap-2 mb-2 px-3 py-2 bg-muted/50 rounded-lg border border-border text-xs">
-          <Paperclip className="h-3.5 w-3.5 text-primary flex-shrink-0" />
-          <span className="font-medium truncate flex-1">{file.name}</span>
+        <div className="flex items-center gap-2 mb-2 px-3 py-1.5 bg-muted/40 rounded-2xl text-xs border border-border/40">
+          <Paperclip className="h-3 w-3 text-primary flex-shrink-0" />
+          <span className="truncate flex-1 font-medium">{file.name}</span>
           <span className="text-muted-foreground">{formatFileSize(file.size)}</span>
-          <button onClick={() => setFile(null)} className="text-muted-foreground hover:text-destructive">
-            <X className="h-3.5 w-3.5" />
+          <button onClick={() => setFile(null)} className="text-muted-foreground hover:text-destructive ml-1">
+            <X className="h-3 w-3" />
           </button>
         </div>
       )}
 
-      <div className="flex items-end gap-2 bg-muted/40 border border-border rounded-2xl px-3 py-2 focus-within:border-primary/50 focus-within:bg-background transition-colors">
+      <div className="flex items-end gap-2">
+        {/* Attachment button */}
         <button
           type="button"
           onClick={() => fileRef.current?.click()}
-          className="p-1 text-muted-foreground hover:text-foreground transition-colors flex-shrink-0 mb-0.5"
-          title="Attach file"
+          className="p-2 text-muted-foreground hover:text-foreground transition-colors flex-shrink-0 mb-0.5"
         >
-          <Paperclip className="h-4 w-4" />
+          <Paperclip className="h-5 w-5" />
         </button>
         <input
-          ref={fileRef}
-          type="file"
-          className="hidden"
+          ref={fileRef} type="file" className="hidden"
           accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip"
           onChange={(e) => setFile(e.target.files?.[0] || null)}
         />
 
-        <textarea
-          ref={textRef}
-          value={text}
-          onChange={handleTextChange}
-          onKeyDown={handleKey}
-          placeholder={disabled ? "You don't have permission to send messages" : "Message… (Enter to send, Shift+Enter for new line)"}
-          disabled={disabled || sending}
-          rows={1}
-          className="flex-1 bg-transparent text-sm resize-none outline-none placeholder:text-muted-foreground/60 min-h-[20px] max-h-[160px] leading-relaxed"
-          style={{ height: "20px" }}
-        />
+        {/* Pill input */}
+        <div className="flex items-end flex-1 bg-muted/40 border border-border/60 rounded-[24px] px-4 py-2 focus-within:border-border transition-colors">
+          <textarea
+            ref={textRef}
+            value={text}
+            onChange={handleTextChange}
+            onKeyDown={handleKey}
+            placeholder={disabled ? "No permission to send" : "Message…"}
+            disabled={disabled || sending}
+            rows={1}
+            className="flex-1 bg-transparent text-sm resize-none outline-none placeholder:text-muted-foreground/50 min-h-[20px] max-h-[120px] leading-5"
+            style={{ height: "20px" }}
+          />
+        </div>
 
-        <button
-          onClick={handleSend}
-          disabled={!canSend}
-          className={cn(
-            "p-1.5 rounded-xl transition-all flex-shrink-0 mb-0.5",
-            canSend ? "bg-primary text-primary-foreground hover:bg-primary/90" : "text-muted-foreground/40"
-          )}
-        >
-          <Send className="h-3.5 w-3.5" />
-        </button>
+        {/* Send / mic button */}
+        {canSend ? (
+          <button
+            onClick={handleSend}
+            className="p-2 text-primary hover:text-primary/80 transition-colors flex-shrink-0 mb-0.5 font-semibold text-sm"
+          >
+            <Send className="h-5 w-5" />
+          </button>
+        ) : (
+          <button className="p-2 text-muted-foreground flex-shrink-0 mb-0.5">
+            <Circle className="h-5 w-5" />
+          </button>
+        )}
       </div>
-      <p className="text-[10px] text-muted-foreground mt-1 px-1">Enter to send · Shift+Enter for new line</p>
     </div>
   )
 }
@@ -1127,27 +1096,23 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
         {activeRoom ? (
           <>
             {/* Chat header */}
-            <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card flex-shrink-0">
-              <div className="flex items-center gap-2">
-                {activeRoom.type === "direct" ? (
-                  activeRoom.other_user ? (
-                    <Avatar user={activeRoom.other_user} size="sm" />
-                  ) : (
-                    <MessageSquare className="h-4 w-4 text-muted-foreground" />
-                  )
+            <div className="flex items-center gap-3 px-4 py-3 border-b border-border/40 bg-card flex-shrink-0">
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                {activeRoom.type === "direct" && activeRoom.other_user ? (
+                  <Avatar user={activeRoom.other_user} size="md" />
                 ) : activeRoom.type === "project" ? (
-                  <div className="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center">
-                    <FolderOpen className="h-3.5 w-3.5 text-emerald-600" />
+                  <div className="w-9 h-9 rounded-full bg-emerald-500/15 flex items-center justify-center flex-shrink-0">
+                    <FolderOpen className="h-4 w-4 text-emerald-600" />
                   </div>
                 ) : (
-                  <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center">
-                    <Hash className="h-3.5 w-3.5 text-primary" />
+                  <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                    <Hash className="h-4 w-4 text-primary" />
                   </div>
                 )}
-                <div>
-                  <h3 className="text-sm font-semibold">{activeRoom.display_name}</h3>
-                  <p className="text-[10px] text-muted-foreground capitalize">
-                    {activeRoom.type === "direct" ? "Direct message" : activeRoom.type === "project" ? "Project channel" : "Group channel"}
+                <div className="min-w-0">
+                  <h3 className="text-sm font-semibold truncate">{activeRoom.display_name}</h3>
+                  <p className="text-[11px] text-muted-foreground">
+                    {activeRoom.type === "direct" ? "Active now" : activeRoom.type === "project" ? "Project channel" : "Group channel"}
                   </p>
                 </div>
               </div>
@@ -1201,16 +1166,14 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
                     return (
                       <div key={msg.id}>
                         {showDate && (
-                          <div className="flex items-center gap-3 px-4 py-3">
-                            <div className="flex-1 h-px bg-border" />
-                            <span className="text-[10px] font-medium text-muted-foreground px-2">
-                              {isToday(new Date(msg.created_at))
-                                ? "Today"
-                                : isYesterday(new Date(msg.created_at))
-                                ? "Yesterday"
-                                : format(new Date(msg.created_at), "MMMM d, yyyy")}
+                          <div className="flex items-center gap-3 px-4 py-2">
+                            <div className="flex-1 h-px bg-border/40" />
+                            <span className="text-[10px] text-muted-foreground/60 font-medium">
+                              {isToday(new Date(msg.created_at)) ? "Today"
+                                : isYesterday(new Date(msg.created_at)) ? "Yesterday"
+                                : format(new Date(msg.created_at), "MMM d")}
                             </span>
-                            <div className="flex-1 h-px bg-border" />
+                            <div className="flex-1 h-px bg-border/40" />
                           </div>
                         )}
                         <MessageBubble
