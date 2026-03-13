@@ -380,7 +380,7 @@ function MessageBubble({
       {/* Hover actions */}
       <div className={cn(
         "flex items-center gap-0.5 mb-5 flex-shrink-0 transition-opacity",
-        hovered || menuOpen ? "opacity-100" : "opacity-0",
+        hovered || menuOpen ? "opacity-100 visible" : "opacity-0 invisible",
         isOwn ? "flex-row-reverse" : "flex-row"
       )}>
         {/* Reply */}
