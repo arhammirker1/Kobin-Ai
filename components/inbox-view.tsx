@@ -801,7 +801,6 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
 
   // ── Load people (for DMs) ──────────────────────────────────────────────────
   const loadPeople = useCallback(async (userId: string) => {
-    // Get founder_id first
     const { data: profile } = await supabase
       .from("profiles")
       .select("user_type")
@@ -818,16 +817,22 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
         .single()
       if (tm) founderId = tm.founder_id
     } else if (profile?.user_type === "client") {
-      // Find founder via client → project → founder
       const { data: client } = await supabase
         .from("clients")
         .select("founder_id")
         .eq("portal_user_id", userId)
         .maybeSingle()
-      if (client) founderId = client.founder_id
+      if (client?.founder_id) founderId = client.founder_id
     }
 
-    // Get all team members under the same founder
+    // Get founder profile
+    const { data: founderProfile } = await supabase
+      .from("profiles")
+      .select("id, full_name, user_type")
+      .eq("id", founderId)
+      .single()
+
+    // Get all active team members under this founder
     const { data: teamMembers } = await supabase
       .from("team_members")
       .select("user_id, profile:profiles!team_members_user_id_profiles_fkey(id, full_name, user_type)")
@@ -838,13 +843,7 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
       ?.map((tm: any) => tm.profile)
       .filter(Boolean) || []
 
-    // Also include the founder
-    const { data: founderProfile } = await supabase
-      .from("profiles")
-      .select("id, full_name, user_type")
-      .eq("id", founderId)
-      .single()
-
+    // For clients, also include other clients in the same org? No — just founder + team
     const allPeople = [
       ...(founderProfile ? [founderProfile] : []),
       ...membersProfiles,
