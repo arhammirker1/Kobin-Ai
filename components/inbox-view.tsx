@@ -753,7 +753,8 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
         })
 
       if (uploadError) {
-        toast.error("Failed to upload file")
+        console.error("Upload error:", JSON.stringify(uploadError, null, 2))
+        toast.error(`Upload failed: ${uploadError.message}`)
         return
       }
 
