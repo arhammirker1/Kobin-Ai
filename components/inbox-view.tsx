@@ -662,8 +662,12 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
   // ── Realtime subscription ──────────────────────────────────────────────────
   useEffect(() => {
     if (!activeRoomId || !currentUser) return
-
+    const load = async () => {
+        setLoadingMessages(true)
+        setMessages([])
+    }
     // Cleanup previous
+
     if (realtimeRef.current) {
       supabase.removeChannel(realtimeRef.current)
     }
