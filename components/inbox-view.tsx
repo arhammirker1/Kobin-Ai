@@ -862,7 +862,7 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="flex h-[calc(100vh-120px)] rounded-xl border border-border overflow-hidden bg-card">
+    <div className="flex h-[calc(100vh-112px)] rounded-xl border border-border overflow-hidden bg-card">
 
       {/* ── Sidebar ── */}
       <aside className="w-60 flex-shrink-0 flex flex-col border-r border-border bg-muted/20">
