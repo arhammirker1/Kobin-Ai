@@ -539,13 +539,16 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
   const [newDMOpen, setNewDMOpen] = useState(false)
   const [loadingMessages, setLoadingMessages] = useState(false)
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [oldestMsgDate, setOldestMsgDate] = useState<string | null>(null)
   const [loadingRooms, setLoadingRooms] = useState(true)
   const [sidebarSearch, setSidebarSearch] = useState("")
   const [lightbox, setLightbox] = useState<{ src: string; name: string } | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
   const realtimeRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
-
   // ── Boot ────────────────────────────────────────────────────────────────────
   useEffect(() => {
     const init = async () => {
@@ -719,12 +722,17 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
   }, [supabase])
 
   // ── Load messages for active room ──────────────────────────────────────────
+  const PAGE_SIZE = 20
+
   useEffect(() => {
     if (!activeRoomId) return
 
     const load = async () => {
       setLoadingMessages(true)
       setMessages([])
+      setOldestMsgDate(null)
+      setHasMore(false)
+
       const { data } = await supabase
         .from("chat_messages")
         .select(`
@@ -736,15 +744,72 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
           )
         `)
         .eq("room_id", activeRoomId)
-        .order("created_at", { ascending: true })
-        .limit(100)
+        .order("created_at", { ascending: false })
+        .limit(PAGE_SIZE)
 
-      setMessages((data as ChatMessage[]) || [])
+      const msgs = ((data as ChatMessage[]) || []).reverse()
+      setMessages(msgs)
       setLoadingMessages(false)
+
+      if (msgs.length === PAGE_SIZE) setHasMore(true)
+      if (msgs.length > 0) setOldestMsgDate(msgs[0].created_at)
     }
 
     load()
   }, [activeRoomId, supabase])
+
+  // ── Load more (scroll up) ──────────────────────────────────────────────────
+  const loadMore = useCallback(async () => {
+    if (!activeRoomId || !hasMore || loadingMore || !oldestMsgDate) return
+
+    setLoadingMore(true)
+    const container = messagesContainerRef.current
+    const prevScrollHeight = container?.scrollHeight || 0
+
+    const { data } = await supabase
+      .from("chat_messages")
+      .select(`
+        *,
+        sender:profiles(id, full_name),
+        reply_to:chat_messages!reply_to_id(
+          id, content, file_name,
+          sender:profiles(id, full_name)
+        )
+      `)
+      .eq("room_id", activeRoomId)
+      .lt("created_at", oldestMsgDate)
+      .order("created_at", { ascending: false })
+      .limit(PAGE_SIZE)
+
+    const older = ((data as ChatMessage[]) || []).reverse()
+
+    if (older.length > 0) {
+      setMessages((prev) => [...older, ...prev])
+      setOldestMsgDate(older[0].created_at)
+      if (older.length < PAGE_SIZE) setHasMore(false)
+
+      // Maintain scroll position after prepending
+      requestAnimationFrame(() => {
+        if (container) {
+          container.scrollTop = container.scrollHeight - prevScrollHeight
+        }
+      })
+    } else {
+      setHasMore(false)
+    }
+
+    setLoadingMore(false)
+  }, [activeRoomId, hasMore, loadingMore, oldestMsgDate, supabase])
+
+  // ── Scroll handler ─────────────────────────────────────────────────────────
+  const handleScroll = useCallback(() => {
+    const container = messagesContainerRef.current
+    if (!container) return
+    if (container.scrollTop < 80) loadMore()
+  }, [loadMore])
+
+
+
     // ── Mark room as read ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!activeRoomId || !currentUser) return
@@ -829,8 +894,10 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
 
   // ── Scroll to bottom on new messages ──────────────────────────────────────
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages])
+    if (!loadingMessages) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "instant" })
+    }
+  }, [loadingMessages])
 
   // ── Send message ───────────────────────────────────────────────────────────
   const handleSend = useCallback(async (content: string, file?: File) => {
@@ -1087,7 +1154,11 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto py-2 min-h-0">
+            <div
+              ref={messagesContainerRef}
+              onScroll={handleScroll}
+              className="flex-1 overflow-y-auto py-2 min-h-0"
+            >
               {loadingMessages ? (
                 <div className="flex items-center justify-center h-32">
                   <div className="animate-spin h-5 w-5 border-2 border-primary border-t-transparent rounded-full" />
@@ -1104,6 +1175,16 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
                 </div>
               ) : (
                 <div className="space-y-0.5 pb-2">
+                  {loadingMore && (
+                    <div className="flex justify-center py-3">
+                      <div className="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full" />
+                    </div>
+                  )}
+                  {!hasMore && messages.length > 0 && (
+                    <div className="flex justify-center py-3">
+                      <span className="text-[10px] text-muted-foreground">Beginning of conversation</span>
+                    </div>
+                  )}
                   {messages.map((msg, idx) => {
                     const prevMsg = messages[idx - 1]
                     const showAvatar =
