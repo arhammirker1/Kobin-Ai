@@ -758,16 +758,13 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
         return
       }
 
-        const { data: urlData, error: urlError } = await supabase.storage
-            .from("chat_attachment")
-            .createSignedUrl(path, 60 * 60 * 24 * 365) // 1 year expiry
+      const { data: urlData } = supabase.storage
+        .from("chat_attachment")
+        .getPublicUrl(path)
 
-        if (urlError || !urlData) {
-            toast.error("Failed to get file URL")
-            return
-        }
+      fileUrl = urlData.publicUrl
 
-      fileUrl = urlData.signedUrl
+      
       fileName = file.name
       fileType = file.type
       fileSize = file.size
