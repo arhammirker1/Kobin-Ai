@@ -269,21 +269,27 @@ function MessageBubble({
                   />
                 </button>
               ) : (
-                
-                  href={msg.file_url} target="_blank" rel="noreferrer"
-                  className={cn(
-                    "flex items-center gap-2 px-3 py-2 rounded-2xl text-xs font-medium",
-                    isOwn ? "bg-white/10 text-primary-foreground" : "bg-background border border-border text-foreground"
-                  )}
-                >
-                  <FileIcon className="h-4 w-4 flex-shrink-0" />
-                  <div className="min-w-0">
-                    <div className="truncate">{msg.file_name}</div>
-                    {msg.file_size && <div className="opacity-60">{formatFileSize(msg.file_size)}</div>}
-                  </div>
-                  <Download className="h-3 w-3 opacity-60" />
-                </a>
-              )}
+  <a
+    href={msg.file_url}
+    target="_blank"
+    rel="noreferrer"
+    className={cn(
+      "flex items-center gap-2 px-3 py-2 rounded-2xl text-xs font-medium",
+      isOwn
+        ? "bg-white/10 text-primary-foreground"
+        : "bg-background border border-border text-foreground"
+    )}
+  >
+    <FileIcon className="h-4 w-4 flex-shrink-0" />
+    <div className="min-w-0">
+      <div className="truncate">{msg.file_name}</div>
+      {msg.file_size && (
+        <div className="opacity-60">{formatFileSize(msg.file_size)}</div>
+      )}
+    </div>
+    <Download className="h-3 w-3 opacity-60" />
+  </a>
+)}
             </div>
           )}
         </div>
