@@ -624,14 +624,15 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
 
     const load = async () => {
       setLoadingMessages(true)
+      setMessages([])
       const { data } = await supabase
         .from("chat_messages")
         .select(`
           *,
-          sender:profiles!chat_messages_sender_id_fkey(id, full_name),
-          reply_to:chat_messages!chat_messages_reply_to_id_fkey(
+          sender:profiles(id, full_name),
+          reply_to:chat_messages!reply_to_id(
             id, content, file_name,
-            sender:profiles!chat_messages_sender_id_fkey(id, full_name)
+            sender:profiles(id, full_name)
           )
         `)
         .eq("room_id", activeRoomId)
@@ -640,32 +641,27 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
 
       setMessages((data as ChatMessage[]) || [])
       setLoadingMessages(false)
-
-      // Mark as read
-      if (currentUser) {
-        await supabase
-          .from("chat_room_members")
-          .update({ last_read_at: new Date().toISOString() })
-          .eq("room_id", activeRoomId)
-          .eq("user_id", currentUser.id)
-
-        // Update unread count locally
-        setRooms((prev) =>
-          prev.map((r) => r.id === activeRoomId ? { ...r, unread_count: 0 } : r)
-        )
-      }
     }
 
     load()
-  }, [activeRoomId, supabase, currentUser])
-
-  // ── Realtime subscription ──────────────────────────────────────────────────
+  }, [activeRoomId, supabase])
+    // ── Mark room as read ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!activeRoomId || !currentUser) return
-    const load = async () => {
-        setLoadingMessages(true)
-        setMessages([])
-    }
+    supabase
+      .from("chat_room_members")
+      .update({ last_read_at: new Date().toISOString() })
+      .eq("room_id", activeRoomId)
+      .eq("user_id", currentUser.id)
+      .then(() => {
+        setRooms((prev) =>
+          prev.map((r) => r.id === activeRoomId ? { ...r, unread_count: 0 } : r)
+        )
+      })
+  }, [activeRoomId, currentUser, supabase])
+  // ── Realtime subscription ──────────────────────────────────────────────────
+  useEffect(() => {
+    if (!activeRoomId || !currentUser) return    
     // Cleanup previous
 
     if (realtimeRef.current) {
