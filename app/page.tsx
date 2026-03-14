@@ -10,7 +10,13 @@ import { DashboardContent } from "@/components/dashboard-content"
 const AUTH_TIMEOUT_MS = 8000
 
 export default function Page() {
-  const [activeTab, setActiveTab] = useState("Home")
+  const [activeTab, setActiveTab] = useState(() => {
+  if (typeof window !== "undefined") {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get("tab") === "settings") return "Settings"
+  }
+  return "Home"
+})
   const [isLoading, setIsLoading] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
