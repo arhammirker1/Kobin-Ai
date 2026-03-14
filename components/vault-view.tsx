@@ -170,7 +170,7 @@ export function VaultView() {
     const { data } = await supabase
       .from("projects")
       .select("id, name")
-      .eq("user_id", uid)
+      .eq("founder_id", uid)
       .order("name")
     setProjects(data || [])
   }
