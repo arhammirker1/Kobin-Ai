@@ -349,18 +349,18 @@ export function TeamView() {
                       />
                     </div>
                     <div className="flex items-center justify-between">
-                      <Label htmlFor="can_update_task_status" className="font-normal">
-                        Update Task Status
+                      <Label htmlFor="can_perform_tasks" className="font-normal">
+                        Perform Tasks
                       </Label>
                       <Switch
-                        id="can_update_task_status"
-                        checked={formData.can_update_task_status}
-                        onCheckedChange={(checked) => setFormData({ ...formData, can_update_task_status: checked })}
+                        id="can_perform_tasks"
+                        checked={(formData as any).can_perform_tasks ?? false}
+                        onCheckedChange={(checked) => setFormData({ ...formData, can_update_task_status: checked, can_perform_tasks: checked } as any)}
                       />
                     </div>
                     <div className="flex items-center justify-between">
                       <Label htmlFor="can_create_tasks" className="font-normal">
-                        Create Tasks
+                        Manage Tasks
                       </Label>
                       <Switch
                         id="can_create_tasks"
@@ -595,8 +595,8 @@ export function TeamView() {
                   <div className="grid grid-cols-2 gap-4">
                     {[
                       { key: "can_view_tasks", label: "View Tasks" },
-                      { key: "can_update_task_status", label: "Update Task Status" },
-                      { key: "can_create_tasks", label: "Create Tasks" },
+                      { key: "can_perform_tasks", label: "Perform Tasks" },
+                      { key: "can_create_tasks", label: "Manage Tasks" },
                       { key: "can_view_projects", label: "View Projects" },
                       { key: "can_create_projects", label: "Create Projects" },
                       { key: "can_view_calendar", label: "View Calendar" },

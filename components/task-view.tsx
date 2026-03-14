@@ -92,8 +92,9 @@ interface TaskViewProps {
 
 export function TaskView({ permissions, userType }: TaskViewProps = {}) {
   const canEditOrDelete = userType === "founder" || permissions?.can_create_tasks
-  const canUpdateStatus = userType === "founder" || permissions?.can_update_task_status
   const canCreate = userType === "founder" || permissions?.can_create_tasks
+  // canUpdateStatus is now per-task (only if assigned) — handled inline
+  const canPerformTasks = userType === "founder" || (permissions as any)?.can_perform_tasks || permissions?.can_update_task_status
 
   const supabase = createClient()
   const [activeBucket, setActiveBucket] = useState("today")
@@ -141,13 +142,10 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
       const query = supabase.from("tasks").select("*").eq("bucket", activeBucket)
 
       if (userType === "founder") {
-        // Founder view
         query.or(`user_id.eq.${user.id},created_by.eq.${user.id}`)
       } else {
-        // Team member view
-        query.or(
-          `user_id.eq.${permissions?.founder_id},assigned_to.eq.${user.id},created_by.eq.${user.id},user_id.eq.${user.id}`,
-        )
+        // Team members with view_tasks see ALL founder workspace tasks
+        query.eq("user_id", permissions?.founder_id)
       }
 
       const { data, error } = await query.order("created_at", { ascending: false })
@@ -859,23 +857,32 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
 
                       {task.project_id && <ProjectNameDisplay projectId={task.project_id} />}
 
-                      {canUpdateStatus && (
-                        <div className="flex items-center gap-1.5 overflow-hidden">
-                          <span className="text-xs shrink-0">Status:</span>
-                          <Select value={task.status} onValueChange={(v) => updateTaskStatus(task.id, v)}>
-                            <SelectTrigger className="h-6 w-28 text-xs border-0 p-0 font-medium text-foreground">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {STATUSES.map((s) => (
-                                <SelectItem key={s} value={s} className="text-xs capitalize">
-                                  {s.replace("-", " ")}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      )}
+                      {(() => {
+                        const isAssigned = task.assigned_to === (permissions as any)?.user_id
+                        const canChangeStatus = userType === "founder" || (canPerformTasks && isAssigned) || permissions?.can_create_tasks
+                        return canChangeStatus ? (
+                          <div className="flex items-center gap-1.5 overflow-hidden">
+                            <span className="text-xs shrink-0">Status:</span>
+                            <Select value={task.status} onValueChange={(v) => updateTaskStatus(task.id, v)}>
+                              <SelectTrigger className="h-6 w-28 text-xs border-0 p-0 font-medium text-foreground">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {STATUSES.map((s) => (
+                                  <SelectItem key={s} value={s} className="text-xs capitalize">
+                                    {s.replace("-", " ")}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs shrink-0 text-muted-foreground">Status:</span>
+                            <span className="text-xs font-medium capitalize">{task.status.replace("-", " ")}</span>
+                          </div>
+                        )
+                      })()}
                     </div>
 
                     {expandedCommentTaskId === task.id && (

@@ -288,7 +288,9 @@ export function TeamMemberDashboard({ permissions }: { permissions: TeamMemberPe
                 permissions={{
                   can_create_tasks: permissions.can_create_tasks,
                   can_update_task_status: permissions.can_update_task_status,
+                  can_perform_tasks: (permissions as any).can_perform_tasks,
                   founder_id: permissions.founder_id,
+                  user_id: permissions.user_id,
                 }}
               />
             )}

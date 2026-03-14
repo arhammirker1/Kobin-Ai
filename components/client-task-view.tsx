@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { ClientTaskForm } from "@/components/client-task-form"
+import { TaskComments } from "@/components/task-comments"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import {
@@ -24,7 +25,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { toast } from "sonner"
 import { format, isPast, differenceInDays } from "date-fns"
-import { Plus, Trash2, CheckCircle2, Activity, Clock, Filter, Pencil } from "lucide-react"
+import { Plus, Trash2, CheckCircle2, Activity, Clock, Filter, Pencil, MessageSquare } from "lucide-react"
 
 const BUCKETS = ["today", "this-week", "delegated", "backlog"]
 const PRIORITIES = ["low", "medium", "high", "urgent"]
@@ -51,6 +52,7 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [isDeleteOpen, setIsDeleteOpen] = useState(false)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
+  const [commentTask, setCommentTask] = useState<Task | null>(null)
   const [newTask, setNewTask] = useState({
     title: "",
     notes: "",
@@ -563,28 +565,39 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
                   </div>
 
                   {/* Action Buttons */}
-                  {clientData?.can_create_tasks && (
-                    <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-8 text-muted-foreground hover:text-primary hover:bg-primary/10"
-                        onClick={() => handleEditClick(task)}
-                        title="Edit task"
-                      >
-                        <Pencil size={16} />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-8 text-destructive hover:bg-destructive/10"
-                        onClick={() => handleDeleteClick(task)}
-                        title="Delete task"
-                      >
-                        <Trash2 size={16} />
-                      </Button>
-                    </div>
-                  )}
+                  <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                      onClick={(e) => { e.stopPropagation(); setCommentTask(task) }}
+                      title="Comments"
+                    >
+                      <MessageSquare size={16} />
+                    </Button>
+                    {clientData?.can_create_tasks && (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                          onClick={(e) => { e.stopPropagation(); handleEditClick(task) }}
+                          title="Edit task"
+                        >
+                          <Pencil size={16} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 text-destructive hover:bg-destructive/10"
+                          onClick={(e) => { e.stopPropagation(); handleDeleteClick(task) }}
+                          title="Delete task"
+                        >
+                          <Trash2 size={16} />
+                        </Button>
+                      </>
+                    )}
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -597,8 +610,17 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
         )}
       </div>
 
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
+      {/* Comments Dialog */}
+      <Dialog open={!!commentTask} onOpenChange={(v) => { if (!v) setCommentTask(null) }}>
+        <DialogContent className="sm:max-w-[600px] h-[500px] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="truncate">{commentTask?.title}</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 min-h-0">
+            {commentTask && <TaskComments taskId={commentTask.id} />}
+          </div>
+        </DialogContent>
+      </Dialog>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Task</AlertDialogTitle>
