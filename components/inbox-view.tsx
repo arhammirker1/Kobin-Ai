@@ -383,14 +383,7 @@ function MessageBubble({
         hovered || menuOpen ? "opacity-100 visible" : "opacity-0 invisible",
         isOwn ? "flex-row-reverse" : "flex-row"
       )}>
-        {/* Reply */}
-        <button
-          onClick={() => onReply(msg)}
-          className="p-1.5 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-          title="Reply"
-        >
-          <Reply className="h-3.5 w-3.5" />
-        </button>
+        
 
         {/* Reaction */}
         <button
