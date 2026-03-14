@@ -269,6 +269,20 @@ export function ProjectsView({ permissions }: ProjectsViewProps = {}) {
         description: "Project created successfully",
       })
 
+      // Auto-create vault folder structure for this project
+if (newProject?.id) {
+  fetch("/api/vault/create-project-folders", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ 
+      project_id: newProject.id, 
+      project_name: newProject.name 
+    }),
+  }).catch(console.warn) // fire and forget — don't block UI
+}
+
+
+
       setFormData(defaultFormData)
       setCreateDialogOpen(false)
       fetchProjects()

@@ -85,8 +85,20 @@ export async function GET(request: Request) {
         refresh_token,
         token_expires_at: expiresAt,
         is_connected: true,
+        drive_connected: true,
         updated_at: new Date().toISOString(),
       }, { onConflict: "user_id" })
+
+    // Auto-initialize Vault root folder in Drive
+    if (!upsertError) {
+      try {
+        const { initializeVaultForFounder } = await import("@/lib/google/drive")
+        await initializeVaultForFounder(user.id)
+      } catch (vaultErr) {
+        console.warn("[Vault] Could not auto-init vault folder:", vaultErr)
+        // Non-fatal — vault can be initialized later from Settings
+      }
+    }
 
     if (upsertError) {
       console.error("[Google OAuth] DB upsert error:", upsertError)
