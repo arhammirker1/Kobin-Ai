@@ -13,6 +13,7 @@ import {
   MoreHorizontal,
   Trash2,
 } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -39,6 +40,8 @@ import {
   setMinutes,
 } from "date-fns"
 import { toast } from "sonner"
+
+
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -151,12 +154,7 @@ function EventChip({
 // ─── Event Form ───────────────────────────────────────────────────────────────
 
 function EventFormDialog({
-  open,
-  onOpenChange,
-  initial,
-  onSave,
-  onDelete,
-  mode,
+  open, onOpenChange, initial, onSave, onDelete, mode,
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
@@ -167,20 +165,56 @@ function EventFormDialog({
 }) {
   const [form, setForm] = useState<EventFormState>(initial)
   const [saving, setSaving] = useState(false)
+  const [useMeet, setUseMeet] = useState(false)
+  const [isGoogleConnected, setIsGoogleConnected] = useState(false)
+  const [meetLink, setMeetLink] = useState<string | null>(null)
+  const [attendees, setAttendees] = useState("")
+  const supabase = useMemo(() => createClient(), [])
+
+  useEffect(() => { setForm(initial); setMeetLink(null) }, [initial, open])
 
   useEffect(() => {
-    setForm(initial)
-  }, [initial, open])
+    if (!open) return
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return
+      supabase.from("google_integrations").select("is_connected").eq("user_id", user.id).single()
+        .then(({ data }) => setIsGoogleConnected(data?.is_connected === true))
+    })
+  }, [open, supabase])
 
   const set = (key: keyof EventFormState, value: string) =>
     setForm((f) => ({ ...f, [key]: value }))
 
   const handleSave = async () => {
-    if (!form.title.trim()) {
-      toast.error("Title is required")
+    if (!form.title.trim()) { toast.error("Title is required"); return }
+    setSaving(true)
+
+    if (useMeet && isGoogleConnected) {
+      const res = await fetch("/api/google/create-meet", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: form.title,
+          description: form.purpose,
+          start_time: new Date(`${form.date}T${form.startTime}`).toISOString(),
+          end_time: new Date(`${form.date}T${form.endTime}`).toISOString(),
+          attendee_emails: attendees.split(",").map(e => e.trim()).filter(Boolean),
+          type: form.type,
+        }),
+      })
+      const data = await res.json()
+      if (res.ok && data.meet_link) {
+        setMeetLink(data.meet_link)
+        toast.success("Meet link created!")
+        await onSave({ ...form, meeting_link: data.meet_link })
+        setSaving(false)
+        return
+      }
+      toast.error(data.message || "Failed to create Meet link")
+      setSaving(false)
       return
     }
-    setSaving(true)
+
     await onSave(form)
     setSaving(false)
   }
@@ -206,9 +240,7 @@ function EventFormDialog({
             <div className="grid gap-1.5">
               <Label htmlFor="ef-type">Type</Label>
               <Select value={form.type} onValueChange={(v) => set("type", v)}>
-                <SelectTrigger id="ef-type">
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger id="ef-type"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="internal">Internal</SelectItem>
                   <SelectItem value="deal">Deal</SelectItem>
@@ -229,10 +261,52 @@ function EventFormDialog({
             </div>
           </div>
 
-          <div className="grid gap-1.5">
-            <Label htmlFor="ef-link">Meeting Link</Label>
-            <Input id="ef-link" value={form.meeting_link} onChange={(e) => set("meeting_link", e.target.value)} placeholder="https://..." />
+          {/* Google Meet toggle */}
+          <div className="rounded-lg border p-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Video className="h-4 w-4 text-primary" />
+                <span className="text-sm font-medium">Auto-generate Meet link</span>
+                {!isGoogleConnected && (
+                  <span className="text-[10px] text-muted-foreground border rounded px-1.5 py-0.5">
+                    Connect Google in Settings
+                  </span>
+                )}
+              </div>
+              <Switch checked={useMeet} onCheckedChange={setUseMeet} disabled={!isGoogleConnected} />
+            </div>
+
+            {useMeet && isGoogleConnected && (
+              <div className="grid gap-1.5">
+                <Label className="text-xs">Attendee emails (comma-separated)</Label>
+                <Input
+                  value={attendees}
+                  onChange={(e) => setAttendees(e.target.value)}
+                  placeholder="alice@co.com, bob@co.com"
+                  className="text-xs h-8"
+                />
+                <p className="text-[10px] text-muted-foreground">Google Calendar invites sent automatically</p>
+              </div>
+            )}
+
+            {meetLink && (
+              <div className="flex items-center gap-2 p-2 bg-emerald-50 border border-emerald-200 rounded-lg">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                <a href={meetLink} target="_blank" rel="noreferrer"
+                  className="text-xs text-emerald-700 truncate flex-1 underline">{meetLink}</a>
+                <button onClick={() => { navigator.clipboard.writeText(meetLink); toast.success("Copied!") }}
+                  className="text-xs text-emerald-700 hover:text-emerald-900 shrink-0">Copy</button>
+              </div>
+            )}
           </div>
+
+          {/* Manual link — only show when Meet toggle is off */}
+          {!useMeet && (
+            <div className="grid gap-1.5">
+              <Label htmlFor="ef-link">Meeting Link</Label>
+              <Input id="ef-link" value={form.meeting_link} onChange={(e) => set("meeting_link", e.target.value)} placeholder="https://..." />
+            </div>
+          )}
 
           <div className="grid gap-1.5">
             <Label htmlFor="ef-purpose">Purpose</Label>
@@ -248,7 +322,7 @@ function EventFormDialog({
           )}
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={handleSave} disabled={saving}>
-            {saving ? "Saving…" : mode === "create" ? "Create" : "Save"}
+            {saving ? "Saving…" : useMeet && isGoogleConnected ? "Create with Meet" : mode === "create" ? "Create" : "Save"}
           </Button>
         </DialogFooter>
       </DialogContent>

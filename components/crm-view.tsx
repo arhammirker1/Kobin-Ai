@@ -229,19 +229,52 @@ export function CrmView() {
       return
     }
 
-    const start = parseISO(`${newMeeting.date}T${newMeeting.startTime}`)
-    const end = parseISO(`${newMeeting.date}T${newMeeting.endTime}`)
+    // REPLACE the supabase insert block inside handleScheduleMeeting with:
+const start = parseISO(`${newMeeting.date}T${newMeeting.startTime}`)
+const end = parseISO(`${newMeeting.date}T${newMeeting.endTime}`)
 
-    const { error } = await supabase.from("events").insert({
-      user_id: user.id,
-      title: newMeeting.title,
-      start_time: start.toISOString(),
-      end_time: end.toISOString(),
-      type: "deal",
-      relationship_id: selectedRelationship.id,
-      meeting_link: newMeeting.meetingLink || selectedRelationship.meeting_link || "",
-      purpose: newMeeting.purpose,
-    })
+const meetRes = await fetch("/api/google/create-meet", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    title: newMeeting.title,
+    description: newMeeting.purpose,
+    start_time: start.toISOString(),
+    end_time: end.toISOString(),
+    attendee_emails: [],
+    type: "deal",
+    relationship_id: selectedRelationship.id,
+  }),
+})
+
+if (meetRes.ok) {
+  const meetData = await meetRes.json()
+  toast.success(meetData.meet_link ? "Meeting scheduled with Google Meet!" : "Meeting scheduled")
+  setIsMeetingDialogOpen(false)
+  setNewMeeting({ title: "", date: format(new Date(), "yyyy-MM-dd"), startTime: "09:00", endTime: "10:00", meetingLink: "", purpose: "" })
+  fetchNextMeeting(selectedRelationship.id)
+  return
+}
+
+// Fallback
+const { error } = await supabase.from("events").insert({
+  user_id: user.id,
+  title: newMeeting.title,
+  start_time: start.toISOString(),
+  end_time: end.toISOString(),
+  type: "deal",
+  relationship_id: selectedRelationship.id,
+  meeting_link: newMeeting.meetingLink || selectedRelationship.meeting_link || "",
+  purpose: newMeeting.purpose,
+})
+
+if (error) { toast.error("Failed to schedule meeting") }
+else {
+  toast.success("Meeting scheduled")
+  setIsMeetingDialogOpen(false)
+  setNewMeeting({ title: "", date: format(new Date(), "yyyy-MM-dd"), startTime: "09:00", endTime: "10:00", meetingLink: "", purpose: "" })
+  fetchNextMeeting(selectedRelationship.id)
+}
 
     if (error) {
       console.error("[v0] Error scheduling meeting:", error)

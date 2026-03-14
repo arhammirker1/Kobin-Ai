@@ -241,36 +241,57 @@ export function ClientsView({ permissions }: { permissions?: { can_create_projec
     } = await supabase.auth.getUser()
     if (!user) return
 
-    const start = parseISO(`${newMeeting.date}T${newMeeting.startTime}`)
-    const end = parseISO(`${newMeeting.date}T${newMeeting.endTime}`)
+    // REPLACE the supabase insert block inside handleScheduleMeeting with:
+const start = parseISO(`${newMeeting.date}T${newMeeting.startTime}`)
+const end = parseISO(`${newMeeting.date}T${newMeeting.endTime}`)
 
-    const { error } = await supabase.from("events").insert({
-      user_id: user.id,
-      title: newMeeting.title,
-      start_time: start.toISOString(),
-      end_time: end.toISOString(),
-      type: "deal",
-      client_id: selectedClient.id,
-      meeting_link: newMeeting.meetingLink || "",
-      purpose: newMeeting.purpose,
-    })
+// Try Google Meet if user connected it
+const meetRes = await fetch("/api/google/create-meet", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    title: newMeeting.title,
+    description: newMeeting.purpose,
+    start_time: start.toISOString(),
+    end_time: end.toISOString(),
+    attendee_emails: selectedClient.email ? [selectedClient.email] : [],
+    type: "deal",
+    client_id: selectedClient.id,
+  }),
+})
 
-    if (error) {
-      console.error("[v0] Error scheduling meeting:", error)
-      toast.error("Failed to schedule meeting")
-    } else {
-      toast.success("Meeting scheduled")
-      setIsMeetingDialogOpen(false)
-      setNewMeeting({
-        title: "",
-        date: format(new Date(), "yyyy-MM-dd"),
-        startTime: "09:00",
-        endTime: "10:00",
-        meetingLink: "",
-        purpose: "",
-      })
-      fetchNextMeeting(selectedClient.id)
-    }
+let meetLink = newMeeting.meetingLink || ""
+if (meetRes.ok) {
+  const meetData = await meetRes.json()
+  if (meetData.meet_link) meetLink = meetData.meet_link
+  // Event already inserted by the API route — close dialog and refresh
+  toast.success("Meeting scheduled with Google Meet!")
+  setIsMeetingDialogOpen(false)
+  setNewMeeting({ title: "", date: format(new Date(), "yyyy-MM-dd"), startTime: "09:00", endTime: "10:00", meetingLink: "", purpose: "" })
+  fetchNextMeeting(selectedClient.id)
+  return
+}
+
+// Fallback: insert manually if Google not connected
+const { error } = await supabase.from("events").insert({
+  user_id: user.id,
+  title: newMeeting.title,
+  start_time: start.toISOString(),
+  end_time: end.toISOString(),
+  type: "deal",
+  client_id: selectedClient.id,
+  meeting_link: meetLink,
+  purpose: newMeeting.purpose,
+})
+
+if (error) {
+  toast.error("Failed to schedule meeting")
+} else {
+  toast.success("Meeting scheduled")
+  setIsMeetingDialogOpen(false)
+  setNewMeeting({ title: "", date: format(new Date(), "yyyy-MM-dd"), startTime: "09:00", endTime: "10:00", meetingLink: "", purpose: "" })
+  fetchNextMeeting(selectedClient.id)
+}
   }
 
   const handleCreateCredentials = async () => {

@@ -7,9 +7,114 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
+import { Badge } from "@/components/ui/badge"
+import { CheckCircle2, AlertCircle, Unlink, Video, ExternalLink } from "lucide-react"
 import { useTheme } from "next-themes"
 import { toast } from "sonner"
 import { Moon, Sun, User, Mail, Loader2 } from "lucide-react"
+
+// google calender integration
+function GoogleIntegrationCard() {
+  const [integration, setIntegration] = useState<{ google_email: string | null; is_connected: boolean } | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isDisconnecting, setIsDisconnecting] = useState(false)
+  const supabase = createClient()
+
+  useEffect(() => {
+    fetchIntegration()
+    const params = new URLSearchParams(window.location.search)
+    if (params.get("success") === "google_connected") {
+      toast.success("Google account connected!")
+      window.history.replaceState({}, "", "/settings")
+      fetchIntegration()
+    }
+    if (params.get("error")) {
+      toast.error("Google connection failed. Please try again.")
+      window.history.replaceState({}, "", "/settings")
+    }
+  }, [])
+
+  const fetchIntegration = async () => {
+    setIsLoading(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data } = await supabase
+        .from("google_integrations")
+        .select("google_email, is_connected")
+        .eq("user_id", user.id)
+        .single()
+      setIntegration(data)
+    } catch { setIntegration(null) }
+    finally { setIsLoading(false) }
+  }
+
+  const handleDisconnect = async () => {
+    setIsDisconnecting(true)
+    try {
+      const res = await fetch("/api/google/disconnect", { method: "POST" })
+      if (!res.ok) throw new Error()
+      toast.success("Google account disconnected")
+      setIntegration(null)
+    } catch { toast.error("Failed to disconnect") }
+    finally { setIsDisconnecting(false) }
+  }
+
+  const isConnected = integration?.is_connected === true
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Video className="h-5 w-5" />
+          Google Meet
+          {isConnected && (
+            <Badge className="ml-1 bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px]">
+              Connected
+            </Badge>
+          )}
+        </CardTitle>
+        <CardDescription>Auto-generate Google Meet links when scheduling meetings</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading...
+          </div>
+        ) : isConnected ? (
+          <>
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-emerald-50 border border-emerald-200">
+              <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-emerald-800">Connected</p>
+                <p className="text-xs text-emerald-600">{integration?.google_email}</p>
+              </div>
+            </div>
+            <div className="space-y-1.5 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2"><Video className="h-4 w-4 text-primary" /> Meet links auto-generated on every meeting</div>
+              <div className="flex items-center gap-2"><ExternalLink className="h-4 w-4 text-primary" /> Attendees receive Google Calendar invites</div>
+            </div>
+            <Button variant="outline" size="sm" onClick={handleDisconnect} disabled={isDisconnecting}
+              className="gap-2 text-destructive hover:text-destructive border-destructive/30">
+              {isDisconnecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unlink className="h-4 w-4" />}
+              Disconnect
+            </Button>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border">
+              <AlertCircle className="h-5 w-5 text-muted-foreground shrink-0" />
+              <p className="text-sm text-muted-foreground">Not connected — connect to enable auto Meet links</p>
+            </div>
+            <Button onClick={() => window.location.href = "/api/auth/google"} className="gap-2">
+              Connect Google Account
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
 
 export function SettingsView() {
   const { theme, setTheme } = useTheme()
@@ -166,6 +271,7 @@ export function SettingsView() {
             </Button>
           </CardContent>
         </Card>
+        <GoogleIntegrationCard />
       </div>
     </div>
   )
