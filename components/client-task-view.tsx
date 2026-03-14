@@ -130,6 +130,8 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
       toast.error("No project linked to your account. Please contact your team.")
       return
     }
+    console.log("clientData.founder_id:", clientData?.founder_id)
+    console.log("clientData.project_id:", clientData?.project_id)
 
     setIsLoading(true)
 

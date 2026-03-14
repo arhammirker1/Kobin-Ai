@@ -38,8 +38,9 @@ export default function ClientPortalPage() {
             return
           }
 
+          
           // Fetch client data
-          const { data: client } = await supabase.from("clients").select("*").eq("portal_email", user.email).single()
+          const { data: client } = await supabase.from("clients").select("*").eq("portal_user_id", user.id).single()
 
           setClientData(client)
           setIsAuthenticated(true)
