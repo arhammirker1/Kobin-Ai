@@ -545,8 +545,8 @@ export function TeamView() {
                     <h4 className="text-sm font-medium mb-3">Permissions</h4>
                     <div className="flex flex-wrap gap-2">
                       {member.can_view_tasks && <Badge variant="outline">View Tasks</Badge>}
-                      {member.can_update_task_status && <Badge variant="outline">Update Tasks</Badge>}
-                      {member.can_create_tasks && <Badge variant="outline">Create Tasks</Badge>}
+                      {(member as any).can_perform_tasks && <Badge variant="outline">Perform Tasks</Badge>}
+                      {member.can_create_tasks && <Badge variant="outline">Manage Tasks</Badge>}
                       {member.can_view_projects && <Badge variant="outline">View Projects</Badge>}
                       {member.can_create_projects && <Badge variant="outline">Create Projects</Badge>}
                       {member.can_view_calendar && <Badge variant="outline">Calendar</Badge>}
