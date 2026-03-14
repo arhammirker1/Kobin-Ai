@@ -115,6 +115,8 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
   const [showRelatedContextCollapsed, setShowRelatedContextCollapsed] = useState(true)
   const [expandedCommentTaskId, setExpandedCommentTaskId] = useState<string | null>(null)
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({})
+  const [filterProject, setFilterProject] = useState<string>("all")
+  const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([])
 
   const loadCommentCounts = async (taskList: Task[]) => {
     const counts: Record<string, number> = {}
@@ -132,13 +134,14 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
     error: tasksError,
     mutate: mutateTasks,
   } = useSWR(
-    ["tasks", activeBucket],
+    ["tasks", activeBucket, filterProject],
     async () => {
       const {
         data: { user },
       } = await supabase.auth.getUser()
       if (!user) return []
 
+      fetchProjects()
       const query = supabase.from("tasks").select("*").eq("bucket", activeBucket)
 
       if (userType === "founder") {
@@ -148,6 +151,9 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
         query.eq("user_id", permissions?.founder_id)
       }
 
+      if (filterProject !== "all") {
+        query.eq("project_id", filterProject)
+      }
       const { data, error } = await query.order("created_at", { ascending: false })
       if (error) throw error
       const sortedTasks = sortTasksByPriorityAndDeadline(data || [])
@@ -208,6 +214,22 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
       setTeamMembers(data || [])
     }
   }
+
+  const fetchProjects = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const founderId = permissions?.founder_id || user.id
+    const { data } = await supabase
+      .from("projects")
+      .select("id, name")
+      .eq("founder_id", founderId)
+      .in("status", ["active", "on-hold"])
+      .order("name")
+    setProjects(data || [])
+  }
+
+
+
 
   const sortTasksByPriorityAndDeadline = (tasks: Task[]) => {
     const priorityWeight = { urgent: 4, high: 3, medium: 2, low: 1 }
@@ -667,6 +689,37 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
           </CardContent>
         </Card>
       </div>
+
+      {/* Project filter */}
+      {projects.length > 0 && (
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
+          <button
+            onClick={() => setFilterProject("all")}
+            className={cn(
+              "shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors border",
+              filterProject === "all"
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
+            )}
+          >
+            All Projects
+          </button>
+          {projects.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => setFilterProject(p.id)}
+              className={cn(
+                "shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors border",
+                filterProject === p.id
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
+              )}
+            >
+              {p.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0 w-full md:w-auto scrollbar-hide">
