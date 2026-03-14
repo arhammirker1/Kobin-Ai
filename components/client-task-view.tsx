@@ -126,6 +126,11 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
       return
     }
 
+    if (!clientData?.project_id) {
+      toast.error("No project linked to your account. Please contact your team.")
+      return
+    }
+
     setIsLoading(true)
 
     try {
@@ -166,7 +171,7 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
         const { error } = await supabase.from("tasks").insert([
           {
             ...taskData,
-            user_id: user.id,
+            user_id: clientData.founder_id,
             created_by: user.id,
           },
         ])
