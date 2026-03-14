@@ -202,8 +202,6 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
     setNewResourceTitle("")
     setSelectedTask(null)
   }
-    setSelectedTask(null)
-  }
 
   const deleteTask = async () => {
     if (!selectedTask) return
@@ -391,8 +389,12 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
               </DialogContent>
             </Dialog>
 
-            <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-              <ClientTaskForm
+            <Dialog open={isEditOpen} onOpenChange={(open) => { setIsEditOpen(open); if (!open) resetForm() }}>
+              <DialogContent className="sm:max-w-[500px]">
+                <DialogHeader>
+                  <DialogTitle>Edit Task</DialogTitle>
+                </DialogHeader>
+                <ClientTaskForm
                   task={newTask}
                   onTaskChange={setNewTask}
                   newResourceUrl={newResourceUrl}
@@ -400,6 +402,15 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
                   newResourceTitle={newResourceTitle}
                   setNewResourceTitle={setNewResourceTitle}
                 />
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => { setIsEditOpen(false); resetForm() }}>
+                    Cancel
+                  </Button>
+                  <Button onClick={createOrUpdateTask} disabled={isLoading}>
+                    {isLoading ? "Updating..." : "Update Task"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
             </Dialog>
           </div>
         )}
