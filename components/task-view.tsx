@@ -22,6 +22,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { toast } from "react-hot-toast"
+import { cn } from "@/lib/utils"
 import { format, isThisWeek, isPast, differenceInDays } from "date-fns"
 import useSWR from "swr"
 import { Plus, Clock, Filter, Trash2, Pencil, CheckCircle2, Activity, Calendar, MessageSquare } from "lucide-react"
