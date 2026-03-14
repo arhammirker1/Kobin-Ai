@@ -60,7 +60,7 @@ export async function GET(request: Request) {
       const err = await tokenResponse.text()
       console.error("[Google OAuth] Token exchange failed:", err)
       return NextResponse.redirect(
-        =new URL("/?tab=settings&error=token_exchange_failed", request.url)
+        new URL("/?tab=settings&error=token_exchange_failed", request.url)
       )
     }
 
