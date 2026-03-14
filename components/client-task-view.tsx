@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
+import { ClientTaskForm } from "@/components/client-task-form"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import {
@@ -53,10 +54,13 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
   const [newTask, setNewTask] = useState({
     title: "",
     notes: "",
+    resources: [] as Array<{ url: string; title?: string }>,
     priority: "medium",
     status: "todo",
     deadline: "",
   })
+  const [newResourceUrl, setNewResourceUrl] = useState("")
+  const [newResourceTitle, setNewResourceTitle] = useState("")
   const [isLoading, setIsLoading] = useState(false)
 
   const supabase = createClient()
@@ -137,6 +141,7 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
       const taskData = {
         title: newTask.title,
         notes: newTask.notes || null,
+        resources: newTask.resources.length > 0 ? newTask.resources : null,
         priority: newTask.priority,
         status: newTask.status,
         due_date: newTask.deadline ? new Date(newTask.deadline).toISOString() : null,
@@ -188,10 +193,15 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
     setNewTask({
       title: "",
       notes: "",
+      resources: [],
       priority: "medium",
       status: "todo",
       deadline: "",
     })
+    setNewResourceUrl("")
+    setNewResourceTitle("")
+    setSelectedTask(null)
+  }
     setSelectedTask(null)
   }
 
@@ -242,6 +252,7 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
     setNewTask({
       title: task.title,
       notes: task.notes || "",
+      resources: (task as any).resources || [],
       priority: task.priority,
       status: task.status,
       deadline: task.due_date ? format(new Date(task.due_date), "yyyy-MM-dd'T'HH:mm") : "",
@@ -355,71 +366,14 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
                 <DialogHeader>
                   <DialogTitle>Add New Task</DialogTitle>
                 </DialogHeader>
-                <form onSubmit={createOrUpdateTask} className="space-y-4 py-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="title">Task Title *</Label>
-                    <Input
-                      id="title"
-                      placeholder="Enter task title"
-                      value={newTask.title}
-                      onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="notes">Notes</Label>
-                    <Input
-                      id="notes"
-                      placeholder="Add notes (optional)"
-                      value={newTask.notes}
-                      onChange={(e) => setNewTask({ ...newTask, notes: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="space-y-2">
-                      <Label htmlFor="priority">Priority</Label>
-                      <Select
-                        value={newTask.priority}
-                        onValueChange={(val) => setNewTask({ ...newTask, priority: val })}
-                      >
-                        <SelectTrigger id="priority">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {PRIORITIES.map((p) => (
-                            <SelectItem key={p} value={p}>
-                              {p.charAt(0).toUpperCase() + p.slice(1)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="status">Status</Label>
-                      <Select value={newTask.status} onValueChange={(val) => setNewTask({ ...newTask, status: val })}>
-                        <SelectTrigger id="status">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {STATUSES.map((s) => (
-                            <SelectItem key={s} value={s}>
-                              {s.replace("-", " ").toUpperCase()}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="deadline">Deadline</Label>
-                      <Input
-                        id="deadline"
-                        type="datetime-local"
-                        value={newTask.deadline}
-                        onChange={(e) => setNewTask({ ...newTask, deadline: e.target.value })}
-                      />
-                    </div>
-                  </div>
-                </form>
+                <ClientTaskForm
+                  task={newTask}
+                  onTaskChange={setNewTask}
+                  newResourceUrl={newResourceUrl}
+                  setNewResourceUrl={setNewResourceUrl}
+                  newResourceTitle={newResourceTitle}
+                  setNewResourceTitle={setNewResourceTitle}
+                />
                 <DialogFooter>
                   <Button
                     variant="outline"
@@ -438,90 +392,14 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
             </Dialog>
 
             <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-              <DialogContent className="sm:max-w-[500px]">
-                <DialogHeader>
-                  <DialogTitle>Edit Task</DialogTitle>
-                </DialogHeader>
-                <form onSubmit={createOrUpdateTask} className="space-y-4 py-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="edit-title">Task Title *</Label>
-                    <Input
-                      id="edit-title"
-                      placeholder="Enter task title"
-                      value={newTask.title}
-                      onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="edit-notes">Notes</Label>
-                    <Input
-                      id="edit-notes"
-                      placeholder="Add notes (optional)"
-                      value={newTask.notes}
-                      onChange={(e) => setNewTask({ ...newTask, notes: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-priority">Priority</Label>
-                      <Select
-                        value={newTask.priority}
-                        onValueChange={(val) => setNewTask({ ...newTask, priority: val })}
-                      >
-                        <SelectTrigger id="edit-priority">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {PRIORITIES.map((p) => (
-                            <SelectItem key={p} value={p}>
-                              {p.charAt(0).toUpperCase() + p.slice(1)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-status">Status</Label>
-                      <Select value={newTask.status} onValueChange={(val) => setNewTask({ ...newTask, status: val })}>
-                        <SelectTrigger id="edit-status">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {STATUSES.map((s) => (
-                            <SelectItem key={s} value={s}>
-                              {s.replace("-", " ").toUpperCase()}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-deadline">Deadline</Label>
-                      <Input
-                        id="edit-deadline"
-                        type="datetime-local"
-                        value={newTask.deadline}
-                        onChange={(e) => setNewTask({ ...newTask, deadline: e.target.value })}
-                      />
-                    </div>
-                  </div>
-                </form>
-                <DialogFooter>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setIsEditOpen(false)
-                      resetForm()
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                  <Button onClick={createOrUpdateTask} disabled={isLoading}>
-                    {isLoading ? "Updating..." : "Update Task"}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
+              <ClientTaskForm
+                  task={newTask}
+                  onTaskChange={setNewTask}
+                  newResourceUrl={newResourceUrl}
+                  setNewResourceUrl={setNewResourceUrl}
+                  newResourceTitle={newResourceTitle}
+                  setNewResourceTitle={setNewResourceTitle}
+                />
             </Dialog>
           </div>
         )}
