@@ -12,6 +12,7 @@ import {
   Calendar as CalendarIcon,
   MoreHorizontal,
   Trash2,
+  CheckCircle2
 } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
