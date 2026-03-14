@@ -378,80 +378,79 @@ function MessageBubble({
       </div>
 
       {/* Hover actions */}
-      <div className={cn(
-        "flex items-center gap-0.5 mb-5 flex-shrink-0 transition-opacity",
-        hovered || menuOpen ? "opacity-100 visible" : "opacity-0 invisible",
-        isOwn ? "flex-row-reverse" : "flex-row"
-      )}>
-        {/* Reply */}
-        <button
-          onClick={() => onReply(msg)}
-          className="p-1.5 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-          title="Reply"
-        >
-          <Reply className="h-3.5 w-3.5" />
-        </button>
-
-        {/* Reaction */}
-        <button
-          className="p-1.5 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground text-sm"
-          title="React"
-        >
-          😊
-        </button>
-
-        {/* More menu */}
-        <div className="relative" ref={menuRef}>
+      {(hovered || menuOpen) && (
+        <div className={cn(
+          "flex items-center gap-0.5 flex-shrink-0",
+          isOwn ? "order-first flex-row" : "order-last flex-row"
+        )}>
           <button
-            onClick={() => setMenuOpen((v) => !v)}
+            onClick={() => onReply(msg)}
             className="p-1.5 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-            title="More"
+            title="Reply"
           >
-            <MoreHorizontal className="h-3.5 w-3.5" />
+            <Reply className="h-3.5 w-3.5" />
           </button>
 
-          {menuOpen && (
-            <div
-              className={cn(
-                "absolute z-50 bottom-8 bg-popover border border-border rounded-xl shadow-lg py-1 min-w-[140px]",
-                isOwn ? "right-0" : "left-0"
-              )}
-              onMouseLeave={() => { setHovered(false); setMenuOpen(false) }}
+          <button
+            className="p-1.5 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground text-sm"
+            title="React"
+          >
+            😊
+          </button>
+
+          <div className="relative" ref={menuRef}>
+            <button
+              onClick={() => setMenuOpen((v) => !v)}
+              className="p-1.5 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+              title="More"
             >
-              {msg.content && (
-                <button onClick={handleCopy} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-muted transition-colors text-left">
-                  <span className="text-base">📋</span> Copy
-                </button>
-              )}
-              <button
-                onClick={() => { onForward(msg); setMenuOpen(false) }}
-                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-muted transition-colors text-left"
+              <MoreHorizontal className="h-3.5 w-3.5" />
+            </button>
+
+            {menuOpen && (
+              <div
+                className={cn(
+                  "absolute z-50 bottom-8 bg-popover border border-border rounded-xl shadow-lg py-1 min-w-[140px]",
+                  isOwn ? "right-0" : "left-0"
+                )}
+                onMouseLeave={() => { setHovered(false); setMenuOpen(false) }}
               >
-                <span className="text-base">↪️</span> Forward
-              </button>
-              {isOwn && (
+                {msg.content && (
+                  <button onClick={handleCopy} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-muted transition-colors text-left">
+                    <span className="text-base">📋</span> Copy
+                  </button>
+                )}
                 <button
-                  onClick={() => { onEdit(msg); setMenuOpen(false) }}
+                  onClick={() => { onForward(msg); setMenuOpen(false) }}
                   className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-muted transition-colors text-left"
                 >
-                  <span className="text-base">✏️</span> Edit
+                  <span className="text-base">↪️</span> Forward
                 </button>
-              )}
-              {isOwn && (
-                <button
-                  onClick={() => { onDelete(msg.id); setMenuOpen(false) }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-muted transition-colors text-destructive text-left"
-                >
-                  <span className="text-base">🔄</span> Unsend
-                </button>
-              )}
-            </div>
-          )}
+                {isOwn && (
+                  <button
+                    onClick={() => { onEdit(msg); setMenuOpen(false) }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-muted transition-colors text-left"
+                  >
+                    <span className="text-base">✏️</span> Edit
+                  </button>
+                )}
+                {isOwn && (
+                  <button
+                    onClick={() => { onDelete(msg.id); setMenuOpen(false) }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-muted transition-colors text-destructive text-left"
+                  >
+                    <span className="text-base">🔄</span> Unsend
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }
+    
 
 // ─── Message Input ─────────────────────────────────────────────────────────────
 
