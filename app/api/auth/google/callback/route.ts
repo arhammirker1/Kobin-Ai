@@ -25,13 +25,13 @@ export async function GET(request: Request) {
   if (error) {
     console.error("[Google OAuth] Error:", error)
     return NextResponse.redirect(
-      new URL("/settings?error=google_auth_failed", request.url)
+      new URL("/?tab=settings&error=google_auth_failed", request.url)
     )
   }
 
   if (!code) {
     return NextResponse.redirect(
-      new URL("/settings?error=no_code", request.url)
+      new URL("/?tab=settings&error=no_code", request.url)
     )
   }
 
@@ -60,7 +60,7 @@ export async function GET(request: Request) {
       const err = await tokenResponse.text()
       console.error("[Google OAuth] Token exchange failed:", err)
       return NextResponse.redirect(
-        new URL("/settings?error=token_exchange_failed", request.url)
+        =new URL("/?tab=settings&error=token_exchange_failed", request.url)
       )
     }
 
@@ -91,17 +91,17 @@ export async function GET(request: Request) {
     if (upsertError) {
       console.error("[Google OAuth] DB upsert error:", upsertError)
       return NextResponse.redirect(
-        new URL("/settings?error=db_error", request.url)
+        new URL("/?tab=settings&error=db_error", request.url)
       )
     }
 
     return NextResponse.redirect(
-      new URL("/settings?success=google_connected", request.url)
+      new URL("/?tab=settings&success=google_connected", request.url)
     )
   } catch (err) {
     console.error("[Google OAuth] Unexpected error:", err)
     return NextResponse.redirect(
-      new URL("/settings?error=unknown", request.url)
+      new URL("/?tab=settings&error=unknown", request.url)
     )
   }
 }
