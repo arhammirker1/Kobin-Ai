@@ -308,7 +308,7 @@ function MessageBubble({
         )}
 
         {/* Reply preview */}
-        {msg.reply_to && (
+        {msg.reply_to && (msg.reply_to.content || msg.reply_to.file_name) && (
           <div className={cn(
             "flex items-center gap-1 mb-1 px-2.5 py-1 rounded-2xl text-xs opacity-60 border border-border/40",
             isOwn ? "self-end" : "self-start"
@@ -380,10 +380,17 @@ function MessageBubble({
       {/* Hover actions */}
       <div className={cn(
         "flex items-center gap-0.5 mb-5 flex-shrink-0 transition-opacity",
-        hovered || menuOpen ? "opacity-100 visible" : "opacity-0 invisible",
+        hovered || menuOpen ? "opacity-100 visible pointer-events-auto" : "opacity-0 invisible pointer-events-none",
         isOwn ? "flex-row-reverse" : "flex-row"
       )}>
-        
+        {/* Reply */}
+        <button
+          onClick={() => onReply(msg)}
+          className="p-1.5 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+          title="Reply"
+        >
+          <Reply className="h-3.5 w-3.5" />
+        </button>
 
         {/* Reaction */}
         <button
