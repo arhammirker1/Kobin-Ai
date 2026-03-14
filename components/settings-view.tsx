@@ -8,10 +8,10 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
-import { CheckCircle2, AlertCircle, Unlink, Video, ExternalLink } from "lucide-react"
+import { Moon, Sun, User, Mail, Loader2, Unlink, Video, ExternalLink, AlertCircle, CheckCircle2 } from "lucide-react"
 import { useTheme } from "next-themes"
 import { toast } from "sonner"
-import { Moon, Sun, User, Mail, Loader2 } from "lucide-react"
+
 
 // google calender integration
 function GoogleIntegrationCard() {
