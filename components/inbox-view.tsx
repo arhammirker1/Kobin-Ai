@@ -262,7 +262,8 @@ function EventInviteCard({
   message: ChatMessage
   currentUserId: string
 }) {
-  const [status, setStatus] = useState<"pending" | "accepted" | "declined">("pending")
+  const supabase = useMemo(() => createClient(), [])
+  const [status, setStatus] = useState<"pending" | "accepted" | "declined" | "loading">("loading")
   const [loading, setLoading] = useState(false)
 
   let data: any = {}
@@ -273,6 +274,20 @@ function EventInviteCard({
   }
 
   const isInvitee = message.sender_id !== currentUserId
+
+  // Load actual status from DB on mount
+  useEffect(() => {
+    if (!data.invite_id) { setStatus("pending"); return }
+    const load = async () => {
+      const { data: invite } = await supabase
+        .from("event_invites")
+        .select("status")
+        .eq("id", data.invite_id)
+        .single()
+      setStatus((invite?.status as any) || "pending")
+    }
+    load()
+  }, [data.invite_id])
 
   const respond = async (response: "accepted" | "declined") => {
     setLoading(true)
@@ -299,6 +314,21 @@ function EventInviteCard({
     setLoading(false)
   }
 
+  if (status === "loading") {
+    return (
+      <div className="max-w-sm rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+        <div className="bg-primary/5 border-b border-border px-4 py-2 flex items-center gap-2">
+          <CalendarIcon size={14} className="text-primary" />
+          <span className="text-xs font-semibold text-primary">Meeting Invite</span>
+        </div>
+        <div className="px-4 py-3">
+          <div className="h-3 w-32 bg-muted animate-pulse rounded mb-2" />
+          <div className="h-2 w-24 bg-muted animate-pulse rounded" />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="max-w-sm rounded-xl border border-border bg-card shadow-sm overflow-hidden">
       <div className="bg-primary/5 border-b border-border px-4 py-2 flex items-center gap-2">
@@ -323,12 +353,20 @@ function EventInviteCard({
             {data.meeting_link}
           </a>
         )}
+        {/* Sender sees response status */}
         {!isInvitee && (
-          <p className="text-xs text-muted-foreground italic">
-            Sent by {data.inviter_name} · awaiting response
+          <p className={`text-xs font-medium italic ${
+            status === "accepted" ? "text-emerald-500" :
+            status === "declined" ? "text-destructive" :
+            "text-muted-foreground"
+          }`}>
+            {status === "accepted" ? "✓ Accepted" :
+             status === "declined" ? "✗ Declined" :
+             `Sent by ${data.inviter_name} · awaiting response`}
           </p>
         )}
       </div>
+      {/* Invitee sees buttons only if pending */}
       {isInvitee && status === "pending" && (
         <div className="px-4 pb-3 flex gap-2">
           <button
@@ -348,7 +386,7 @@ function EventInviteCard({
         </div>
       )}
       {isInvitee && status === "accepted" && (
-        <div className="px-4 pb-3 text-xs font-semibold text-emerald-600">
+        <div className="px-4 pb-3 text-xs font-semibold text-emerald-500">
           ✓ Accepted — added to your calendar
         </div>
       )}
