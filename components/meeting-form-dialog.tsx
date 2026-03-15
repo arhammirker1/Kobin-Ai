@@ -52,6 +52,7 @@ interface MeetingFormDialogProps {
   showInternalParticipants?: boolean
   /** Called with the final form + resolved meeting link after event is saved */
   onSaved: (data: MeetingFormData) => void
+  onDelete?: () => void
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -528,6 +529,17 @@ export function MeetingFormDialog({
         </div>
 
         <DialogFooter className="gap-2">
+          {onDelete && (
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={onDelete}
+              disabled={saving}
+              className="mr-auto"
+            >
+              Delete
+            </Button>
+          )}
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
             Cancel
           </Button>
