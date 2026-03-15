@@ -33,11 +33,41 @@ export function TaskAssignmentNotification() {
   }
 
   useEffect(() => {
-    if (!isClient) return
-    checkForNewAssignments()
-    const interval = setInterval(checkForNewAssignments, 10000)
-    return () => clearInterval(interval)
-  }, [isClient])
+  if (!isClient) return
+  let userId: string | null = null
+
+  const setup = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    userId = user.id
+
+    const channel = supabase
+      .channel("task-assignments")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "tasks",
+          filter: `assigned_to=eq.${user.id}`,
+        },
+        (payload) => {
+          const task = payload.new as Task
+          const shownTaskIds = getShownTaskIds()
+          if (!shownTaskIds.has(task.id)) {
+            markTaskAsShown(task.id)
+            sendTaskPush(task)
+          }
+        }
+      )
+      .subscribe()
+
+    return () => supabase.removeChannel(channel)
+  }
+
+  const cleanup = setup()
+  return () => { cleanup.then((fn) => fn?.()) }
+}, [isClient])
 
   const checkForNewAssignments = async () => {
     const { data: { user } } = await supabase.auth.getUser()

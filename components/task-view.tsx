@@ -120,15 +120,19 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([])
 
   const loadCommentCounts = async (taskList: Task[]) => {
-    const counts: Record<string, number> = {}
-    await Promise.all(
-      taskList.map(async (task) => {
-        const count = await getTaskCommentCount(task.id)
-        counts[task.id] = count
-      }),
-    )
-    setCommentCounts(counts)
+  if (!taskList.length) return
+  const taskIds = taskList.map((t) => t.id)
+  const { data } = await supabase
+    .from("task_comments")
+    .select("task_id")
+    .in("task_id", taskIds)
+
+  const counts: Record<string, number> = {}
+  for (const row of data || []) {
+    counts[row.task_id] = (counts[row.task_id] || 0) + 1
   }
+  setCommentCounts(counts)
+}
 
   const {
     data: tasks,

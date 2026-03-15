@@ -7,21 +7,20 @@ export async function getTeamMeetingsForUser(userId: string) {
   const supabase = createClient()
 
   // Get meetings where user is founder
-  const { data: founderMeetings, error: founderError } = await supabase
-    .from("team_meetings")
-    .select("*")
-    .eq("founder_id", userId)
-
-  if (founderError) throw founderError
-
-  // Get meetings where user is assigned (individual)
-  const { data: individualMeetings, error: individualError } = await supabase
+  const [founderRes, individualRes] = await Promise.all([
+  supabase.from("team_meetings").select("*").eq("founder_id", userId),
+  supabase
     .from("team_meetings")
     .select("*")
     .eq("team_member_id", userId)
-    .eq("meeting_type", "individual")
+    .eq("meeting_type", "individual"),
+])
 
-  if (individualError) throw individualError
+if (founderRes.error) throw founderRes.error
+if (individualRes.error) throw individualRes.error
+
+const founderMeetings = founderRes.data
+const individualMeetings = individualRes.data
 
   // Get joint meetings user is participating in
   const { data: participantMeetings, error: participantError } = await supabase

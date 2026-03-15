@@ -906,11 +906,13 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
   }
 
   // Single query for ALL unread counts
-  const { data: allUnread } = await supabase
-    .from("chat_messages")
-    .select("room_id, created_at, sender_id")
-    .in("room_id", roomIds)
-    .neq("sender_id", userId)
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+const { data: allUnread } = await supabase
+  .from("chat_messages")
+  .select("room_id, created_at, sender_id")
+  .in("room_id", roomIds)
+  .neq("sender_id", userId)
+  .gte("created_at", thirtyDaysAgo)
 
   // Calculate unread per room
   const unreadByRoom: Record<string, number> = {}

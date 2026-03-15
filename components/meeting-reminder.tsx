@@ -1,7 +1,7 @@
 // components/meeting-reminder.tsx
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { parseISO, differenceInMinutes } from "date-fns"
 
@@ -31,22 +31,29 @@ export function MeetingReminder() {
     return () => clearInterval(interval)
   }, [events, shownReminders])
 
-  const fetchUpcomingEvents = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
+  // Cache the user ID outside the polling function
+const userIdRef = useRef<string | null>(null)
 
-    const now = new Date()
-    const twentyMinutesFromNow = new Date(now.getTime() + 20 * 60 * 1000)
+useEffect(() => {
+  supabase.auth.getUser().then(({ data: { user } }) => {
+    if (user) userIdRef.current = user.id
+  })
+}, [])
 
-    const { data, error } = await supabase
-      .from("events")
-      .select("*")
-      .eq("user_id", user.id)
-      .gte("start_time", now.toISOString())
-      .lte("start_time", twentyMinutesFromNow.toISOString())
+const fetchUpcomingEvents = async () => {
+  if (!userIdRef.current) return
+  const now = new Date()
+  const twentyMinutesFromNow = new Date(now.getTime() + 20 * 60 * 1000)
 
-    if (!error && data) setEvents(data)
-  }
+  const { data, error } = await supabase
+    .from("events")
+    .select("*")
+    .eq("user_id", userIdRef.current)
+    .gte("start_time", now.toISOString())
+    .lte("start_time", twentyMinutesFromNow.toISOString())
+
+  if (!error && data) setEvents(data)
+}
 
   const sendMeetingPush = async (event: Event, minutesUntil: number) => {
     const isUrgent = minutesUntil <= 1
