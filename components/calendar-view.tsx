@@ -636,6 +636,16 @@ export function CalendarView() {
     }
   }
 
+  const handleDelete = async () => {
+    if (!editingEvent) return
+    const { error } = await supabase.from("events").delete().eq("id", editingEvent.id)
+    if (error) { toast.error("Failed to delete event"); return }
+    toast.success("Event deleted")
+    setEditDialogOpen(false)
+    setEditingEvent(null)
+    fetchEvents()
+  }
+
   const handleUpdate = async (form: MeetingFormData) => {
 
     if (!editingEvent) return
@@ -787,6 +797,7 @@ export function CalendarView() {
           initial={editingEvent}
           showInternalParticipants={true}
           onSaved={handleUpdate}
+          onDelete={handleDelete}
         />
       )}
     </div>
