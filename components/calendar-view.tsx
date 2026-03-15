@@ -609,31 +609,9 @@ export function CalendarView() {
     setEditDialogOpen(true)
   }
 
-  const handleCreate = async (form: MeetingFormData) => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const startISO = parseISO(`${form.date}T${form.startTime}`).toISOString()
-    const endISO = parseISO(`${form.date}T${form.endTime}`).toISOString()
-
-    const { error } = await supabase.from("events").insert({
-      user_id: user.id,
-      title: form.title,
-      start_time: startISO,
-      end_time: endISO,
-      type: form.type,
-      meeting_link: form.meeting_link || null,
-      purpose: form.purpose || null,
-      relationship_id: null,
-    })
-
-    if (error) {
-      toast.error("Failed to create event")
-    } else {
-      toast.success("Event created")
-      setCreateDialogOpen(false)
-      fetchEvents()
-    }
+  const handleCreate = async (_form: MeetingFormData) => {
+    // MeetingFormDialog handles the DB insert itself — just refresh
+    fetchEvents()
   }
 
   const handleDelete = async () => {
@@ -787,7 +765,7 @@ export function CalendarView() {
         initial={createInitial}
         title="New Event"
         showInternalParticipants={true}
-        onSaved={(form) => { handleCreate(form); setCreateDialogOpen(false) }}
+        onSaved={handleCreate}
       />
       {editingEvent && (
         <MeetingFormDialog

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -415,8 +415,12 @@ export function MeetingFormDialog({
 
   // ── Submit ─────────────────────────────────────────────────────────────────
 
+  const savingRef = useRef(false)
+
   const handleSave = async () => {
     if (!form.title.trim()) { toast.error("Title is required"); return }
+    if (savingRef.current) return
+    savingRef.current = true
     setSaving(true)
 
     try {
@@ -472,42 +476,34 @@ export function MeetingFormDialog({
         }
       }
 
-      // Insert event into DB
-      const { error } = await supabase.from("events").insert({
-        user_id: user.id,
-        title: form.title,
-        start_time: startISO,
-        end_time: endISO,
-        type: form.type,
-        meeting_link: finalLink,
-        purpose: form.purpose || null,
-        client_id: clientId || null,
-        relationship_id: relationshipId || null,
-      })
+      // Insert event and get ID back in one query
+      const { data: newEvent, error } = await supabase
+        .from("events")
+        .insert({
+          user_id: user.id,
+          title: form.title,
+          start_time: startISO,
+          end_time: endISO,
+          type: form.type,
+          meeting_link: finalLink,
+          purpose: form.purpose || null,
+          client_id: clientId || null,
+          relationship_id: relationshipId || null,
+        })
+        .select("id")
+        .single()
 
       if (error) throw error
 
-      // Send invites to internal participants
-      // Fetch the newly created event ID
-      const { data: newEvent } = await supabase
-        .from("events")
-        .select("id")
-        .eq("user_id", user.id)
-        .eq("title", form.title)
-        .eq("start_time", startISO)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .single()
-
-      // Send invites to internal workspace members
+      // Send invites in parallel for speed
+      const invitePromises: Promise<void>[] = []
       if (selectedInternalIds.length > 0 && newEvent?.id) {
-        await sendInvites(newEvent.id, user.id, startISO, endISO, finalLink)
+        invitePromises.push(sendInvites(newEvent.id, user.id, startISO, endISO, finalLink))
       }
-
-      // Send inbox message to client if this is a client meeting
       if (clientId && newEvent?.id) {
-        await sendClientMeetingMessage(newEvent.id, user.id, startISO, endISO, finalLink)
+        invitePromises.push(sendClientMeetingMessage(newEvent.id, user.id, startISO, endISO, finalLink))
       }
+      await Promise.all(invitePromises)
 
       toast.success("Meeting scheduled")
       onSaved({ ...form, meeting_link: finalLink ?? undefined })
@@ -516,6 +512,7 @@ export function MeetingFormDialog({
       toast.error(err.message || "Failed to schedule meeting")
     } finally {
       setSaving(false)
+      savingRef.current = false
     }
   }
 
