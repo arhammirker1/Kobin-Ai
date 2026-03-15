@@ -1,7 +1,8 @@
 // components/push-provider.tsx
 "use client"
+
+import { useEffect, useRef } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { toast } from "sonner"
 
 // Helper to send push to a user (call from server-side routes)
 export async function sendPushToUser(userId: string, payload: object) {

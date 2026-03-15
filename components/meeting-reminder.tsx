@@ -1,5 +1,9 @@
 // components/meeting-reminder.tsx
 "use client"
+
+import { useEffect, useState } from "react"
+import { createClient } from "@/lib/supabase/client"
+import { parseISO, differenceInMinutes, format } from "date-fns"
 import { X, ExternalLink, Clock, Calendar } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
