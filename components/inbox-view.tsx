@@ -1271,6 +1271,40 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
           return bTime - aTime
         })
       })
+
+      // Web push to all other room members
+      const { data: members } = await supabase
+        .from("chat_room_members")
+        .select("user_id")
+        .eq("room_id", activeRoomId)
+        .neq("user_id", currentUser.id)
+
+      if (members?.length) {
+        const pushBody = file ? `📎 ${file.name}` : content
+        const senderName = currentUser.full_name || "Someone"
+        await Promise.all(
+          members.map((m) =>
+            fetch("/api/push/send", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "x-internal-secret": process.env.NEXT_PUBLIC_INTERNAL_API_SECRET || "",
+              },
+              body: JSON.stringify({
+                user_id: m.user_id,
+                payload: {
+                  type: "inbox_message",
+                  title: senderName,
+                  body: pushBody,
+                  room_id: activeRoomId,
+                  sender_name: senderName,
+                  message_preview: pushBody,
+                },
+              }),
+            }).catch(() => {})
+          )
+        )
+      }
     }
   }, [activeRoomId, currentUser, replyTo, editingMsg, supabase])
 
