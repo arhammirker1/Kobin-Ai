@@ -330,6 +330,87 @@ export function MeetingFormDialog({
     }
   }
 
+
+  // ── Send meeting notification to client ────────────────────────────────────
+
+  const sendClientMeetingMessage = async (
+    eventId: string,
+    inviterUserId: string,
+    startISO: string,
+    endISO: string,
+    meetingLink: string | null
+  ) => {
+    if (!clientId) return
+
+    // Get client's portal_user_id
+    const { data: client } = await supabase
+      .from("clients")
+      .select("portal_user_id, name")
+      .eq("id", clientId)
+      .single()
+
+    if (!client?.portal_user_id) return // Client doesn't have portal access yet
+
+    const clientUserId = client.portal_user_id
+
+    // Find DM room between founder and client
+    const dmKey = [inviterUserId, clientUserId].sort().join(":")
+
+    const { data: existingRoom } = await supabase
+      .from("chat_rooms")
+      .select("id")
+      .eq("dm_key", dmKey)
+      .maybeSingle()
+
+    if (!existingRoom?.id) return // No DM room exists with this client yet
+
+    // Get inviter name
+    const { data: inviterProfile } = await supabase
+      .from("profiles")
+      .select("full_name")
+      .eq("id", inviterUserId)
+      .single()
+
+    const startDate = new Date(startISO)
+    const endDate = new Date(endISO)
+    const dateStr = startDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+    const startStr = startDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+    const endStr = endDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+
+    // Create an invite row for the client too
+    const { data: invite } = await supabase
+      .from("event_invites")
+      .insert({
+        event_id: eventId,
+        invitee_user_id: clientUserId,
+        inviter_user_id: inviterUserId,
+        status: "pending",
+      })
+      .select("id")
+      .single()
+
+    if (!invite?.id) return
+
+    const messageContent = JSON.stringify({
+      type: "event_invite",
+      invite_id: invite.id,
+      event_title: form.title,
+      event_date: dateStr,
+      event_time: `${startStr} – ${endStr}`,
+      event_purpose: form.purpose || null,
+      meeting_link: meetingLink,
+      inviter_name: inviterProfile?.full_name || "Your team",
+    })
+
+    await supabase.from("chat_messages").insert({
+      room_id: existingRoom.id,
+      sender_id: inviterUserId,
+      content: messageContent,
+      message_type: "event_invite",
+      invite_id: invite.id,
+    })
+  }
+
   // ── Submit ─────────────────────────────────────────────────────────────────
 
   // ── Submit ─────────────────────────────────────────────────────────────────
@@ -407,20 +488,25 @@ export function MeetingFormDialog({
       if (error) throw error
 
       // Send invites to internal participants
-      if (selectedInternalIds.length > 0) {
-        const { data: newEvent } = await supabase
-          .from("events")
-          .select("id")
-          .eq("user_id", user.id)
-          .eq("title", form.title)
-          .eq("start_time", startISO)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .single()
+      // Fetch the newly created event ID
+      const { data: newEvent } = await supabase
+        .from("events")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("title", form.title)
+        .eq("start_time", startISO)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single()
 
-        if (newEvent?.id) {
-          await sendInvites(newEvent.id, user.id, startISO, endISO, finalLink)
-        }
+      // Send invites to internal workspace members
+      if (selectedInternalIds.length > 0 && newEvent?.id) {
+        await sendInvites(newEvent.id, user.id, startISO, endISO, finalLink)
+      }
+
+      // Send inbox message to client if this is a client meeting
+      if (clientId && newEvent?.id) {
+        await sendClientMeetingMessage(newEvent.id, user.id, startISO, endISO, finalLink)
       }
 
       toast.success("Meeting scheduled")
