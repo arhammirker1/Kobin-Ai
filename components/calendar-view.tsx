@@ -637,32 +637,7 @@ export function CalendarView() {
   }
 
   const handleUpdate = async (form: MeetingFormData) => {
-    if (!editingEvent) return
 
-    const startISO = parseISO(`${form.date}T${form.startTime}`).toISOString()
-    const endISO = parseISO(`${form.date}T${form.endTime}`).toISOString()
-
-    const { error } = await supabase
-      .from("events")
-      .update({
-        title: form.title,
-        start_time: startISO,
-        end_time: endISO,
-        type: form.type,
-        meeting_link: form.meeting_link || null,
-        purpose: form.purpose || null,
-      })
-      .eq("id", editingEvent.id)
-
-    if (error) {
-      toast.error("Failed to update event")
-    } else {
-      toast.success("Event updated")
-      setEditDialogOpen(false)
-      setEditingEvent(null)
-      fetchEvents()
-    }
-  }
     if (!editingEvent) return
 
     const startISO = parseISO(`${form.date}T${form.startTime}`).toISOString()
