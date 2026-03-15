@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
+import { pushToUser } from "@/lib/web-push/push-to-user"
 
 export async function POST(req: Request) {
   const supabase = await createClient()
@@ -62,6 +63,12 @@ export async function POST(req: Request) {
       .eq("title", event.title)
       .eq("start_time", event.start_time)
       .maybeSingle()
+    await pushToUser(invite.inviter_user_id, {
+        type: "inbox_message",
+        title: "✅ Invite Accepted",
+        body: `Someone accepted your meeting invite for "${event.title}"`,
+        room_id: null,
+    })
 
     if (!existingEvent) {
       const { error: eventError } = await supabase.from("events").insert({

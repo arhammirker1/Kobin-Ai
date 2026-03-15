@@ -6,6 +6,7 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/sonner"
 import { MeetingReminder } from "@/components/meeting-reminder"
 import { TaskAssignmentNotification } from "@/components/task-assignment-notification"
+import { PushProvider } from "@/components/push-provider"
 import "./globals.css"
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist" })
@@ -45,6 +46,7 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           {children}
           <MeetingReminder />
+          <PushProvider />
           <TaskAssignmentNotification />
           <Toaster />
           <Analytics />
