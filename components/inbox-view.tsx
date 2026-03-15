@@ -1146,32 +1146,37 @@ const { data: allUnread } = await supabase
           filter: `room_id=eq.${activeRoomId}`,
         },
         async (payload) => {
-          const newMsg = payload.new as ChatMessage
+  const newMsg = payload.new as ChatMessage
 
-          // Fetch full message with sender
-          const { data } = await supabase
-            .from("chat_messages")
-            .select(`
-              *,
-              sender:profiles(id, full_name),
-              reply_to:chat_messages!reply_to_id(
-                id, content, file_name,
-                sender:profiles(id, full_name)
-              )
-            `)
-            .eq("id", newMsg.id)
-            .single()
+  // Skip if this is our own message — optimistic update already added it
+  if (newMsg.sender_id === currentUser.id) {
+    // Replace the temp optimistic message with the real ID from DB
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id.startsWith("temp-") && m.sender_id === currentUser.id && m.content === newMsg.content
+          ? { ...m, id: newMsg.id, created_at: newMsg.created_at }
+          : m
+      )
+    )
+    return
+  }
 
-          if (data) {
-            setMessages((prev) => [...prev, data as ChatMessage])
-            // Mark read if this is the active room
-            await supabase
-              .from("chat_room_members")
-              .update({ last_read_at: new Date().toISOString() })
-              .eq("room_id", activeRoomId)
-              .eq("user_id", currentUser.id)
-          }
-        }
+  // For other users' messages, enrich with sender name from people list
+  // then add — no extra DB fetch needed
+  const enriched: ChatMessage = {
+    ...newMsg,
+    sender: people.find((p) => p.id === newMsg.sender_id) || { id: newMsg.sender_id, full_name: "Unknown" },
+    reply_to: null, // reply_to enrichment on demand is fine
+  }
+
+  setMessages((prev) => [...prev, enriched])
+
+  await supabase
+    .from("chat_room_members")
+    .update({ last_read_at: new Date().toISOString() })
+    .eq("room_id", activeRoomId)
+    .eq("user_id", currentUser.id)
+}
       )
       .on(
         "postgres_changes",
@@ -1192,7 +1197,7 @@ const { data: allUnread } = await supabase
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [activeRoomId, currentUser, supabase])
+  }, [activeRoomId, currentUser, supabase, people])
 
   // ── Scroll to bottom on new messages ──────────────────────────────────────
   useEffect(() => {
@@ -1245,21 +1250,42 @@ const { data: allUnread } = await supabase
 
     if (!content && !fileUrl) return
 
-    const { error } = await supabase.from("chat_messages").insert({
-      room_id: activeRoomId,
-      sender_id: currentUser.id,
-      content: content || null,
-      file_url: fileUrl,
-      file_name: fileName,
-      file_type: fileType,
-      file_size: fileSize,
-      reply_to_id: replyTo?.id || null,
-    })
+    // Optimistically add message immediately
+const tempId = `temp-${Date.now()}`
+const optimisticMsg: ChatMessage = {
+  id: tempId,
+  room_id: activeRoomId,
+  sender_id: currentUser.id,
+  content: content || null,
+  file_url: fileUrl,
+  file_name: fileName,
+  file_type: fileType,
+  file_size: fileSize,
+  reply_to_id: replyTo?.id || null,
+  edited_at: null,
+  created_at: new Date().toISOString(),
+  sender: { id: currentUser.id, full_name: currentUser.full_name },
+  reply_to: replyTo ? { id: replyTo.id, content: replyTo.content, file_name: replyTo.file_name, sender: replyTo.sender } as any : null,
+}
+setMessages((prev) => [...prev, optimisticMsg])
+setReplyTo(null)
 
-    if (error) {
-      toast.error("Failed to send message")
-    } else {
-      setReplyTo(null)
+const { error } = await supabase.from("chat_messages").insert({
+  room_id: activeRoomId,
+  sender_id: currentUser.id,
+  content: content || null,
+  file_url: fileUrl,
+  file_name: fileName,
+  file_type: fileType,
+  file_size: fileSize,
+  reply_to_id: replyTo?.id || null,
+})
+
+if (error) {
+  // Revert optimistic message on failure
+  setMessages((prev) => prev.filter((m) => m.id !== tempId))
+  toast.error("Failed to send message")
+} else {
       // Re-sort rooms so latest message bubbles to top
       setRooms((prev) => {
         const updated = prev.map((r) =>
