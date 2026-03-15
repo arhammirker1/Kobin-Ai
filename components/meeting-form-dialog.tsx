@@ -463,8 +463,16 @@ export function MeetingFormDialog({
         if (res.ok && data.meet_link) {
           finalLink = data.meet_link
           setGeneratedLink(data.meet_link)
-          // If the API already inserted the event (some implementations do), call onSaved and return
-          if (data.event_inserted) {
+          // create-meet route already inserted the event — send invites and exit
+          if (data.event?.id) {
+            const invitePromises: Promise<void>[] = []
+            if (selectedInternalIds.length > 0) {
+              invitePromises.push(sendInvites(data.event.id, user.id, startISO, endISO, finalLink))
+            }
+            if (clientId) {
+              invitePromises.push(sendClientMeetingMessage(data.event.id, user.id, startISO, endISO, finalLink))
+            }
+            await Promise.all(invitePromises)
             toast.success("Meeting scheduled with Google Meet!")
             onSaved({ ...form, meeting_link: finalLink ?? undefined })
             onOpenChange(false)
