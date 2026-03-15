@@ -1,5 +1,5 @@
 "use client"
-import { Home, Calendar, CheckSquare, Settings, LayoutDashboard, MessageSquare } from "lucide-react"
+import { Home, Calendar, CheckSquare, Settings, LayoutDashboard, MessageSquare, Archive } from "lucide-react"
 import {
   Sidebar,
   SidebarContent,
@@ -20,6 +20,7 @@ const mainNav = [
   { title: "Inbox", icon: MessageSquare },
   { title: "Calendar", icon: Calendar },
   { title: "Tasks", icon: CheckSquare },
+  { title: "Vault", icon: Archive },
 ]
 
 const extraNav = [{ title: "Settings", icon: Settings }]

@@ -7,6 +7,7 @@ import { SettingsView } from "@/components/settings-view"
 import { InboxView } from "@/components/inbox-view"
 import { Header } from "@/components/header"
 import { FileText } from "lucide-react"
+import { ClientVaultView } from "@/components/client-vault-view"
 
 export function ClientPortalContent({ activeTab, clientData }: { activeTab: string; clientData: any }) {
   return (
@@ -24,7 +25,8 @@ export function ClientPortalContent({ activeTab, clientData }: { activeTab: stri
         {activeTab === "Home" && <ClientHomeView clientData={clientData} />}
         {activeTab === "Tasks" && <ClientTaskView clientData={clientData} />}
         {activeTab === "Calendar" && <CalendarView />}
-        {activeTab === "Settings" && <SettingsView />}
+        {activeTab === "Settings" && <SettingsView isClient={true} />}
+        {activeTab === "Vault" && <ClientVaultView clientData={clientData} />}
         
         {/* Placeholder for other views */}
         {activeTab !== "Home" && activeTab !== "Tasks" && activeTab !== "Calendar" && activeTab !== "Settings" && (

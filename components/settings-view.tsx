@@ -15,9 +15,7 @@ import {
 import { useTheme } from "next-themes"
 import { toast } from "sonner"
 
-// ── Google Integration Card ───────────────────────────────────────────────────
-
-function GoogleIntegrationCard() {
+function GoogleIntegrationCard({ isClient }: { isClient?: boolean }) {
   const [integration, setIntegration] = useState<{
     google_email: string | null
     is_connected: boolean
@@ -34,12 +32,12 @@ function GoogleIntegrationCard() {
     const params = new URLSearchParams(window.location.search)
     if (params.get("success") === "google_connected") {
       toast.success("Google account connected!")
-      window.history.replaceState({}, "", "/settings")
+      window.history.replaceState({}, "", window.location.pathname)
       fetchIntegration()
     }
     if (params.get("error")) {
       toast.error("Google connection failed. Please try again.")
-      window.history.replaceState({}, "", "/settings")
+      window.history.replaceState({}, "", window.location.pathname)
     }
   }, [])
 
@@ -101,12 +99,14 @@ function GoogleIntegrationCard() {
           </div>
           Google
           {isConnected && (
-            <Badge className="ml-1 bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px]">
-              Connected
-            </Badge>
+            <Badge className="ml-1 bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px]">Connected</Badge>
           )}
         </CardTitle>
-        <CardDescription>Google Meet for scheduling and Google Drive for Vault file storage</CardDescription>
+        <CardDescription>
+          {isClient
+            ? "Connect Google to enable Google Meet links for your meetings"
+            : "Google Meet for scheduling and Google Drive for Vault file storage"}
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {isLoading ? (
@@ -115,7 +115,6 @@ function GoogleIntegrationCard() {
           </div>
         ) : isConnected ? (
           <>
-            {/* Connected account */}
             <div className="flex items-center gap-3 p-3 rounded-lg bg-emerald-50 border border-emerald-200">
               <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
               <div>
@@ -123,8 +122,6 @@ function GoogleIntegrationCard() {
                 <p className="text-xs text-emerald-600">{integration?.google_email}</p>
               </div>
             </div>
-
-            {/* Feature rows */}
             <div className="space-y-1.5 text-sm text-muted-foreground">
               <div className="flex items-center gap-2">
                 <Video className="h-4 w-4 text-primary shrink-0" />
@@ -136,58 +133,40 @@ function GoogleIntegrationCard() {
               </div>
             </div>
 
-            {/* Drive status row */}
-            <div className="border border-border rounded-lg p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm font-medium">
-                  <HardDrive className="h-4 w-4" />
-                  Google Drive (Vault)
+            {/* Drive section — hidden from clients */}
+            {!isClient && (
+              <div className="border border-border rounded-lg p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <HardDrive className="h-4 w-4" />
+                    Google Drive (Vault)
+                  </div>
+                  {driveConnected ? (
+                    <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px]">Active</Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-[10px] text-muted-foreground">Not set up</Badge>
+                  )}
                 </div>
                 {driveConnected ? (
-                  <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px]">
-                    Active
-                  </Badge>
+                  <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <Cloud className="h-3.5 w-3.5 text-emerald-600" />
+                    Vault root folder created in your Drive — files upload automatically
+                  </p>
                 ) : (
-                  <Badge variant="outline" className="text-[10px] text-muted-foreground">
-                    Not set up
-                  </Badge>
+                  <div className="space-y-2">
+                    <p className="text-xs text-muted-foreground">
+                      Set up Drive to enable file uploads in the Vault. A root "Vault" folder will be created in your Google Drive.
+                    </p>
+                    <Button size="sm" variant="outline" onClick={handleConnectDrive} disabled={isConnectingDrive} className="gap-2 h-8 text-xs">
+                      {isConnectingDrive ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <HardDrive className="h-3.5 w-3.5" />}
+                      Set up Drive
+                    </Button>
+                  </div>
                 )}
               </div>
+            )}
 
-              {driveConnected ? (
-                <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                  <Cloud className="h-3.5 w-3.5 text-emerald-600" />
-                  Vault root folder created in your Drive — files upload automatically
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  <p className="text-xs text-muted-foreground">
-                    Set up Drive to enable file uploads in the Vault. A root "Vault" folder will be created in your Google Drive.
-                  </p>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleConnectDrive}
-                    disabled={isConnectingDrive}
-                    className="gap-2 h-8 text-xs"
-                  >
-                    {isConnectingDrive
-                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      : <HardDrive className="h-3.5 w-3.5" />
-                    }
-                    Set up Drive
-                  </Button>
-                </div>
-              )}
-            </div>
-
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleDisconnect}
-              disabled={isDisconnecting}
-              className="gap-2 text-destructive hover:text-destructive border-destructive/30"
-            >
+            <Button variant="outline" size="sm" onClick={handleDisconnect} disabled={isDisconnecting} className="gap-2 text-destructive hover:text-destructive border-destructive/30">
               {isDisconnecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unlink className="h-4 w-4" />}
               Disconnect Google Account
             </Button>
@@ -197,7 +176,9 @@ function GoogleIntegrationCard() {
             <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border">
               <AlertCircle className="h-5 w-5 text-muted-foreground shrink-0" />
               <p className="text-sm text-muted-foreground">
-                Not connected — connect to enable Google Meet and Vault Drive storage
+                {isClient
+                  ? "Not connected — connect to enable Google Meet links for meetings"
+                  : "Not connected — connect to enable Google Meet and Vault Drive storage"}
               </p>
             </div>
             <Button onClick={() => window.location.href = "/api/auth/google"} className="gap-2">
@@ -216,9 +197,7 @@ function GoogleIntegrationCard() {
   )
 }
 
-// ── Settings View ─────────────────────────────────────────────────────────────
-
-export function SettingsView() {
+export function SettingsView({ isClient }: { isClient?: boolean } = {}) {
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
@@ -240,11 +219,8 @@ export function SettingsView() {
           const { data: profile } = await supabase.from("profiles").select("full_name").eq("id", user.id).single()
           if (profile) setFullName(profile.full_name || "")
         }
-      } catch (error) {
-        toast.error("Failed to load profile")
-      } finally {
-        setIsLoading(false)
-      }
+      } catch { toast.error("Failed to load profile") }
+      finally { setIsLoading(false) }
     }
     getUserProfile()
   }, [supabase])
@@ -256,11 +232,8 @@ export function SettingsView() {
       const { error } = await supabase.from("profiles").update({ full_name: fullName }).eq("id", userId)
       if (error) throw error
       toast.success("Profile updated successfully!")
-    } catch {
-      toast.error("Failed to update profile")
-    } finally {
-      setIsSaving(false)
-    }
+    } catch { toast.error("Failed to update profile") }
+    finally { setIsSaving(false) }
   }
 
   if (isLoading) {
@@ -277,9 +250,7 @@ export function SettingsView() {
         <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
         <p className="text-muted-foreground mt-2">Manage your account settings and preferences</p>
       </div>
-
       <div className="grid gap-6 max-w-2xl">
-        {/* Appearance */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -297,43 +268,30 @@ export function SettingsView() {
                 </p>
               </div>
               {mounted && (
-                <Switch
-                  id="dark-mode"
-                  checked={theme === "dark"}
-                  onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
-                />
+                <Switch id="dark-mode" checked={theme === "dark"} onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")} />
               )}
             </div>
           </CardContent>
         </Card>
 
-        {/* Profile */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <User className="h-5 w-5" />
-              Profile
+              <User className="h-5 w-5" />Profile
             </CardTitle>
             <CardDescription>Update your personal information</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email" className="flex items-center gap-2">
-                <Mail className="h-4 w-4" />
-                Email
+                <Mail className="h-4 w-4" />Email
               </Label>
               <Input id="email" type="email" value={userEmail} disabled className="bg-muted" />
               <p className="text-xs text-muted-foreground">Email cannot be changed</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="fullName">Full Name</Label>
-              <Input
-                id="fullName"
-                type="text"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder="Enter your full name"
-              />
+              <Input id="fullName" type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Enter your full name" />
             </div>
             <Button onClick={handleSaveProfile} disabled={isSaving} className="w-full sm:w-auto">
               {isSaving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving...</> : "Save Changes"}
@@ -341,8 +299,7 @@ export function SettingsView() {
           </CardContent>
         </Card>
 
-        {/* Google (Meet + Drive) */}
-        <GoogleIntegrationCard />
+        <GoogleIntegrationCard isClient={isClient} />
       </div>
     </div>
   )

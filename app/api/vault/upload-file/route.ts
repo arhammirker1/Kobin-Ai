@@ -48,6 +48,13 @@ export async function POST(request: Request) {
         .eq("is_active", true)
         .single()
       if (teamMember?.founder_id) uploaderId = teamMember.founder_id
+    } else if (profile?.user_type === "client") {
+      const { data: client } = await supabaseAdmin
+        .from("clients")
+        .select("founder_id")
+        .eq("portal_user_id", user.id)
+        .single()
+      if (client?.founder_id) uploaderId = client.founder_id
     }
 
     // Get founder's Google token
