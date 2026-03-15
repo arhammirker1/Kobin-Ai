@@ -86,6 +86,7 @@ const DOCUMENT_TYPES = [
   "Other",
 ]
 
+
 const FOLDER_TYPE_META: Record<FolderType, { label: string; icon: React.ReactNode; clientVisible: boolean }> = {
   root: { label: "Vault Root", icon: <FolderOpen size={14} />, clientVisible: false },
   project: { label: "Project", icon: <FolderOpen size={14} />, clientVisible: false },
@@ -135,6 +136,7 @@ export function VaultView() {
 
   // Menu state
   const [menuItemId, setMenuItemId] = useState<string | null>(null)
+  const [founderId, setFounderId] = useState<string | null>(null)
 
   // ── Init ───────────────────────────────────────────────────────────────────
 
@@ -142,25 +144,46 @@ export function VaultView() {
     init()
   }, [])
 
-  const init = async () => {
+    const init = async () => {
     setIsLoading(true)
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
     setUserId(user.id)
 
-    // Check Drive connection
+    // Resolve founder ID — team members use their founder's vault
+    let founderId = user.id
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("user_type")
+      .eq("id", user.id)
+      .single()
+
+
+    if (profile?.user_type === "team_member") {
+      setIsFounder(false)
+      const { data: teamMember } = await supabase
+        .from("team_members")
+        .select("founder_id")
+        .eq("user_id", user.id)
+        .eq("is_active", true)
+        .single()
+      if (teamMember?.founder_id) founderId = teamMember.founder_id
+    }
+
+    // Check founder's Drive connection (not the team member's own)
+    setFounderId(founderId)
     const { data: integration } = await supabase
       .from("google_integrations")
       .select("drive_connected, drive_vault_folder_id")
-      .eq("user_id", user.id)
+      .eq("user_id", founderId)
       .maybeSingle()
 
     setDriveConnected(!!(integration?.drive_connected && integration?.drive_vault_folder_id))
 
-    // Load projects + folders + items in parallel
+    // Load founder's projects + folders
     await Promise.all([
-      loadProjects(user.id),
-      loadFolders(user.id),
+      loadProjects(founderId),
+      loadFolders(founderId),
     ])
 
     setIsLoading(false)
@@ -202,7 +225,7 @@ export function VaultView() {
       const json = await res.json()
       if (!res.ok) throw new Error(json.message)
       setDriveConnected(true)
-      await loadFolders(userId!)
+          await loadFolders(userId!)
       toast.success("Google Drive connected — Vault is ready")
     } catch (err: any) {
       toast.error(err.message || "Failed to connect Drive")
@@ -210,6 +233,7 @@ export function VaultView() {
       setConnectingDrive(false)
     }
   }
+  const [isFounder, setIsFounder] = useState(true)
 
   // ── Navigation ─────────────────────────────────────────────────────────────
 
@@ -280,7 +304,7 @@ export function VaultView() {
 
       // Save metadata to DB
       const { error } = await supabase.from("vault_items").insert({
-        founder_id: userId,
+        founder_id: founderId,
         project_id: selectedProjectId,
         folder_id: selectedFolderId,
         item_type: addItemType,
@@ -292,7 +316,7 @@ export function VaultView() {
         link_url: addItemType === "link" ? addForm.link_url : null,
         note_content: addItemType === "note" ? addForm.note_content : null,
         added_by: userId,
-        added_by_type: "founder",
+        added_by_type: isFounder ? "founder" : "team",
       })
 
       if (error) throw error
@@ -335,7 +359,12 @@ export function VaultView() {
         </div>
 
         {/* Drive connection status */}
-        {!driveConnected ? (
+        {driveConnected ? (
+          <div className="px-3 py-2 mx-2 mt-3 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-1.5">
+            <Cloud size={11} className="text-emerald-600" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-700">Drive connected</span>
+          </div>
+        ) : isFounder ? (
           <div className="px-3 py-3 mx-2 mt-3 rounded-xl bg-amber-50 border border-amber-200 space-y-2">
             <div className="flex items-center gap-1.5 text-amber-700">
               <CloudOff size={12} />
@@ -352,9 +381,9 @@ export function VaultView() {
             </Button>
           </div>
         ) : (
-          <div className="px-3 py-2 mx-2 mt-3 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-1.5">
-            <Cloud size={11} className="text-emerald-600" />
-            <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-700">Drive connected</span>
+          <div className="px-3 py-2 mx-2 mt-3 rounded-xl bg-amber-50 border border-amber-200 flex items-center gap-1.5">
+            <CloudOff size={11} className="text-amber-600" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-amber-700">Drive not set up</span>
           </div>
         )}
 
