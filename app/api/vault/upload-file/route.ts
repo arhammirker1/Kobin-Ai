@@ -32,11 +32,29 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "Vault folder not found" }, { status: 404 })
     }
 
-    // Get Google token
+    // Resolve founder ID — team members upload to the founder's Drive
+    let uploaderId = user.id
+    const { data: profile } = await supabaseAdmin
+      .from("profiles")
+      .select("user_type")
+      .eq("id", user.id)
+      .single()
+
+    if (profile?.user_type === "team_member") {
+      const { data: teamMember } = await supabaseAdmin
+        .from("team_members")
+        .select("founder_id")
+        .eq("user_id", user.id)
+        .eq("is_active", true)
+        .single()
+      if (teamMember?.founder_id) uploaderId = teamMember.founder_id
+    }
+
+    // Get founder's Google token
     const { data: integration } = await supabaseAdmin
       .from("google_integrations")
       .select("*")
-      .eq("user_id", user.id)
+      .eq("user_id", uploaderId)
       .eq("is_connected", true)
       .single()
 
