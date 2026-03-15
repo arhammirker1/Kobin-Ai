@@ -36,6 +36,7 @@ import {
   Trash2,
   MoreHorizontal,
   Circle,
+  Calendar as CalendarIcon,
 } from "lucide-react"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -76,6 +77,8 @@ interface ChatMessage {
   reply_to_id: string | null
   edited_at: string | null
   created_at: string
+  message_type?: string | null
+  invite_id?: string | null
   // Joined
   sender?: Profile
   reply_to?: ChatMessage | null
@@ -250,6 +253,114 @@ function ForwardDialog({
   )
 }
 
+// ─── Event Invite Card ────────────────────────────────────────────────────────
+
+function EventInviteCard({
+  message,
+  currentUserId,
+}: {
+  message: ChatMessage
+  currentUserId: string
+}) {
+  const [status, setStatus] = useState<"pending" | "accepted" | "declined">("pending")
+  const [loading, setLoading] = useState(false)
+
+  let data: any = {}
+  try {
+    data = JSON.parse(message.content || "{}")
+  } catch {
+    return null
+  }
+
+  const isInvitee = message.sender_id !== currentUserId
+
+  const respond = async (response: "accepted" | "declined") => {
+    setLoading(true)
+    try {
+      const res = await fetch("/api/event-invites/respond", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invite_id: data.invite_id, response }),
+      })
+      if (res.ok) {
+        setStatus(response)
+        toast.success(
+          response === "accepted"
+            ? "Meeting added to your calendar!"
+            : "Invite declined"
+        )
+      } else {
+        const err = await res.json()
+        toast.error(err.error || "Failed to respond")
+      }
+    } catch {
+      toast.error("Failed to respond")
+    }
+    setLoading(false)
+  }
+
+  return (
+    <div className="max-w-sm rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+      <div className="bg-primary/5 border-b border-border px-4 py-2 flex items-center gap-2">
+        <CalendarIcon size={14} className="text-primary" />
+        <span className="text-xs font-semibold text-primary">Meeting Invite</span>
+      </div>
+      <div className="px-4 py-3 space-y-1.5">
+        <p className="font-semibold text-sm">{data.event_title}</p>
+        <p className="text-xs text-muted-foreground">
+          {data.event_date} · {data.event_time}
+        </p>
+        {data.event_purpose && (
+          <p className="text-xs text-muted-foreground">{data.event_purpose}</p>
+        )}
+        {data.meeting_link && (
+          <a
+            href={data.meeting_link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-primary underline truncate block"
+          >
+            {data.meeting_link}
+          </a>
+        )}
+        {!isInvitee && (
+          <p className="text-xs text-muted-foreground italic">
+            Sent by {data.inviter_name} · awaiting response
+          </p>
+        )}
+      </div>
+      {isInvitee && status === "pending" && (
+        <div className="px-4 pb-3 flex gap-2">
+          <button
+            onClick={() => respond("accepted")}
+            disabled={loading}
+            className="flex-1 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          >
+            {loading ? "…" : "Accept"}
+          </button>
+          <button
+            onClick={() => respond("declined")}
+            disabled={loading}
+            className="flex-1 py-1.5 rounded-lg border border-border text-xs font-semibold hover:bg-muted disabled:opacity-50 transition-colors"
+          >
+            {loading ? "…" : "Decline"}
+          </button>
+        </div>
+      )}
+      {isInvitee && status === "accepted" && (
+        <div className="px-4 pb-3 text-xs font-semibold text-emerald-600">
+          ✓ Accepted — added to your calendar
+        </div>
+      )}
+      {isInvitee && status === "declined" && (
+        <div className="px-4 pb-3 text-xs font-semibold text-muted-foreground">
+          ✗ Declined
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 
 
@@ -319,6 +430,9 @@ function MessageBubble({
         )}
 
         {/* Bubble */}
+        {msg.message_type === "event_invite" ? (
+          <EventInviteCard message={msg} currentUserId={currentUserId} />
+        ) : (
         <div className={cn(
           "relative px-3.5 py-2 text-sm leading-relaxed",
           isOwn
@@ -363,6 +477,7 @@ function MessageBubble({
             </div>
           )}
         </div>
+        )}
 
         {/* Time + edited — always visible */}
         <div className={cn("flex items-center gap-1 mt-0.5 px-1", isOwn ? "flex-row-reverse" : "flex-row")}>

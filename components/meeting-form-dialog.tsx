@@ -211,6 +211,94 @@ export function MeetingFormDialog({
     setNewExternalEmail("")
   }
 
+  // ── Send invites to internal participants ──────────────────────────────────
+
+  const sendInvites = async (
+    eventId: string,
+    inviterUserId: string,
+    startISO: string,
+    endISO: string,
+    meetingLink: string | null
+  ) => {
+    for (const inviteeId of selectedInternalIds) {
+      // Create invite row
+      const { data: invite } = await supabase
+        .from("event_invites")
+        .insert({
+          event_id: eventId,
+          invitee_user_id: inviteeId,
+          inviter_user_id: inviterUserId,
+          status: "pending",
+        })
+        .select("id")
+        .single()
+
+      if (!invite?.id) continue
+
+      // Find or create a DM room between inviter and invitee
+      const { data: existingRoom } = await supabase
+        .from("chat_rooms")
+        .select("id")
+        .eq("room_type", "dm")
+        .contains("member_ids", [inviterUserId, inviteeId])
+        .limit(1)
+        .single()
+
+      let roomId = existingRoom?.id
+
+      if (!roomId) {
+        const { data: newRoom } = await supabase
+          .from("chat_rooms")
+          .insert({
+            room_type: "dm",
+            member_ids: [inviterUserId, inviteeId],
+            created_by: inviterUserId,
+          })
+          .select("id")
+          .single()
+        roomId = newRoom?.id
+      }
+
+      if (!roomId) continue
+
+      // Get inviter name
+      const { data: inviterProfile } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("id", inviterUserId)
+        .single()
+
+      const inviterName = inviterProfile?.full_name || "Someone"
+      const startDate = new Date(startISO)
+      const endDate = new Date(endISO)
+      const dateStr = startDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+      const startStr = startDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+      const endStr = endDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+
+      const messageContent = JSON.stringify({
+        type: "event_invite",
+        invite_id: invite.id,
+        event_title: form.title,
+        event_date: dateStr,
+        event_time: `${startStr} – ${endStr}`,
+        event_purpose: form.purpose || null,
+        meeting_link: meetingLink,
+        inviter_name: inviterName,
+      })
+
+      // Send inbox message
+      await supabase.from("messages").insert({
+        room_id: roomId,
+        sender_id: inviterUserId,
+        content: messageContent,
+        message_type: "event_invite",
+        invite_id: invite.id,
+      })
+    }
+  }
+
+  // ── Submit ─────────────────────────────────────────────────────────────────
+
   // ── Submit ─────────────────────────────────────────────────────────────────
 
   const handleSave = async () => {
@@ -284,6 +372,23 @@ export function MeetingFormDialog({
       })
 
       if (error) throw error
+
+      // Send invites to internal participants
+      if (selectedInternalIds.length > 0) {
+        const { data: newEvent } = await supabase
+          .from("events")
+          .select("id")
+          .eq("user_id", user.id)
+          .eq("title", form.title)
+          .eq("start_time", startISO)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .single()
+
+        if (newEvent?.id) {
+          await sendInvites(newEvent.id, user.id, startISO, endISO, finalLink)
+        }
+      }
 
       toast.success("Meeting scheduled")
       onSaved({ ...form, meeting_link: finalLink ?? undefined })
