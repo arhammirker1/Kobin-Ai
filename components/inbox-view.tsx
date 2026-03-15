@@ -1308,23 +1308,26 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
   const handleDeleteRoom = useCallback(async (roomId: string) => {
     setDeletingRoomId(roomId)
     try {
-      // Delete all messages first (frees storage)
-      await supabase.from("chat_messages").delete().eq("room_id", roomId)
-      // Delete members
-      await supabase.from("chat_room_members").delete().eq("room_id", roomId)
-      // Delete the room
-      await supabase.from("chat_rooms").delete().eq("id", roomId)
+      const res = await fetch("/api/inbox/delete-room", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ room_id: roomId }),
+      })
 
-      // Update UI
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || "Failed to delete")
+      }
+
       setRooms((prev) => prev.filter((r) => r.id !== roomId))
       if (activeRoomId === roomId) setActiveRoomId(null)
       toast.success("Chat deleted")
-    } catch (err) {
-      toast.error("Failed to delete chat")
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete chat")
     } finally {
       setDeletingRoomId(null)
     }
-  }, [supabase, activeRoomId])
+  }, [activeRoomId])
 
   // ── Start DM ───────────────────────────────────────────────────────────────
   const handleStartDM = useCallback(async (otherUser: Profile) => {
