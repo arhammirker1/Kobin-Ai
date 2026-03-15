@@ -33,15 +33,17 @@ export async function POST(req: Request) {
 
   const results = await Promise.all(
     subscriptions.map(async (sub) => {
-      const success = await sendPushNotification(sub, payload)
-      if (!success) {
-        // Remove expired subscription
-        await supabaseAdmin
-          .from("push_subscriptions")
-          .delete()
-          .eq("endpoint", sub.endpoint)
+      const result = await sendPushNotification(sub, payload)
+      if (!result.success) {
+        console.error("[push/send route] Failed for endpoint:", sub.endpoint.slice(-30), "error:", result.error)
+        if (result.statusCode === 410 || result.statusCode === 404 || result.statusCode === 401) {
+          await supabaseAdmin
+            .from("push_subscriptions")
+            .delete()
+            .eq("endpoint", sub.endpoint)
+        }
       }
-      return success
+      return result.success
     })
   )
 
