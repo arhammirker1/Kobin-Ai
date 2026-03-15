@@ -13,6 +13,7 @@ import { createClient } from "@/lib/supabase/client"
 import { toast } from "sonner"
 import { format, parseISO } from "date-fns"
 import { cn } from "@/lib/utils"
+import { MeetingFormDialog } from "@/components/meeting-form-dialog"
 
 const RELATIONSHIP_TYPES = [
   { value: "lead", label: "Lead" },
@@ -70,14 +71,7 @@ export function CrmView() {
     tags: [],
   })
 
-  const [newMeeting, setNewMeeting] = useState({
-    title: "",
-    date: format(new Date(), "yyyy-MM-dd"),
-    startTime: "09:00",
-    endTime: "10:00",
-    meetingLink: "",
-    purpose: "",
-  })
+  
 
   const supabase = createClient()
 
@@ -205,94 +199,6 @@ export function CrmView() {
     }
   }
 
-  const handleScheduleMeeting = async () => {
-    if (!selectedRelationship) {
-      toast.error("Please select a relationship")
-      return
-    }
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { data: relationshipExists, error: checkError } = await supabase
-      .from("relationships")
-      .select("id")
-      .eq("id", selectedRelationship.id)
-      .eq("user_id", user.id)
-      .single()
-
-    if (checkError || !relationshipExists) {
-      toast.error("Relationship not found. It may have been deleted.")
-      setSelectedRelationship(null)
-      return
-    }
-
-    // REPLACE the supabase insert block inside handleScheduleMeeting with:
-const start = parseISO(`${newMeeting.date}T${newMeeting.startTime}`)
-const end = parseISO(`${newMeeting.date}T${newMeeting.endTime}`)
-
-const meetRes = await fetch("/api/google/create-meet", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    title: newMeeting.title,
-    description: newMeeting.purpose,
-    start_time: start.toISOString(),
-    end_time: end.toISOString(),
-    attendee_emails: [],
-    type: "deal",
-    relationship_id: selectedRelationship.id,
-  }),
-})
-
-if (meetRes.ok) {
-  const meetData = await meetRes.json()
-  toast.success(meetData.meet_link ? "Meeting scheduled with Google Meet!" : "Meeting scheduled")
-  setIsMeetingDialogOpen(false)
-  setNewMeeting({ title: "", date: format(new Date(), "yyyy-MM-dd"), startTime: "09:00", endTime: "10:00", meetingLink: "", purpose: "" })
-  fetchNextMeeting(selectedRelationship.id)
-  return
-}
-
-// Fallback
-const { error } = await supabase.from("events").insert({
-  user_id: user.id,
-  title: newMeeting.title,
-  start_time: start.toISOString(),
-  end_time: end.toISOString(),
-  type: "deal",
-  relationship_id: selectedRelationship.id,
-  meeting_link: newMeeting.meetingLink || selectedRelationship.meeting_link || "",
-  purpose: newMeeting.purpose,
-})
-
-if (error) { toast.error("Failed to schedule meeting") }
-else {
-  toast.success("Meeting scheduled")
-  setIsMeetingDialogOpen(false)
-  setNewMeeting({ title: "", date: format(new Date(), "yyyy-MM-dd"), startTime: "09:00", endTime: "10:00", meetingLink: "", purpose: "" })
-  fetchNextMeeting(selectedRelationship.id)
-}
-
-    if (error) {
-      console.error("[v0] Error scheduling meeting:", error)
-      toast.error("Failed to schedule meeting")
-    } else {
-      toast.success("Meeting scheduled")
-      setIsMeetingDialogOpen(false)
-      setNewMeeting({
-        title: "",
-        date: format(new Date(), "yyyy-MM-dd"),
-        startTime: "09:00",
-        endTime: "10:00",
-        meetingLink: "",
-        purpose: "",
-      })
-      fetchNextMeeting(selectedRelationship.id)
-    }
-  }
 
   const handleSaveOutcome = async () => {
     if (!selectedEvent) return
@@ -550,14 +456,6 @@ else {
                     className="flex-1 min-w-0 h-8 text-xs bg-transparent"
                     onClick={() => {
                       setSelectedRelationship(rel)
-                      setNewMeeting({
-                        title: `Meeting with ${rel.full_name}`,
-                        date: format(new Date(), "yyyy-MM-dd"),
-                        startTime: "09:00",
-                        endTime: "10:00",
-                        meetingLink: "",
-                        purpose: "",
-                      })
                       setIsMeetingDialogOpen(true)
                     }}
                   >
@@ -689,75 +587,18 @@ else {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isMeetingDialogOpen} onOpenChange={setIsMeetingDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Schedule Meeting</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="meeting-title">Meeting Title</Label>
-              <Input
-                id="meeting-title"
-                value={newMeeting.title}
-                onChange={(e) => setNewMeeting({ ...newMeeting, title: e.target.value })}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="meeting-date">Date</Label>
-                <Input
-                  id="meeting-date"
-                  type="date"
-                  value={newMeeting.date}
-                  onChange={(e) => setNewMeeting({ ...newMeeting, date: e.target.value })}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="meeting-start">Start Time</Label>
-                <Input
-                  id="meeting-start"
-                  type="time"
-                  value={newMeeting.startTime}
-                  onChange={(e) => setNewMeeting({ ...newMeeting, startTime: e.target.value })}
-                />
-              </div>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="meeting-end">End Time</Label>
-              <Input
-                id="meeting-end"
-                type="time"
-                value={newMeeting.endTime}
-                onChange={(e) => setNewMeeting({ ...newMeeting, endTime: e.target.value })}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="meeting-purpose">Purpose</Label>
-              <Textarea
-                id="meeting-purpose"
-                value={newMeeting.purpose}
-                onChange={(e) => setNewMeeting({ ...newMeeting, purpose: e.target.value })}
-                placeholder="What's the goal of this meeting?"
-                rows={3}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="meeting-link">Meeting Link (Optional)</Label>
-              <Input
-                id="meeting-link"
-                value={newMeeting.meetingLink}
-                onChange={(e) => setNewMeeting({ ...newMeeting, meetingLink: e.target.value })}
-                placeholder="https://meet.google.com/..."
-              />
-              <p className="text-xs text-muted-foreground">Overrides default meeting link</p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button onClick={handleScheduleMeeting}>Schedule Meeting</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {selectedRelationship && (
+        <MeetingFormDialog
+          open={isMeetingDialogOpen}
+          onOpenChange={setIsMeetingDialogOpen}
+          title="Schedule Meeting"
+          prefilledClientName={selectedRelationship.full_name}
+          relationshipId={selectedRelationship.id}
+          initial={{ type: "deal", title: `Meeting with ${selectedRelationship.full_name}` }}
+          showInternalParticipants={false}
+          onSaved={() => fetchNextMeeting(selectedRelationship.id)}
+        />
+      )}
 
       <Dialog open={isOutcomeDialogOpen} onOpenChange={setIsOutcomeDialogOpen}>
         <DialogContent>

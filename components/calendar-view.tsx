@@ -6,20 +6,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Plus,
-  X,
-  Video,
-  Clock,
-  Calendar as CalendarIcon,
-  MoreHorizontal,
-  Trash2,
-  CheckCircle2
 } from "lucide-react"
-import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { MeetingFormDialog, MeetingFormData } from "@/components/meeting-form-dialog"
 import {
   format,
   addDays,
@@ -57,15 +46,7 @@ interface CalendarEvent {
   relationship_id: string | null
 }
 
-interface EventFormState {
-  title: string
-  date: string
-  startTime: string
-  endTime: string
-  type: "internal" | "deal" | "hiring"
-  meeting_link: string
-  purpose: string
-}
+
 
 type ViewMode = "week" | "month" | "day"
 
@@ -92,15 +73,7 @@ const EVENT_COLORS: Record<string, { bg: string; border: string; text: string }>
 const HOURS = Array.from({ length: 24 }, (_, i) => i)
 const HOUR_HEIGHT = 64 // px per hour
 
-const EMPTY_FORM: EventFormState = {
-  title: "",
-  date: format(new Date(), "yyyy-MM-dd"),
-  startTime: "09:00",
-  endTime: "10:00",
-  type: "internal",
-  meeting_link: "",
-  purpose: "",
-}
+
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -154,182 +127,7 @@ function EventChip({
 
 // ─── Event Form ───────────────────────────────────────────────────────────────
 
-function EventFormDialog({
-  open, onOpenChange, initial, onSave, onDelete, mode,
-}: {
-  open: boolean
-  onOpenChange: (v: boolean) => void
-  initial: EventFormState
-  onSave: (data: EventFormState) => Promise<void>
-  onDelete?: () => Promise<void>
-  mode: "create" | "edit"
-}) {
-  const [form, setForm] = useState<EventFormState>(initial)
-  const [saving, setSaving] = useState(false)
-  const [useMeet, setUseMeet] = useState(false)
-  const [isGoogleConnected, setIsGoogleConnected] = useState(false)
-  const [meetLink, setMeetLink] = useState<string | null>(null)
-  const [attendees, setAttendees] = useState("")
-  const supabase = useMemo(() => createClient(), [])
 
-  useEffect(() => { setForm(initial); setMeetLink(null) }, [initial, open])
-
-  useEffect(() => {
-    if (!open) return
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) return
-      supabase.from("google_integrations").select("is_connected").eq("user_id", user.id).single()
-        .then(({ data }) => setIsGoogleConnected(data?.is_connected === true))
-    })
-  }, [open, supabase])
-
-  const set = (key: keyof EventFormState, value: string) =>
-    setForm((f) => ({ ...f, [key]: value }))
-
-  const handleSave = async () => {
-    if (!form.title.trim()) { toast.error("Title is required"); return }
-    setSaving(true)
-
-    if (useMeet && isGoogleConnected) {
-      const res = await fetch("/api/google/create-meet", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: form.title,
-          description: form.purpose,
-          start_time: new Date(`${form.date}T${form.startTime}`).toISOString(),
-          end_time: new Date(`${form.date}T${form.endTime}`).toISOString(),
-          attendee_emails: attendees.split(",").map(e => e.trim()).filter(Boolean),
-          type: form.type,
-        }),
-      })
-      const data = await res.json()
-      if (res.ok && data.meet_link) {
-        setMeetLink(data.meet_link)
-        toast.success("Meet link created!")
-        await onSave({ ...form, meeting_link: data.meet_link })
-        setSaving(false)
-        return
-      }
-      toast.error(data.message || "Failed to create Meet link")
-      setSaving(false)
-      return
-    }
-
-    await onSave(form)
-    setSaving(false)
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>{mode === "create" ? "New Event" : "Edit Event"}</DialogTitle>
-        </DialogHeader>
-
-        <div className="grid gap-3 py-2">
-          <div className="grid gap-1.5">
-            <Label htmlFor="ef-title">Title *</Label>
-            <Input id="ef-title" value={form.title} onChange={(e) => set("title", e.target.value)} placeholder="Event title" />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-1.5">
-              <Label htmlFor="ef-date">Date</Label>
-              <Input id="ef-date" type="date" value={form.date} onChange={(e) => set("date", e.target.value)} />
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="ef-type">Type</Label>
-              <Select value={form.type} onValueChange={(v) => set("type", v)}>
-                <SelectTrigger id="ef-type"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="internal">Internal</SelectItem>
-                  <SelectItem value="deal">Deal</SelectItem>
-                  <SelectItem value="hiring">Hiring</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-1.5">
-              <Label htmlFor="ef-start">Start</Label>
-              <Input id="ef-start" type="time" value={form.startTime} onChange={(e) => set("startTime", e.target.value)} />
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="ef-end">End</Label>
-              <Input id="ef-end" type="time" value={form.endTime} onChange={(e) => set("endTime", e.target.value)} />
-            </div>
-          </div>
-
-          {/* Google Meet toggle */}
-          <div className="rounded-lg border p-3 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Video className="h-4 w-4 text-primary" />
-                <span className="text-sm font-medium">Auto-generate Meet link</span>
-                {!isGoogleConnected && (
-                  <span className="text-[10px] text-muted-foreground border rounded px-1.5 py-0.5">
-                    Connect Google in Settings
-                  </span>
-                )}
-              </div>
-              <Switch checked={useMeet} onCheckedChange={setUseMeet} disabled={!isGoogleConnected} />
-            </div>
-
-            {useMeet && isGoogleConnected && (
-              <div className="grid gap-1.5">
-                <Label className="text-xs">Attendee emails (comma-separated)</Label>
-                <Input
-                  value={attendees}
-                  onChange={(e) => setAttendees(e.target.value)}
-                  placeholder="alice@co.com, bob@co.com"
-                  className="text-xs h-8"
-                />
-                <p className="text-[10px] text-muted-foreground">Google Calendar invites sent automatically</p>
-              </div>
-            )}
-
-            {meetLink && (
-              <div className="flex items-center gap-2 p-2 bg-emerald-50 border border-emerald-200 rounded-lg">
-                <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
-                <a href={meetLink} target="_blank" rel="noreferrer"
-                  className="text-xs text-emerald-700 truncate flex-1 underline">{meetLink}</a>
-                <button onClick={() => { navigator.clipboard.writeText(meetLink); toast.success("Copied!") }}
-                  className="text-xs text-emerald-700 hover:text-emerald-900 shrink-0">Copy</button>
-              </div>
-            )}
-          </div>
-
-          {/* Manual link — only show when Meet toggle is off */}
-          {!useMeet && (
-            <div className="grid gap-1.5">
-              <Label htmlFor="ef-link">Meeting Link</Label>
-              <Input id="ef-link" value={form.meeting_link} onChange={(e) => set("meeting_link", e.target.value)} placeholder="https://..." />
-            </div>
-          )}
-
-          <div className="grid gap-1.5">
-            <Label htmlFor="ef-purpose">Purpose</Label>
-            <Input id="ef-purpose" value={form.purpose} onChange={(e) => set("purpose", e.target.value)} placeholder="What's the goal?" />
-          </div>
-        </div>
-
-        <DialogFooter className="gap-2">
-          {mode === "edit" && onDelete && (
-            <Button variant="destructive" size="sm" onClick={onDelete} className="mr-auto">
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          )}
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? "Saving…" : useMeet && isGoogleConnected ? "Create with Meet" : mode === "create" ? "Create" : "Save"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
 
 // ─── Week View ────────────────────────────────────────────────────────────────
 
@@ -733,8 +531,8 @@ export function CalendarView() {
   // Dialog state
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
-  const [createForm, setCreateForm] = useState<EventFormState>(EMPTY_FORM)
-  const [editingEvent, setEditingEvent] = useState<(EventFormState & { id: string }) | null>(null)
+  const [createInitial, setCreateInitial] = useState<Partial<MeetingFormData>>({})
+  const [editingEvent, setEditingEvent] = useState<(MeetingFormData & { id: string }) | null>(null)
 
   // Fetch events
   const fetchEvents = useCallback(async () => {
@@ -782,8 +580,7 @@ export function CalendarView() {
 
   // Slot click → prefill form
   const handleSlotClick = (day: Date, hour: number) => {
-    setCreateForm({
-      ...EMPTY_FORM,
+    setCreateInitial({
       date: format(day, "yyyy-MM-dd"),
       startTime: `${String(hour).padStart(2, "0")}:00`,
       endTime: `${String(Math.min(hour + 1, 23)).padStart(2, "0")}:00`,
@@ -812,7 +609,7 @@ export function CalendarView() {
     setEditDialogOpen(true)
   }
 
-  const handleCreate = async (form: EventFormState) => {
+  const handleCreate = async (form: MeetingFormData) => {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
@@ -839,7 +636,33 @@ export function CalendarView() {
     }
   }
 
-  const handleUpdate = async (form: EventFormState) => {
+  const handleUpdate = async (form: MeetingFormData) => {
+    if (!editingEvent) return
+
+    const startISO = parseISO(`${form.date}T${form.startTime}`).toISOString()
+    const endISO = parseISO(`${form.date}T${form.endTime}`).toISOString()
+
+    const { error } = await supabase
+      .from("events")
+      .update({
+        title: form.title,
+        start_time: startISO,
+        end_time: endISO,
+        type: form.type,
+        meeting_link: form.meeting_link || null,
+        purpose: form.purpose || null,
+      })
+      .eq("id", editingEvent.id)
+
+    if (error) {
+      toast.error("Failed to update event")
+    } else {
+      toast.success("Event updated")
+      setEditDialogOpen(false)
+      setEditingEvent(null)
+      fetchEvents()
+    }
+  }
     if (!editingEvent) return
 
     const startISO = parseISO(`${form.date}T${form.startTime}`).toISOString()
@@ -867,20 +690,7 @@ export function CalendarView() {
     }
   }
 
-  const handleDelete = async () => {
-    if (!editingEvent) return
-
-    const { error } = await supabase.from("events").delete().eq("id", editingEvent.id)
-
-    if (error) {
-      toast.error("Failed to delete event")
-    } else {
-      toast.success("Event deleted")
-      setEditDialogOpen(false)
-      setEditingEvent(null)
-      fetchEvents()
-    }
-  }
+  
 
   return (
     <div className="flex h-[calc(100vh-120px)] gap-4">
@@ -888,7 +698,7 @@ export function CalendarView() {
       <aside className="hidden lg:flex flex-col gap-5 w-[200px] flex-shrink-0">
         <Button
           onClick={() => {
-            setCreateForm({ ...EMPTY_FORM, date: format(new Date(), "yyyy-MM-dd") })
+            setCreateInitial({ date: format(new Date(), "yyyy-MM-dd") })
             setCreateDialogOpen(true)
           }}
           className="gap-2 w-full shadow-sm"
@@ -949,7 +759,7 @@ export function CalendarView() {
             size="sm"
             className="lg:hidden gap-1"
             onClick={() => {
-              setCreateForm({ ...EMPTY_FORM, date: format(new Date(), "yyyy-MM-dd") })
+              setCreateInitial({ date: format(new Date(), "yyyy-MM-dd") })
               setCreateDialogOpen(true)
             }}
           >
@@ -986,21 +796,22 @@ export function CalendarView() {
       </div>
 
       {/* ── Dialogs ── */}
-      <EventFormDialog
+      <MeetingFormDialog
         open={createDialogOpen}
         onOpenChange={setCreateDialogOpen}
-        initial={createForm}
-        onSave={handleCreate}
-        mode="create"
+        initial={createInitial}
+        title="New Event"
+        showInternalParticipants={true}
+        onSaved={(form) => { handleCreate(form); setCreateDialogOpen(false) }}
       />
       {editingEvent && (
-        <EventFormDialog
+        <MeetingFormDialog
           open={editDialogOpen}
           onOpenChange={setEditDialogOpen}
+          title="Edit Event"
           initial={editingEvent}
-          onSave={handleUpdate}
-          onDelete={handleDelete}
-          mode="edit"
+          showInternalParticipants={true}
+          onSaved={handleUpdate}
         />
       )}
     </div>
