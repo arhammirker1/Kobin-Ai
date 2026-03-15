@@ -220,9 +220,23 @@ export function MeetingFormDialog({
     endISO: string,
     meetingLink: string | null
   ) => {
+    // Get inviter name once
+    const { data: inviterProfile } = await supabase
+      .from("profiles")
+      .select("full_name")
+      .eq("id", inviterUserId)
+      .single()
+    const inviterName = inviterProfile?.full_name || "Someone"
+
+    const startDate = new Date(startISO)
+    const endDate = new Date(endISO)
+    const dateStr = startDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+    const startStr = startDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+    const endStr = endDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+
     for (const inviteeId of selectedInternalIds) {
-      // Create invite row
-      const { data: invite } = await supabase
+      // 1. Create invite row
+      const { data: invite, error: inviteError } = await supabase
         .from("event_invites")
         .insert({
           event_id: eventId,
@@ -233,48 +247,64 @@ export function MeetingFormDialog({
         .select("id")
         .single()
 
-      if (!invite?.id) continue
+      if (inviteError || !invite?.id) {
+        console.error("Failed to create invite:", inviteError)
+        continue
+      }
 
-      // Find or create a DM room between inviter and invitee
+      // 2. Find or create DM room using dm_key (deterministic)
+      const dmKey = [inviterUserId, inviteeId].sort().join(":")
+
+      let roomId: string | null = null
+
       const { data: existingRoom } = await supabase
         .from("chat_rooms")
         .select("id")
-        .eq("room_type", "dm")
-        .contains("member_ids", [inviterUserId, inviteeId])
-        .limit(1)
-        .single()
+        .eq("dm_key", dmKey)
+        .maybeSingle()
 
-      let roomId = existingRoom?.id
+      if (existingRoom?.id) {
+        roomId = existingRoom.id
+      } else {
+        // Determine founder_id — use inviter if founder, otherwise look up
+        const { data: inviterProfileFull } = await supabase
+          .from("profiles")
+          .select("user_type")
+          .eq("id", inviterUserId)
+          .single()
 
-      if (!roomId) {
-        const { data: newRoom } = await supabase
+        const actualFounderId = inviterProfileFull?.user_type === "founder"
+          ? inviterUserId
+          : inviteeId // fallback: assume invitee is founder
+
+        const { data: newRoom, error: roomError } = await supabase
           .from("chat_rooms")
           .insert({
-            room_type: "dm",
-            member_ids: [inviterUserId, inviteeId],
+            type: "direct",
+            founder_id: actualFounderId,
             created_by: inviterUserId,
+            dm_key: dmKey,
           })
           .select("id")
           .single()
-        roomId = newRoom?.id
+
+        if (roomError || !newRoom?.id) {
+          console.error("Failed to create DM room:", roomError)
+          continue
+        }
+
+        roomId = newRoom.id
+
+        // Add both members
+        await supabase.from("chat_room_members").insert([
+          { room_id: roomId, user_id: inviterUserId },
+          { room_id: roomId, user_id: inviteeId },
+        ])
       }
 
       if (!roomId) continue
 
-      // Get inviter name
-      const { data: inviterProfile } = await supabase
-        .from("profiles")
-        .select("full_name")
-        .eq("id", inviterUserId)
-        .single()
-
-      const inviterName = inviterProfile?.full_name || "Someone"
-      const startDate = new Date(startISO)
-      const endDate = new Date(endISO)
-      const dateStr = startDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
-      const startStr = startDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
-      const endStr = endDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
-
+      // 3. Send invite message to chat_messages
       const messageContent = JSON.stringify({
         type: "event_invite",
         invite_id: invite.id,
@@ -286,14 +316,17 @@ export function MeetingFormDialog({
         inviter_name: inviterName,
       })
 
-      // Send inbox message
-      await supabase.from("messages").insert({
+      const { error: msgError } = await supabase.from("chat_messages").insert({
         room_id: roomId,
         sender_id: inviterUserId,
         content: messageContent,
         message_type: "event_invite",
         invite_id: invite.id,
       })
+
+      if (msgError) {
+        console.error("Failed to send invite message:", msgError)
+      }
     }
   }
 
