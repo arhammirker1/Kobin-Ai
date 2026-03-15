@@ -822,6 +822,7 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
   const [sidebarSearch, setSidebarSearch] = useState("")
   const [lightbox, setLightbox] = useState<{ src: string; name: string } | null>(null)
   const [forwardMsg, setForwardMsg] = useState<ChatMessage | null>(null)
+  const [deletingRoomId, setDeletingRoomId] = useState<string | null>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -938,16 +939,31 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
       ...room,
       display_name: displayName,
       unread_count: unreadByRoom[room.id] || 0,
-      last_message: lastMsg ? (lastMsg.content || lastMsg.file_name || "Attachment") : undefined,
+      last_message: lastMsg ? (() => {
+        if (!lastMsg.content) return lastMsg.file_name || "Attachment"
+        // Don't show raw JSON for event invites
+        try {
+          const parsed = JSON.parse(lastMsg.content)
+          if (parsed.type === "event_invite") return "📅 Meeting Invite"
+        } catch {}
+        return lastMsg.content
+      })() : undefined,
       last_message_at: lastMsg?.created_at,
       other_user: otherUser,
     } as ChatRoom
   })
 
-  setRooms(enriched)
+  // Sort by latest message, then by created_at
+  const sorted = enriched.sort((a, b) => {
+    const aTime = a.last_message_at ? new Date(a.last_message_at).getTime() : new Date(a.created_at).getTime()
+    const bTime = b.last_message_at ? new Date(b.last_message_at).getTime() : new Date(b.created_at).getTime()
+    return bTime - aTime
+  })
 
-  if (enriched.length > 0 && !activeRoomId) {
-    setActiveRoomId(enriched[0].id)
+  setRooms(sorted)
+
+  if (sorted.length > 0 && !activeRoomId) {
+    setActiveRoomId(sorted[0].id)
   }
   setLoadingRooms(false)
 }, [supabase, activeRoomId])
@@ -1242,13 +1258,19 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
       toast.error("Failed to send message")
     } else {
       setReplyTo(null)
-      setRooms((prev) =>
-        prev.map((r) =>
+      // Re-sort rooms so latest message bubbles to top
+      setRooms((prev) => {
+        const updated = prev.map((r) =>
           r.id === activeRoomId
             ? { ...r, last_message: content || fileName || "Attachment", last_message_at: new Date().toISOString() }
             : r
         )
-      )
+        return updated.sort((a, b) => {
+          const aTime = a.last_message_at ? new Date(a.last_message_at).getTime() : new Date(a.created_at).getTime()
+          const bTime = b.last_message_at ? new Date(b.last_message_at).getTime() : new Date(b.created_at).getTime()
+          return bTime - aTime
+        })
+      })
     }
   }, [activeRoomId, currentUser, replyTo, editingMsg, supabase])
 
@@ -1279,6 +1301,30 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
     setForwardMsg(null)
     toast.success("Message forwarded")
   }, [currentUser, forwardMsg, supabase])
+
+  // Handle Delete Room
+
+  // ── Delete entire chat room ────────────────────────────────────────────────
+  const handleDeleteRoom = useCallback(async (roomId: string) => {
+    setDeletingRoomId(roomId)
+    try {
+      // Delete all messages first (frees storage)
+      await supabase.from("chat_messages").delete().eq("room_id", roomId)
+      // Delete members
+      await supabase.from("chat_room_members").delete().eq("room_id", roomId)
+      // Delete the room
+      await supabase.from("chat_rooms").delete().eq("id", roomId)
+
+      // Update UI
+      setRooms((prev) => prev.filter((r) => r.id !== roomId))
+      if (activeRoomId === roomId) setActiveRoomId(null)
+      toast.success("Chat deleted")
+    } catch (err) {
+      toast.error("Failed to delete chat")
+    } finally {
+      setDeletingRoomId(null)
+    }
+  }, [supabase, activeRoomId])
 
   // ── Start DM ───────────────────────────────────────────────────────────────
   const handleStartDM = useCallback(async (otherUser: Profile) => {
@@ -1456,6 +1502,18 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
                   </p>
                 </div>
               </div>
+              <button
+                onClick={() => activeRoomId && handleDeleteRoom(activeRoomId)}
+                disabled={deletingRoomId === activeRoomId}
+                className="p-2 text-muted-foreground hover:text-destructive transition-colors rounded-lg hover:bg-destructive/10 flex-shrink-0"
+                title="Delete chat"
+              >
+                {deletingRoomId === activeRoomId ? (
+                  <div className="h-4 w-4 animate-spin border-2 border-current border-t-transparent rounded-full" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
+              </button>
             </div>
 
             {/* Messages */}
