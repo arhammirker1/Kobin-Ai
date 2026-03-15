@@ -184,15 +184,15 @@ export function VaultView() {
     setFolders(data || [])
   }
 
-  const loadItems = async (folderId: string) => {
-    const { data } = await supabase
+ const loadItems = async (folderId: string) => {
+    const { data, error } = await supabase
       .from("vault_items")
-      .select("*, profile:profiles(full_name)")
+      .select("*")
       .eq("folder_id", folderId)
       .order("created_at", { ascending: false })
+    if (error) console.error("[Vault] loadItems error:", error)
     setItems(data || [])
   }
-
   // ── Drive Connect ──────────────────────────────────────────────────────────
 
   const handleConnectDrive = async () => {
