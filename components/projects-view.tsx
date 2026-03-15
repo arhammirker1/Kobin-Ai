@@ -161,35 +161,33 @@ export function ProjectsView({ permissions }: ProjectsViewProps = {}) {
 
       if (error) throw error
 
-      const projectsWithProfiles = await Promise.all(
-        (data || []).map(async (project) => {
-          // Get creator profile
-          const { data: profile } = await supabase
-            .from("profiles")
-            .select("full_name")
-            .eq("id", project.created_by)
-            .single()
+      // Fetch all data in 3 flat queries, then join in JS
+const projectIds = (data || []).map((p) => p.id)
+const creatorIds = [...new Set((data || []).map((p) => p.created_by).filter(Boolean))]
 
-          // Get task counts
-          const { count: totalCount } = await supabase
-            .from("tasks")
-            .select("*", { count: "exact", head: true })
-            .eq("project_id", project.id)
+const [profilesRes, allTasksRes] = await Promise.all([
+  supabase.from("profiles").select("id, full_name").in("id", creatorIds),
+  supabase
+    .from("tasks")
+    .select("project_id, is_completed")
+    .in("project_id", projectIds),
+])
 
-          const { count: completedCount } = await supabase
-            .from("tasks")
-            .select("*", { count: "exact", head: true })
-            .eq("project_id", project.id)
-            .eq("is_completed", true)
+const profileMap = Object.fromEntries((profilesRes.data || []).map((p) => [p.id, p]))
 
-          return {
-            ...project,
-            creator_profile: profile ? { full_name: profile.full_name } : null,
-            task_count: totalCount || 0,
-            completed_task_count: completedCount || 0,
-          }
-        }),
-      )
+const taskCountMap: Record<string, { total: number; completed: number }> = {}
+for (const task of allTasksRes.data || []) {
+  if (!taskCountMap[task.project_id]) taskCountMap[task.project_id] = { total: 0, completed: 0 }
+  taskCountMap[task.project_id].total++
+  if (task.is_completed) taskCountMap[task.project_id].completed++
+}
+
+const projectsWithProfiles = (data || []).map((project) => ({
+  ...project,
+  creator_profile: profileMap[project.created_by] ? { full_name: profileMap[project.created_by].full_name } : null,
+  task_count: taskCountMap[project.id]?.total || 0,
+  completed_task_count: taskCountMap[project.id]?.completed || 0,
+}))
 
       setProjects(projectsWithProfiles)
     } catch (error) {
