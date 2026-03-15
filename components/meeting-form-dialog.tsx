@@ -68,6 +68,7 @@ export function MeetingFormDialog({
   relationshipId,
   showInternalParticipants = false,
   onSaved,
+  onDelete,
 }: MeetingFormDialogProps) {
   const supabase = createClient()
 
