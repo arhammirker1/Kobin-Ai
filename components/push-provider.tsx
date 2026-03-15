@@ -4,22 +4,6 @@
 import { useEffect, useRef } from "react"
 import { createClient } from "@/lib/supabase/client"
 
-// Helper to send push to a user (call from server-side routes)
-export async function sendPushToUser(userId: string, payload: object) {
-  try {
-    await fetch("/api/push/send", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-internal-secret": process.env.INTERNAL_API_SECRET || "",
-      },
-      body: JSON.stringify({ user_id: userId, payload }),
-    })
-  } catch (err) {
-    console.warn("Push send failed:", err)
-  }
-}
-
 export function PushProvider() {
   const supabase = createClient()
   const registeredRef = useRef(false)
@@ -27,54 +11,71 @@ export function PushProvider() {
   useEffect(() => {
     if (registeredRef.current) return
     registeredRef.current = true
-    registerPush()
+    // Small delay so auth session is ready
+    setTimeout(registerPush, 1500)
   }, [])
 
   const registerPush = async () => {
-    // Check browser support
+    console.log("[Push] Starting registration...")
+
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
-      console.log("Push notifications not supported")
+      console.log("[Push] ❌ Not supported in this browser")
       return
     }
 
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      console.log("[Push] ❌ No user — skipping")
+      return
+    }
+    console.log("[Push] ✅ User:", user.id)
+
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-
-      // Register service worker
-      const registration = await navigator.serviceWorker.register("/sw.js", {
-        scope: "/",
-      })
-
+      // Register SW
+      const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" })
       await navigator.serviceWorker.ready
+      console.log("[Push] ✅ SW ready")
 
-      // Check existing subscription
+      const currentPermission = Notification.permission
+      console.log("[Push] Permission:", currentPermission)
+
+      if (currentPermission === "denied") {
+        console.warn("[Push] ⚠️ Blocked — reset in browser site settings")
+        return
+      }
+
+      // Request if not granted yet
+      if (currentPermission !== "granted") {
+        console.log("[Push] Requesting permission...")
+        const result = await Notification.requestPermission()
+        console.log("[Push] Permission result:", result)
+        if (result !== "granted") return
+      }
+
+      const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+      if (!vapidKey) {
+        console.error("[Push] ❌ NEXT_PUBLIC_VAPID_PUBLIC_KEY not set in env!")
+        return
+      }
+
+      // Get or create subscription
       let subscription = await registration.pushManager.getSubscription()
+      console.log("[Push] Existing subscription:", subscription ? "YES" : "NO")
 
       if (!subscription) {
-        // Request permission first
-        const permission = await Notification.requestPermission()
-        if (permission !== "granted") {
-          console.log("Push permission denied")
-          return
-        }
-
-        // Subscribe
-        const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-        if (!vapidKey) {
-          console.error("NEXT_PUBLIC_VAPID_PUBLIC_KEY not set")
-          return
-        }
-
+        console.log("[Push] Creating new subscription...")
         subscription = await registration.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey: urlBase64ToUint8Array(vapidKey),
         })
+        console.log("[Push] ✅ Subscription created")
       }
 
-      // Save subscription to server
+      // ALWAYS save to DB — handles the case where sub exists in browser
+      // but was never saved to DB (e.g. after permission reset)
       const subJson = subscription.toJSON()
-      await fetch("/api/push/subscribe", {
+      console.log("[Push] Saving subscription to DB...")
+      const res = await fetch("/api/push/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -83,29 +84,31 @@ export function PushProvider() {
           auth: subJson.keys?.auth,
         }),
       })
+      const resJson = await res.json()
+      console.log("[Push] DB save result:", resJson)
 
-      // Listen for messages from SW (notification clicks)
+      // Listen for SW messages (notification click → deep link navigation)
       navigator.serviceWorker.addEventListener("message", (event) => {
         if (event.data?.type === "NOTIFICATION_CLICK") {
           const url = new URL(event.data.url, window.location.origin)
           const tab = url.searchParams.get("tab")
           const room = url.searchParams.get("room")
           if (tab) {
-            // Dispatch a custom event that the dashboard can listen to
             window.dispatchEvent(new CustomEvent("push-navigate", { detail: { tab, room } }))
           }
         }
       })
 
+      console.log("[Push] 🎉 Push notifications active!")
+
     } catch (err) {
-      console.warn("Push registration failed:", err)
+      console.error("[Push] ❌ Registration failed:", err)
     }
   }
 
-  return null // This component has no UI
+  return null
 }
 
-// Convert VAPID key from base64 to Uint8Array
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4)
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/")
