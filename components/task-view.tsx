@@ -270,9 +270,9 @@ function DetailPanel({
   const [activeTab, setActiveTab] = useState<"details" | "comments">("details")
 
   return (
-    <div className="flex flex-col h-full bg-zinc-950 border-l border-zinc-800">
+    <div className="flex flex-col h-full bg-[#1C1C1A] border-l border-[#333331]">
       {/* Panel header */}
-      <div className="px-4 pt-4 pb-3 border-b border-zinc-800">
+      <div className="px-4 pt-4 pb-3 border-b border-[#333331]">
         <div className="flex items-start gap-2 mb-3">
           {/* Complete toggle */}
           <button
@@ -315,20 +315,20 @@ function DetailPanel({
         {/* Chips */}
         <div className="flex flex-wrap gap-1.5">
           {task.assigned_to && (
-            <div className="flex items-center gap-1 text-[11px] bg-zinc-900 border border-zinc-800 rounded-full px-2 py-0.5 text-zinc-400">
-              <div className="w-3.5 h-3.5 rounded-full bg-zinc-700 flex items-center justify-center text-[8px] text-zinc-300">
+            <div className="flex items-center gap-1 text-[11px] bg-[#252523] border border-[#333331] rounded-full px-2 py-0.5 text-[#8A8A85]">
+              <div className="w-3.5 h-3.5 rounded-full bg-[#333331] flex items-center justify-center text-[8px] text-[#F0EFEC]">
                 {(getAssigneeName(task.assigned_to) || "?")[0]?.toUpperCase()}
               </div>
               {getAssigneeName(task.assigned_to) || "Assigned"}
             </div>
           )}
           {task.project_id && (
-            <div className="text-[11px] bg-zinc-900 border border-zinc-800 rounded-full px-2 py-0.5 text-zinc-400">
+            <div className="text-[11px] bg-[#252523] border border-[#333331] rounded-full px-2 py-0.5 text-[#8A8A85]">
               <ProjectNameDisplay projectId={task.project_id} />
             </div>
           )}
           {task.due_date && (
-            <div className="flex items-center gap-1 text-[11px] bg-zinc-900 border border-zinc-800 rounded-full px-2 py-0.5 text-zinc-400">
+            <div className="flex items-center gap-1 text-[11px] bg-[#252523] border border-[#333331] rounded-full px-2 py-0.5 text-[#8A8A85]">
               <Calendar size={10} />
               {format(new Date(task.due_date), "MMM d, yyyy")}
             </div>
@@ -337,7 +337,7 @@ function DetailPanel({
       </div>
 
       {/* Tab bar */}
-      <div className="flex border-b border-zinc-800 px-4">
+      <div className="flex border-b border-[#333331] px-4">
         {(["details", "comments"] as const).map(tab => (
           <button
             key={tab}
@@ -360,8 +360,8 @@ function DetailPanel({
           <>
             {task.notes && (
               <div>
-                <p className="text-[10px] uppercase tracking-widest font-medium text-zinc-600 mb-2">Notes</p>
-                <p className="text-xs text-zinc-400 leading-relaxed bg-zinc-900 rounded-lg p-3 border border-zinc-800">
+                <p className="text-[10px] uppercase tracking-widest font-medium text-[#555552] mb-2">Notes</p>
+                <p className="text-xs text-[#8A8A85] leading-relaxed bg-[#252523] rounded-lg p-3 border border-[#333331]">
                   {task.notes}
                 </p>
               </div>
@@ -369,7 +369,7 @@ function DetailPanel({
 
             {task.vault_attachments && task.vault_attachments.length > 0 && (
               <div>
-                <p className="text-[10px] uppercase tracking-widest font-medium text-zinc-600 mb-2">Vault attachments</p>
+                <p className="text-[10px] uppercase tracking-widest font-medium text-[#555552] mb-2">Vault attachments</p>
                 <div className="flex flex-col gap-2">
                   {task.vault_attachments.map((a) => (
                     <a
@@ -377,16 +377,16 @@ function DetailPanel({
                       href={a.drive_file_url || a.link_url || "#"}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center gap-2.5 p-2.5 bg-zinc-900 border border-zinc-800 rounded-lg hover:border-zinc-600 transition-colors group"
+                      className="flex items-center gap-2.5 p-2.5 bg-[#252523] border border-[#333331] rounded-lg hover:border-[#444442] transition-colors group"
                     >
                       <div className="w-7 h-7 rounded bg-blue-500/20 flex items-center justify-center shrink-0">
                         <Paperclip size={12} className="text-blue-400" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-zinc-200 truncate">{a.title}</p>
-                        <p className="text-[10px] text-zinc-600">Vault file</p>
+                        <p className="text-xs font-medium text-[#F0EFEC] truncate">{a.title}</p>
+                        <p className="text-[10px] text-[#555552]">Vault file</p>
                       </div>
-                      <ChevronRight size={12} className="text-zinc-600 group-hover:text-zinc-400 transition-colors" />
+                      <ChevronRight size={12} className="text-[#555552] group-hover:text-[#8A8A85] transition-colors" />
                     </a>
                   ))}
                 </div>
@@ -395,7 +395,7 @@ function DetailPanel({
 
             {task.resources && task.resources.length > 0 && (
               <div>
-                <p className="text-[10px] uppercase tracking-widest font-medium text-zinc-600 mb-2">Links</p>
+                <p className="text-[10px] uppercase tracking-widest font-medium text-[#555552] mb-2">Links</p>
                 <div className="flex flex-wrap gap-1.5">
                   {task.resources.map((r, i) => (
                     <a
@@ -403,7 +403,7 @@ function DetailPanel({
                       href={r.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-[11px] px-2.5 py-1 bg-zinc-900 border border-zinc-800 rounded-md text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 transition-colors"
+                      className="text-[11px] px-2.5 py-1 bg-[#252523] border border-[#333331] rounded-md text-[#8A8A85] hover:text-[#F0EFEC] hover:border-[#444442] transition-colors"
                     >
                       {r.title || r.url}
                     </a>
@@ -436,7 +436,7 @@ function DetailPanel({
 
             {/* Status quick-change */}
             <div>
-              <p className="text-[10px] uppercase tracking-widest font-medium text-zinc-600 mb-2">Status</p>
+              <p className="text-[10px] uppercase tracking-widest font-medium text-[#555552] mb-2">Status</p>
               <div className="flex flex-wrap gap-1.5">
                 {STATUSES.map(s => (
                   <button
@@ -445,8 +445,8 @@ function DetailPanel({
                     className={cn(
                       "text-[11px] px-2.5 py-1 rounded-full border capitalize transition-colors",
                       task.status === s
-                        ? "bg-zinc-200 text-zinc-900 border-zinc-200 font-medium"
-                        : "bg-transparent text-zinc-500 border-zinc-800 hover:border-zinc-600 hover:text-zinc-300"
+                        ? "bg-[#F0EFEC] text-[#1C1C1A] border-[#F0EFEC] font-medium"
+                        : "bg-transparent text-[#555552] border-[#333331] hover:border-[#444442] hover:text-[#F0EFEC]"
                     )}
                   >
                     {s.replace("-", " ")}
@@ -464,10 +464,10 @@ function DetailPanel({
 
       {/* Footer */}
       {canEditOrDelete && (
-        <div className="px-4 py-3 border-t border-zinc-800 flex gap-2">
+        <div className="px-4 py-3 border-t border-[#333331] flex gap-2">
           <button
             onClick={() => onEdit(task)}
-            className="flex-1 h-8 text-xs font-medium rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition-colors flex items-center justify-center gap-1.5"
+            className="flex-1 h-8 text-xs font-medium rounded-md bg-[#252523] hover:bg-[#2E2E2C] text-[#F0EFEC] transition-colors flex items-center justify-center gap-1.5"
           >
             <Pencil size={11} />Edit
           </button>
@@ -1129,9 +1129,9 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
                   <Plus size={13} />Add task
                 </button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-[580px] bg-zinc-950 border-zinc-800 text-zinc-100">
+              <DialogContent className="sm:max-w-[580px] bg-[#1C1C1A] border-[#333331] text-[#F0EFEC]">
                 <DialogHeader>
-                  <DialogTitle className="text-zinc-100">Add New Task</DialogTitle>
+                  <DialogTitle className="text-[#F0EFEC]">Add New Task</DialogTitle>
                 </DialogHeader>
                 <TaskForm
                   task={newTask} onTaskChange={setNewTask} teamMembers={teamMembers}
@@ -1139,8 +1139,8 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
                   newResourceTitle={newResourceTitle} setNewResourceTitle={setNewResourceTitle}
                 />
                 <DialogFooter>
-                  <Button variant="outline" onClick={() => setIsDialogOpen(false)} className="border-zinc-700 text-zinc-300 bg-transparent hover:bg-zinc-800">Cancel</Button>
-                  <Button onClick={handleAddTask} className="bg-zinc-100 text-zinc-900 hover:bg-white">Create Task</Button>
+                  <Button variant="outline" onClick={() => setIsDialogOpen(false)} className="border-[#444442] text-[#8A8A85] bg-transparent hover:bg-[#252523]">Cancel</Button>
+                  <Button onClick={handleAddTask} className="bg-[#F0EFEC] text-[#1C1C1A] hover:bg-white">Create Task</Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
@@ -1318,9 +1318,9 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
         setIsEditOpen(open)
         if (!open) { setEditingTask(null); setNewTask(INITIAL_TASK_STATE) }
       }}>
-        <DialogContent className="sm:max-w-[580px] bg-zinc-950 border-zinc-800 text-zinc-100">
+        <DialogContent className="sm:max-w-[580px] bg-[#1C1C1A] border-[#333331] text-[#F0EFEC]">
           <DialogHeader>
-            <DialogTitle className="text-zinc-100">Edit Task</DialogTitle>
+            <DialogTitle className="text-[#F0EFEC]">Edit Task</DialogTitle>
           </DialogHeader>
           <TaskForm
             task={newTask} onTaskChange={setNewTask} teamMembers={teamMembers}
@@ -1328,21 +1328,21 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
             newResourceTitle={newResourceTitle} setNewResourceTitle={setNewResourceTitle}
           />
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditOpen(false)} className="border-zinc-700 text-zinc-300 bg-transparent hover:bg-zinc-800">Cancel</Button>
-            <Button onClick={handleUpdateTask} className="bg-zinc-100 text-zinc-900 hover:bg-white">Save Changes</Button>
+            <Button variant="outline" onClick={() => setIsEditOpen(false)} className="border-[#444442] text-[#8A8A85] bg-transparent hover:bg-[#252523]">Cancel</Button>
+            <Button onClick={handleUpdateTask} className="bg-[#F0EFEC] text-[#1C1C1A] hover:bg-white">Save Changes</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* ── Delete dialog ── */}
       <AlertDialog open={isDeleteModalOpen} onOpenChange={setIsDeleteModalOpen}>
-        <AlertDialogContent className="bg-zinc-950 border-zinc-800">
+        <AlertDialogContent className="bg-[#1C1C1A] border-[#333331]">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-zinc-100">Delete Task</AlertDialogTitle>
-            <AlertDialogDescription className="text-zinc-500">This action cannot be undone.</AlertDialogDescription>
+            <AlertDialogTitle className="text-[#F0EFEC]">Delete Task</AlertDialogTitle>
+            <AlertDialogDescription className="text-[#555552]">This action cannot be undone.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="border-zinc-700 text-zinc-300 bg-transparent hover:bg-zinc-800">Cancel</AlertDialogCancel>
+            <AlertDialogCancel className="border-[#444442] text-[#8A8A85] bg-transparent hover:bg-[#252523]">Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteTask} className="bg-red-600 hover:bg-red-500 text-white border-none">Delete</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1350,33 +1350,33 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
 
       {/* ── Deliverable modal ── */}
       <Dialog open={!!deliverableModal} onOpenChange={v => { if (!v) { setDeliverableModal(null); setDeliverableForm({ title: "", description: "", linkUrl: "" }); setDeliverableFile(null) } }}>
-        <DialogContent className="sm:max-w-[460px] bg-zinc-950 border-zinc-800">
+        <DialogContent className="sm:max-w-[460px] bg-[#1C1C1A] border-[#333331]">
           <DialogHeader>
-            <DialogTitle className="text-zinc-100">Submit Deliverable</DialogTitle>
-            <p className="text-xs text-zinc-500">Will be saved to the project's Deliverables folder in the Vault.</p>
+            <DialogTitle className="text-[#F0EFEC]">Submit Deliverable</DialogTitle>
+            <p className="text-xs text-[#555552]">Will be saved to the project's Deliverables folder in the Vault.</p>
           </DialogHeader>
           <div className="space-y-3 py-1">
             <div className="space-y-1.5">
-              <Label className="text-xs text-zinc-400">Title <span className="text-red-400">*</span></Label>
-              <Input placeholder="e.g. Final design files" value={deliverableForm.title} onChange={e => setDeliverableForm(p => ({ ...p, title: e.target.value }))} className="bg-zinc-900 border-zinc-700 text-zinc-200" />
+              <Label className="text-xs text-[#8A8A85]">Title <span className="text-red-400">*</span></Label>
+              <Input placeholder="e.g. Final design files" value={deliverableForm.title} onChange={e => setDeliverableForm(p => ({ ...p, title: e.target.value }))} className="bg-[#252523] border-[#333331] text-[#F0EFEC] placeholder:text-[#555552]" />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs text-zinc-400">Description</Label>
-              <Input placeholder="What's included…" value={deliverableForm.description} onChange={e => setDeliverableForm(p => ({ ...p, description: e.target.value }))} className="bg-zinc-900 border-zinc-700 text-zinc-200" />
+              <Label className="text-xs text-[#8A8A85]">Description</Label>
+              <Input placeholder="What's included…" value={deliverableForm.description} onChange={e => setDeliverableForm(p => ({ ...p, description: e.target.value }))} className="bg-[#252523] border-[#333331] text-[#F0EFEC] placeholder:text-[#555552]" />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs text-zinc-400">Upload file</Label>
-              <input type="file" onChange={e => setDeliverableFile(e.target.files?.[0] || null)} className="text-xs text-zinc-400 w-full" />
+              <Label className="text-xs text-[#8A8A85]">Upload file</Label>
+              <input type="file" onChange={e => setDeliverableFile(e.target.files?.[0] || null)} className="text-xs text-[#8A8A85] w-full" />
             </div>
-            <div className="flex items-center gap-2"><div className="flex-1 h-px bg-zinc-800" /><span className="text-xs text-zinc-700">or</span><div className="flex-1 h-px bg-zinc-800" /></div>
+            <div className="flex items-center gap-2"><div className="flex-1 h-px bg-[#333331]" /><span className="text-xs text-[#444442]">or</span><div className="flex-1 h-px bg-[#333331]" /></div>
             <div className="space-y-1.5">
-              <Label className="text-xs text-zinc-400">Paste a link</Label>
-              <Input placeholder="https://…" value={deliverableForm.linkUrl} onChange={e => setDeliverableForm(p => ({ ...p, linkUrl: e.target.value }))} className="bg-zinc-900 border-zinc-700 text-zinc-200" />
+              <Label className="text-xs text-[#8A8A85]">Paste a link</Label>
+              <Input placeholder="https://…" value={deliverableForm.linkUrl} onChange={e => setDeliverableForm(p => ({ ...p, linkUrl: e.target.value }))} className="bg-[#252523] border-[#333331] text-[#F0EFEC] placeholder:text-[#555552]" />
             </div>
           </div>
           <div className="flex gap-2 justify-end pt-1">
-            <Button variant="outline" onClick={() => handleSubmitDeliverable(true)} disabled={submittingDeliverable} className="border-zinc-700 text-zinc-300 bg-transparent hover:bg-zinc-800">Skip & complete</Button>
-            <Button onClick={() => handleSubmitDeliverable(false)} disabled={submittingDeliverable} className="bg-zinc-100 text-zinc-900 hover:bg-white">{submittingDeliverable ? "Submitting…" : "Submit & complete"}</Button>
+            <Button variant="outline" onClick={() => handleSubmitDeliverable(true)} disabled={submittingDeliverable} className="border-[#444442] text-[#8A8A85] bg-transparent hover:bg-[#252523]">Skip & complete</Button>
+            <Button onClick={() => handleSubmitDeliverable(false)} disabled={submittingDeliverable} className="bg-[#F0EFEC] text-[#1C1C1A] hover:bg-white">{submittingDeliverable ? "Submitting…" : "Submit & complete"}</Button>
           </div>
         </DialogContent>
       </Dialog>
