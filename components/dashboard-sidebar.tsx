@@ -92,12 +92,12 @@ export function DashboardSidebar({
     <Sidebar>
       <SidebarHeader>
         <div className="flex items-center gap-3 px-2 py-3">
-          <div className="size-8 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-xs font-bold">
+          <div className="size-8 rounded-full bg-zinc-700 flex items-center justify-center text-zinc-100 text-xs font-bold shrink-0">
             {userInitials}
           </div>
           <div className="flex flex-col min-w-0">
-            <span className="text-sm font-semibold truncate">{userName}</span>
-            <span className="text-[10px] text-muted-foreground">Command Center</span>
+            <span className="text-sm font-medium truncate text-zinc-100">{userName}</span>
+            <span className="text-[10px] text-zinc-500">Command Center</span>
           </div>
         </div>
       </SidebarHeader>
