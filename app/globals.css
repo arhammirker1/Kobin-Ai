@@ -4,88 +4,88 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: #151514;
-  --foreground: #E5E5E5;
-  --card: #2F302E;
-  --card-foreground: #E5E5E5;
-  --popover: #2F302E;
-  --popover-foreground: #E5E5E5;
-  --primary: #4F8DFD;
-  --primary-foreground: #ffffff;
-  --secondary: #403B38;
-  --secondary-foreground: #E5E5E5;
-  --muted: #2F302E;
-  --muted-foreground: #AAB0B4;
-  --accent: #403B38;
-  --accent-foreground: #E5E5E5;
-  --destructive: #E05A5A;
+  --background: #1C1C1A;
+  --foreground: #F0EFEC;
+  --card: #252523;
+  --card-foreground: #F0EFEC;
+  --popover: #252523;
+  --popover-foreground: #F0EFEC;
+  --primary: #F0EFEC;
+  --primary-foreground: #1C1C1A;
+  --secondary: #2E2E2C;
+  --secondary-foreground: #F0EFEC;
+  --muted: #2E2E2C;
+  --muted-foreground: #8A8A85;
+  --accent: #2E2E2C;
+  --accent-foreground: #F0EFEC;
+  --destructive: #E5534B;
   --destructive-foreground: #ffffff;
-  --border: #56544C;
-  --input: #2F302E;
-  --ring: #5778A1;
+  --border: #333331;
+  --input: #2E2E2C;
+  --ring: #555552;
   --radius: 0.5rem;
 
-  --sidebar: #111110;
-  --sidebar-foreground: #E5E5E5;
-  --sidebar-primary: #4F8DFD;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #2F302E;
-  --sidebar-accent-foreground: #E5E5E5;
-  --sidebar-border: #403B38;
-  --sidebar-ring: #5778A1;
+  --sidebar: #161614;
+  --sidebar-foreground: #F0EFEC;
+  --sidebar-primary: #F0EFEC;
+  --sidebar-primary-foreground: #1C1C1A;
+  --sidebar-accent: #252523;
+  --sidebar-accent-foreground: #F0EFEC;
+  --sidebar-border: #2E2E2C;
+  --sidebar-ring: #555552;
 
   /* Semantic status colors */
-  --color-done: #4CAF50;
-  --color-active: #5778A1;
-  --color-blocked: #E05A5A;
-  --color-backlog: #6B6E65;
-  --color-urgent: #FF6B4A;
-  --color-high: #F4B740;
-  --color-medium: #86897E;
-  --color-low: #AAB0B4;
+  --color-done: #3DD68C;
+  --color-active: #4A90D9;
+  --color-blocked: #E5534B;
+  --color-backlog: #6B6B68;
+  --color-urgent: #E5534B;
+  --color-high: #F5A623;
+  --color-medium: #8A8A85;
+  --color-low: #6B6B68;
 
   /* Brand accents */
-  --accent-blue: #5778A1;
-  --accent-blue-dark: #263F61;
-  --warning: #9A6049;
-  --neutral: #86897E;
+  --accent-blue: #4A90D9;
+  --accent-blue-dark: #2A5A8A;
+  --warning: #F5A623;
+  --neutral: #8A8A85;
 }
 
 .dark {
-  --background: #151514;
-  --foreground: #E5E5E5;
-  --card: #2F302E;
-  --card-foreground: #E5E5E5;
-  --popover: #2F302E;
-  --popover-foreground: #E5E5E5;
-  --primary: #4F8DFD;
-  --primary-foreground: #ffffff;
-  --secondary: #403B38;
-  --secondary-foreground: #E5E5E5;
-  --muted: #2F302E;
-  --muted-foreground: #AAB0B4;
-  --accent: #403B38;
-  --accent-foreground: #E5E5E5;
-  --destructive: #E05A5A;
+  --background: #1C1C1A;
+  --foreground: #F0EFEC;
+  --card: #252523;
+  --card-foreground: #F0EFEC;
+  --popover: #252523;
+  --popover-foreground: #F0EFEC;
+  --primary: #F0EFEC;
+  --primary-foreground: #1C1C1A;
+  --secondary: #2E2E2C;
+  --secondary-foreground: #F0EFEC;
+  --muted: #2E2E2C;
+  --muted-foreground: #8A8A85;
+  --accent: #2E2E2C;
+  --accent-foreground: #F0EFEC;
+  --destructive: #E5534B;
   --destructive-foreground: #ffffff;
-  --border: #56544C;
-  --input: #2F302E;
-  --ring: #5778A1;
+  --border: #333331;
+  --input: #2E2E2C;
+  --ring: #555552;
 
-  --sidebar: #111110;
-  --sidebar-foreground: #E5E5E5;
-  --sidebar-primary: #4F8DFD;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #2F302E;
-  --sidebar-accent-foreground: #E5E5E5;
-  --sidebar-border: #403B38;
-  --sidebar-ring: #5778A1;
+  --sidebar: #161614;
+  --sidebar-foreground: #F0EFEC;
+  --sidebar-primary: #F0EFEC;
+  --sidebar-primary-foreground: #1C1C1A;
+  --sidebar-accent: #252523;
+  --sidebar-accent-foreground: #F0EFEC;
+  --sidebar-border: #2E2E2C;
+  --sidebar-ring: #555552;
 
-  --chart-1: #5778A1;
-  --chart-2: #4CAF50;
-  --chart-3: #F4B740;
-  --chart-4: #86897E;
-  --chart-5: #E05A5A;
+  --chart-1: #4A90D9;
+  --chart-2: #3DD68C;
+  --chart-3: #F5A623;
+  --chart-4: #8A8A85;
+  --chart-5: #E5534B;
 }
 
 @theme inline {
@@ -135,7 +135,7 @@
   }
   body {
     @apply bg-background text-foreground font-sans;
-    background-color: #151514;
+    background-color: #1C1C1A;
   }
   ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }

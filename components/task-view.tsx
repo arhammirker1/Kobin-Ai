@@ -237,7 +237,7 @@ function InlineComments({ taskId, currentUserId }: { taskId: string; currentUser
           onChange={e => setNewComment(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit() } }}
           disabled={isSubmitting}
-          className="flex-1 h-7 text-xs bg-zinc-900 border-zinc-700 text-zinc-200 placeholder:text-zinc-600"
+          className="flex-1 h-7 text-xs bg-[#252523] border-[#333331] text-[#F0EFEC] placeholder:text-[#555552]"
         />
         <button
           onClick={handleSubmit}
@@ -543,9 +543,9 @@ function AnalyticsBar({ tasks, teamMembers }: {
   }
 
   return (
-    <div className="border-b border-zinc-800 bg-zinc-950">
+    <div className="border-b border-[#333331] bg-[#1C1C1A]">
       {/* Row 1: primary metrics */}
-      <div className="grid grid-cols-4 divide-x divide-zinc-800">
+      <div className="grid grid-cols-4 divide-x divide-[#333331]">
         {/* Completion rate */}
         <div className="px-4 py-3">
           <p className="text-[10px] uppercase tracking-widest text-zinc-600 mb-1.5">Completion rate</p>
@@ -610,7 +610,7 @@ function AnalyticsBar({ tasks, teamMembers }: {
 
       {/* Overdue panel */}
       {showOverdue && overdueTasks.length > 0 && (
-        <div className="px-4 py-3 border-t border-zinc-800 bg-red-950/20">
+        <div className="px-4 py-3 border-t border-[#333331] bg-red-900/10">
           <p className="text-[10px] uppercase tracking-widest text-red-500 mb-2 font-medium">{overdueTasks.length} overdue tasks</p>
           <div className="flex flex-col gap-1.5">
             {overdueTasks.slice(0, 5).map(t => (
@@ -630,7 +630,7 @@ function AnalyticsBar({ tasks, teamMembers }: {
       )}
 
       {/* Row 2: status dist + workload + priority */}
-      <div className="grid grid-cols-3 divide-x divide-zinc-800 border-t border-zinc-800">
+      <div className="grid grid-cols-3 divide-x divide-[#333331] border-t border-[#333331]">
         {/* Status distribution */}
         <div className="px-4 py-3">
           <p className="text-[10px] uppercase tracking-widest text-zinc-600 mb-2">Status breakdown</p>
@@ -731,8 +731,8 @@ function TaskRow({
         "flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer group transition-all",
         "border",
         selected
-          ? "bg-zinc-900 border-zinc-700"
-          : "bg-zinc-950 border-transparent hover:bg-zinc-900/60 hover:border-zinc-800",
+          ? "bg-[#252523] border-[#444442]"
+          : "bg-[#1C1C1A] border-transparent hover:bg-[#252523]/80 hover:border-[#333331]",
         task.is_completed && "opacity-40"
       )}
       onClick={onSelect}
@@ -1096,10 +1096,10 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
   return (
     <div
       className="flex flex-col rounded-xl overflow-hidden border border-zinc-800"
-      style={{ fontFamily: "'DM Sans', sans-serif", background: "#09090b" }}
+      style={{ fontFamily: "'DM Sans', sans-serif", background: "#1C1C1A" }}
     >
       {/* ── Page header ── */}
-      <div className="flex items-start justify-between px-5 pt-5 pb-4 border-b border-zinc-800 bg-zinc-950">
+      <div className="flex items-start justify-between px-5 pt-5 pb-4 border-b border-[#333331] bg-[#1C1C1A]">
         <div>
           <h1 className="text-lg font-semibold text-zinc-100 tracking-tight">Tasks & Execution</h1>
           <p className="text-xs text-zinc-600 mt-0.5">Founder-first task management — no complexity, just momentum.</p>
@@ -1110,8 +1110,8 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
             className={cn(
               "h-8 px-3 text-xs rounded-md border transition-colors flex items-center gap-1.5",
               showAnalytics
-                ? "bg-zinc-800 border-zinc-700 text-zinc-300"
-                : "bg-transparent border-zinc-800 text-zinc-500 hover:text-zinc-300"
+                ? "bg-[#2E2E2C] border-[#444442] text-[#F0EFEC]"
+                : "bg-transparent border-[#333331] text-[#8A8A85] hover:text-[#F0EFEC]"
             )}
           >
             <BarChart2 size={12} />Analytics
@@ -1124,7 +1124,7 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
               <DialogTrigger asChild>
                 <button
                   onClick={() => fetchTeamMembers()}
-                  className="h-8 px-3 text-xs font-medium rounded-md bg-zinc-100 hover:bg-white text-zinc-900 transition-colors flex items-center gap-1.5"
+                  className="h-8 px-3 text-xs font-medium rounded-md bg-[#F0EFEC] hover:bg-white text-[#1C1C1A] transition-colors flex items-center gap-1.5"
                 >
                   <Plus size={13} />Add task
                 </button>
@@ -1155,7 +1155,7 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
 
       {/* ── Project filter ── */}
       {projects.length > 0 && (
-        <div className="flex items-center gap-1.5 px-4 py-2.5 border-b border-zinc-800 bg-zinc-950 overflow-x-auto scrollbar-hide">
+        <div className="flex items-center gap-1.5 px-4 py-2.5 border-b border-[#333331] bg-[#1C1C1A] overflow-x-auto scrollbar-hide">
           <button
             onClick={() => setFilterProject("all")}
             className={cn(
@@ -1181,7 +1181,7 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
       )}
 
       {/* ── Toolbar ── */}
-      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-zinc-800 bg-zinc-950">
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[#333331] bg-[#1C1C1A]">
         <div className="flex items-center gap-1.5">
           {BUCKETS.map(b => (
             <button
@@ -1205,13 +1205,13 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
               placeholder="Search tasks…"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="h-7 pl-7 pr-3 text-xs bg-zinc-900 border border-zinc-800 rounded-md text-zinc-300 placeholder:text-zinc-700 outline-none focus:border-zinc-600 w-44"
+              className="h-7 pl-7 pr-3 text-xs bg-[#252523] border border-[#333331] rounded-md text-[#F0EFEC] placeholder:text-[#555552] outline-none focus:border-[#555552] w-44"
             />
           </div>
           <select
             value={filterPriority}
             onChange={e => setFilterPriority(e.target.value)}
-            className="h-7 px-2 text-xs bg-zinc-900 border border-zinc-800 rounded-md text-zinc-400 outline-none focus:border-zinc-600"
+            className="h-7 px-2 text-xs bg-[#252523] border border-[#333331] rounded-md text-[#8A8A85] outline-none focus:border-[#555552]"
           >
             <option value="all">All priorities</option>
             {PRIORITIES.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
@@ -1223,7 +1223,7 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
       <div className="flex min-h-[440px] max-h-[680px]">
         {/* Task list */}
         <div className={cn("flex flex-col min-w-0 overflow-y-auto", detailTask ? "flex-[3]" : "flex-1")}>
-          <div className="px-3 py-2 flex flex-col gap-0.5">
+          <div className="px-3 py-2 flex flex-col gap-0.5 bg-[#1C1C1A]">
             {/* Active section */}
             {activeTasks.length > 0 && (
               <>
