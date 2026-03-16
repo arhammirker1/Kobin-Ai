@@ -61,6 +61,9 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
     priority: "medium",
     status: "todo",
     deadline: "",
+    vault_attachments: [] as Array<{ vault_item_id: string; title: string; drive_file_url: string | null; link_url: string | null }>,
+    deliverable_required: false,
+    deliverable_description: "",
   })
   const [newResourceUrl, setNewResourceUrl] = useState("")
   const [newResourceTitle, setNewResourceTitle] = useState("")
@@ -158,6 +161,9 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
         project_id: clientData.project_id,
         bucket: activeBucket,
         is_completed: newTask.status === "completed",
+        vault_attachments: newTask.vault_attachments.length > 0 ? newTask.vault_attachments : null,
+        deliverable_required: newTask.deliverable_required,
+        deliverable_description: newTask.deliverable_description || null,
       }
 
       if (selectedTask && isEditOpen) {
@@ -207,6 +213,9 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
       priority: "medium",
       status: "todo",
       deadline: "",
+      vault_attachments: [],
+      deliverable_required: false,
+      deliverable_description: "",
     })
     setNewResourceUrl("")
     setNewResourceTitle("")
@@ -264,6 +273,9 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
       priority: task.priority,
       status: task.status,
       deadline: task.due_date ? format(new Date(task.due_date), "yyyy-MM-dd'T'HH:mm") : "",
+      vault_attachments: (task as any).vault_attachments || [],
+      deliverable_required: (task as any).deliverable_required || false,
+      deliverable_description: (task as any).deliverable_description || "",
     })
     setIsEditOpen(true)
   }
@@ -370,7 +382,7 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
                   Add Task
                 </Button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-[500px]">
+              <DialogContent className="sm:max-w-[580px]">
                 <DialogHeader>
                   <DialogTitle>Add New Task</DialogTitle>
                 </DialogHeader>
@@ -381,6 +393,7 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
                   setNewResourceUrl={setNewResourceUrl}
                   newResourceTitle={newResourceTitle}
                   setNewResourceTitle={setNewResourceTitle}
+                  projectId={clientData?.project_id}
                 />
                 <DialogFooter>
                   <Button
@@ -400,7 +413,7 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
             </Dialog>
 
             <Dialog open={isEditOpen} onOpenChange={(open) => { setIsEditOpen(open); if (!open) resetForm() }}>
-              <DialogContent className="sm:max-w-[500px]">
+              <DialogContent className="sm:max-w-[580px]">
                 <DialogHeader>
                   <DialogTitle>Edit Task</DialogTitle>
                 </DialogHeader>
@@ -411,6 +424,7 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
                   setNewResourceUrl={setNewResourceUrl}
                   newResourceTitle={newResourceTitle}
                   setNewResourceTitle={setNewResourceTitle}
+                  projectId={clientData?.project_id}
                 />
                 <DialogFooter>
                   <Button variant="outline" onClick={() => { setIsEditOpen(false); resetForm() }}>
