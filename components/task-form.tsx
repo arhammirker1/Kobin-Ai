@@ -24,6 +24,9 @@ interface TaskFormData {
   related_context_id: string
   related_context_name: string
   project_id?: string
+  vault_attachments: Array<{ vault_item_id: string; title: string; drive_file_url: string | null; link_url: string | null }>
+  deliverable_required: boolean
+  deliverable_description: string
 }
 
 interface TeamMember {
@@ -66,6 +69,31 @@ export function TaskForm({
   useEffect(() => {
     fetchProjects()
   }, [])
+
+  const [vaultItems, setVaultItems] = useState<Array<{ id: string; title: string; item_type: string; drive_file_url: string | null; link_url: string | null }>>([])
+  const [loadingVault, setLoadingVault] = useState(false)
+
+  const fetchVaultItems = async (projectId: string) => {
+    setLoadingVault(true)
+    // Get all folders for this project
+    const { data: folders } = await supabase
+      .from("vault_folders")
+      .select("id")
+      .eq("project_id", projectId)
+    
+    if (!folders?.length) { setLoadingVault(false); return }
+    
+    const folderIds = folders.map((f) => f.id)
+    const { data: items } = await supabase
+      .from("vault_items")
+      .select("id, title, item_type, drive_file_url, link_url")
+      .in("folder_id", folderIds)
+      .in("item_type", ["file", "link"])
+      .order("created_at", { ascending: false })
+    
+    setVaultItems(items || [])
+    setLoadingVault(false)
+  }
 
   const fetchProjects = async () => {
     try {
@@ -259,7 +287,11 @@ export function TaskForm({
         <Label htmlFor="project_id">Link to Project (Optional)</Label>
         <Select
           value={task.project_id || "none"}
-          onValueChange={(v) => onTaskChange({ ...task, project_id: v === "none" ? undefined : v })}
+          onValueChange={(v) => {
+            const newProjectId = v === "none" ? undefined : v
+            onTaskChange({ ...task, project_id: newProjectId, vault_attachments: [] })
+            if (newProjectId) fetchVaultItems(newProjectId)
+          }}
         >
           <SelectTrigger>
             <SelectValue placeholder="Select project" />
@@ -273,6 +305,66 @@ export function TaskForm({
             ))}
           </SelectContent>
         </Select>
+      </div>
+
+      {/* Vault Attachments */}
+      {task.project_id && (
+        <div className="grid gap-2">
+          <Label>Attach from Vault (Optional)</Label>
+          {loadingVault ? (
+            <p className="text-xs text-muted-foreground">Loading vault files…</p>
+          ) : vaultItems.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No files in this project's vault yet</p>
+          ) : (
+            <div className="border rounded-lg max-h-40 overflow-y-auto divide-y">
+              {vaultItems.map((item) => {
+                const isAttached = task.vault_attachments.some((a) => a.vault_item_id === item.id)
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      if (isAttached) {
+                        onTaskChange({ ...task, vault_attachments: task.vault_attachments.filter((a) => a.vault_item_id !== item.id) })
+                      } else {
+                        onTaskChange({ ...task, vault_attachments: [...task.vault_attachments, { vault_item_id: item.id, title: item.title, drive_file_url: item.drive_file_url, link_url: item.link_url }] })
+                      }
+                    }}
+                    className={`w-full flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors ${isAttached ? "bg-primary/10 text-primary" : "hover:bg-muted"}`}
+                  >
+                    <span className="text-base">{item.item_type === "file" ? "📄" : "🔗"}</span>
+                    <span className="flex-1 truncate">{item.title}</span>
+                    {isAttached && <span className="text-primary font-bold">✓</span>}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+          {task.vault_attachments.length > 0 && (
+            <p className="text-xs text-muted-foreground">{task.vault_attachments.length} file(s) attached</p>
+          )}
+        </div>
+      )}
+
+      {/* Deliverable Requirement */}
+      <div className="grid gap-2">
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            id="deliverable_required"
+            checked={task.deliverable_required}
+            onChange={(e) => onTaskChange({ ...task, deliverable_required: e.target.checked, deliverable_description: e.target.checked ? task.deliverable_description : "" })}
+            className="w-4 h-4 rounded border-input"
+          />
+          <Label htmlFor="deliverable_required" className="cursor-pointer">Require deliverable on completion</Label>
+        </div>
+        {task.deliverable_required && (
+          <Input
+            placeholder="Describe what needs to be submitted (e.g. 'Final design files in Figma export')"
+            value={task.deliverable_description}
+            onChange={(e) => onTaskChange({ ...task, deliverable_description: e.target.value })}
+          />
+        )}
       </div>
     </div>
   )

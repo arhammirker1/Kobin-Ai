@@ -48,7 +48,10 @@ const INITIAL_TASK_STATE = {
   related_context_type: "none" as const,
   related_context_id: "",
   related_context_name: "",
-  project_id: undefined as string | undefined, // Added project_id to initial state
+  project_id: undefined as string | undefined,
+  vault_attachments: [] as Array<{ vault_item_id: string; title: string; drive_file_url: string | null; link_url: string | null }>,
+  deliverable_required: false,
+  deliverable_description: "",
 }
 
 const INITIAL_STATE = INITIAL_TASK_STATE // Declared the missing variable
@@ -118,6 +121,10 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({})
   const [filterProject, setFilterProject] = useState<string>("all")
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([])
+  const [deliverableModal, setDeliverableModal] = useState<{ taskId: string; projectId: string } | null>(null)
+  const [deliverableForm, setDeliverableForm] = useState({ title: "", description: "", linkUrl: "" })
+  const [deliverableFile, setDeliverableFile] = useState<File | null>(null)
+  const [submittingDeliverable, setSubmittingDeliverable] = useState(false)
 
   const loadCommentCounts = async (taskList: Task[]) => {
   if (!taskList.length) return
@@ -286,10 +293,13 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
       assigned_to: newTask.assigned_to === UNASSIGNED ? null : newTask.assigned_to || null,
       linked: newTask.linked || null,
       is_completed: false,
-      related_context_type: newTask.related_context_type === "none" ? null : newTask.related_context_type || null, // convert "none" to null
+      related_context_type: newTask.related_context_type === "none" ? null : newTask.related_context_type || null,
       related_context_id: newTask.related_context_id ? newTask.related_context_id : null,
       related_context_name: newTask.related_context_name || null,
-      project_id: newTask.project_id || null, // Added project_id to task data
+      project_id: newTask.project_id || null,
+      vault_attachments: newTask.vault_attachments.length > 0 ? newTask.vault_attachments : null,
+      deliverable_required: newTask.deliverable_required,
+      deliverable_description: newTask.deliverable_description || null,
     }
 
     const { error } = await supabase.from("tasks").insert(taskData)
@@ -323,11 +333,14 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
       due_date: newTask.deadline ? new Date(newTask.deadline).toISOString() : null,
       assigned_to: newTask.assigned_to === UNASSIGNED ? null : newTask.assigned_to || null,
       linked: newTask.linked || null,
-      is_completed: newTask.status === "completed",
-      related_context_type: newTask.related_context_type === "none" ? null : newTask.related_context_type || null, // convert "none" to null
+      is_completed: false,
+      related_context_type: newTask.related_context_type === "none" ? null : newTask.related_context_type || null,
       related_context_id: newTask.related_context_id ? newTask.related_context_id : null,
       related_context_name: newTask.related_context_name || null,
-      project_id: newTask.project_id || null, // Added project_id to update data
+      project_id: newTask.project_id || null,
+      vault_attachments: newTask.vault_attachments.length > 0 ? newTask.vault_attachments : null,
+      deliverable_required: newTask.deliverable_required,
+      deliverable_description: newTask.deliverable_description || null,
     }
 
     const { error } = await supabase.from("tasks").update(taskData).eq("id", editingTask.id)
@@ -369,6 +382,15 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
   const toggleTask = async (id: string, is_completed: boolean) => {
     if (!supabase) return
     const newStatus = !is_completed ? "completed" : "todo"
+
+    // If completing a task that requires a deliverable and none submitted yet, show modal
+    if (newStatus === "completed") {
+      const task = tasks?.find((t) => t.id === id)
+      if (task?.deliverable_required && !(task as any).deliverable_vault_item_id && task.project_id) {
+        setDeliverableModal({ taskId: id, projectId: task.project_id })
+        return
+      }
+    }
 
     const previousTasks = tasks
     if (tasks) {
@@ -551,6 +573,48 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
       ...prev,
       [taskId]: count,
     }))
+  }
+
+  const handleSubmitDeliverable = async (skipAndComplete?: boolean) => {
+    if (!deliverableModal) return
+    
+    if (!skipAndComplete) {
+      if (!deliverableForm.title.trim()) { toast.error("Title is required"); return }
+      if (!deliverableFile && !deliverableForm.linkUrl.trim()) { toast.error("Please attach a file or paste a link"); return }
+      
+      setSubmittingDeliverable(true)
+      try {
+        const formData = new FormData()
+        formData.append("task_id", deliverableModal.taskId)
+        formData.append("project_id", deliverableModal.projectId)
+        formData.append("title", deliverableForm.title)
+        formData.append("description", deliverableForm.description)
+        if (deliverableFile) formData.append("file", deliverableFile)
+        if (deliverableForm.linkUrl) formData.append("link_url", deliverableForm.linkUrl)
+
+        const res = await fetch("/api/tasks/submit-deliverable", { method: "POST", body: formData })
+        const json = await res.json()
+        if (!res.ok) throw new Error(json.message)
+        toast.success("Deliverable submitted and saved to vault!")
+      } catch (err: any) {
+        toast.error(err.message || "Failed to submit deliverable")
+        setSubmittingDeliverable(false)
+        return
+      }
+      setSubmittingDeliverable(false)
+    }
+
+    // Now mark task complete
+    const { taskId } = deliverableModal
+    setDeliverableModal(null)
+    setDeliverableForm({ title: "", description: "", linkUrl: "" })
+    setDeliverableFile(null)
+
+    const previousTasks = tasks
+    if (tasks) mutateTasks(tasks.map((t) => t.id === taskId ? { ...t, is_completed: true, status: "completed" } : t), false)
+    const { error } = await supabase.from("tasks").update({ is_completed: true, status: "completed" }).eq("id", taskId)
+    if (error) { mutateTasks(previousTasks, false); toast.error("Failed to complete task") }
+    else { mutateTasks(); toast.success("Task completed!") }
   }
 
   return (
@@ -1173,6 +1237,48 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Deliverable Submission Modal */}
+      <Dialog open={!!deliverableModal} onOpenChange={(v) => { if (!v) { setDeliverableModal(null); setDeliverableForm({ title: "", description: "", linkUrl: "" }); setDeliverableFile(null) } }}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle>Submit Deliverable</DialogTitle>
+            <p className="text-sm text-muted-foreground">This task requires a deliverable. It will be automatically saved to the project's Deliverables folder in the Vault.</p>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="grid gap-2">
+              <Label>Title <span className="text-destructive">*</span></Label>
+              <Input placeholder="e.g. Final design files" value={deliverableForm.title} onChange={(e) => setDeliverableForm((p) => ({ ...p, title: e.target.value }))} />
+            </div>
+            <div className="grid gap-2">
+              <Label>Description (Optional)</Label>
+              <Input placeholder="Brief description of what's included" value={deliverableForm.description} onChange={(e) => setDeliverableForm((p) => ({ ...p, description: e.target.value }))} />
+            </div>
+            <div className="grid gap-2">
+              <Label>Upload File</Label>
+              <input type="file" onChange={(e) => setDeliverableFile(e.target.files?.[0] || null)} className="text-sm" />
+              {deliverableFile && <p className="text-xs text-muted-foreground">Selected: {deliverableFile.name}</p>}
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 h-px bg-border" />
+              <span className="text-xs text-muted-foreground">or</span>
+              <div className="flex-1 h-px bg-border" />
+            </div>
+            <div className="grid gap-2">
+              <Label>Paste a Link</Label>
+              <Input placeholder="https://…" value={deliverableForm.linkUrl} onChange={(e) => setDeliverableForm((p) => ({ ...p, linkUrl: e.target.value }))} />
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end pt-2">
+            <Button variant="outline" onClick={() => handleSubmitDeliverable(true)} disabled={submittingDeliverable}>
+              Skip & Complete
+            </Button>
+            <Button onClick={() => handleSubmitDeliverable(false)} disabled={submittingDeliverable}>
+              {submittingDeliverable ? "Submitting…" : "Submit & Complete"}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
