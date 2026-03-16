@@ -1029,6 +1029,14 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
 
   const updateTaskStatus = async (id: string, status: string) => {
     const isCompleted = status === "completed"
+    // Gate: if marking completed and deliverable required but not yet submitted, show modal
+    if (isCompleted) {
+      const task = tasks?.find(t => t.id === id)
+      if (task?.deliverable_required && !task.deliverable_vault_item_id && task.project_id) {
+        setDeliverableModal({ taskId: id, projectId: task.project_id })
+        return
+      }
+    }
     const prev = tasks
     if (tasks) mutateTasks(tasks.map(t => t.id === id ? { ...t, status, is_completed: isCompleted } : t), false)
     const { error } = await supabase.from("tasks").update({ status, is_completed: isCompleted }).eq("id", id)
