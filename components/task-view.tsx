@@ -67,12 +67,16 @@ interface Task {
   due_date: string | null
   assigned_to: string | null
   linked: string | null
-  notes: string | null // Added notes field
-  resources: Array<{ url: string; title?: string }> | null // Added resources array
-  related_context_type: "project" | "goal" | "meeting" | null // Added related context
-  related_context_id: string | null // Added related context ID
-  related_context_name: string | null // Added related context name
-  project_id: string | null // Added project_id field
+  notes: string | null
+  resources: Array<{ url: string; title?: string }> | null
+  related_context_type: "project" | "goal" | "meeting" | null
+  related_context_id: string | null
+  related_context_name: string | null
+  project_id: string | null
+  vault_attachments: Array<{ vault_item_id: string; title: string; drive_file_url: string | null; link_url: string | null }> | null
+  deliverable_required: boolean | null
+  deliverable_description: string | null
+  deliverable_vault_item_id: string | null
   created_at: string
 }
 
@@ -370,10 +374,13 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
       deadline: task.due_date ? format(new Date(task.due_date), "yyyy-MM-dd'T'HH:mm") : "",
       assigned_to: task.assigned_to || UNASSIGNED,
       linked: task.linked || "",
-      related_context_type: (task.related_context_type as "" | "project" | "goal" | "meeting" | "none") || "none", // use "none" as default
+      related_context_type: (task.related_context_type as any) || "none",
       related_context_id: task.related_context_id || "",
       related_context_name: task.related_context_name || "",
-      project_id: task.project_id || undefined, // Added project_id to edit state
+      project_id: task.project_id || undefined,
+      vault_attachments: task.vault_attachments || [],
+      deliverable_required: task.deliverable_required || false,
+      deliverable_description: task.deliverable_description || "",
     })
     setIsEditOpen(true)
     fetchTeamMembers()
@@ -644,7 +651,7 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
                   Add Task
                 </Button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-[500px]">
+              <DialogContent className="sm:max-w-[580px]">
                 <DialogHeader>
                   <DialogTitle>Add New Task</DialogTitle>
                 </DialogHeader>
@@ -687,7 +694,7 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
               }
             }}
           >
-            <DialogContent className="sm:max-w-[500px]">
+            <DialogContent className="sm:max-w-[580px]">
               <DialogHeader>
                 <DialogTitle>Edit Task</DialogTitle>
               </DialogHeader>
@@ -1094,144 +1101,157 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
       </AlertDialog>
 
       <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-2xl">{detailsTask?.title}</DialogTitle>
-          </DialogHeader>
-
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0">
           {detailsTask && (
-            <div className="space-y-6">
-              {/* Task Status and Priority */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label className="text-xs font-semibold text-muted-foreground">Status</Label>
-                  <div className="mt-1 text-lg font-medium capitalize">{detailsTask.status}</div>
+            <div className="flex flex-col">
+              {/* Header */}
+              <div className="px-6 pt-6 pb-4 border-b border-border/40">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <h2 className="text-lg font-semibold leading-snug">{detailsTask.title}</h2>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className={cn(
+                      "text-[11px] px-2 py-0.5 rounded font-medium capitalize",
+                      detailsTask.priority === "urgent" ? "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400" :
+                      detailsTask.priority === "high" ? "bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-400" :
+                      detailsTask.priority === "medium" ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-950/40 dark:text-yellow-400" :
+                      "bg-muted text-muted-foreground"
+                    )}>{detailsTask.priority}</span>
+                    {detailsTask.due_date && getDeadlineBadge(detailsTask.due_date)}
+                  </div>
                 </div>
+
+                {/* Meta chips row */}
+                <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1 px-2 py-0.5 bg-muted/60 rounded-md capitalize">
+                    {detailsTask.status.replace("-", " ")}
+                  </span>
+                  {detailsTask.assigned_to && (
+                    <span className="flex items-center gap-1 px-2 py-0.5 bg-muted/60 rounded-md">
+                      → {getAssigneeName(detailsTask.assigned_to) || "Assigned"}
+                    </span>
+                  )}
+                  {detailsTask.project_id && (
+                    <span className="flex items-center gap-1 px-2 py-0.5 bg-muted/60 rounded-md">
+                      <ProjectNameDisplay projectId={detailsTask.project_id} />
+                    </span>
+                  )}
+                  {detailsTask.due_date && (
+                    <span className="flex items-center gap-1 px-2 py-0.5 bg-muted/60 rounded-md">
+                      <Calendar size={11} />
+                      {format(new Date(detailsTask.due_date), "MMM d, yyyy 'at' h:mm a")}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Body */}
+              <div className="px-6 py-4 space-y-4">
+                {/* Notes */}
+                {detailsTask.notes && (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-widest font-medium text-muted-foreground mb-1.5">Notes</p>
+                    <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{detailsTask.notes}</p>
+                  </div>
+                )}
+
+                {/* Vault attachments */}
+                {detailsTask.vault_attachments && detailsTask.vault_attachments.length > 0 && (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-widest font-medium text-muted-foreground mb-1.5">Vault attachments</p>
+                    <div className="flex flex-wrap gap-2">
+                      {detailsTask.vault_attachments.map((a) => (
+                        <a
+                          key={a.vault_item_id}
+                          href={a.drive_file_url || a.link_url || "#"}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 bg-primary/8 border border-primary/20 rounded-md text-primary hover:bg-primary/15 transition-colors"
+                        >
+                          📄 {a.title}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* External resources */}
+                {detailsTask.resources && detailsTask.resources.length > 0 && (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-widest font-medium text-muted-foreground mb-1.5">Links</p>
+                    <div className="flex flex-wrap gap-2">
+                      {detailsTask.resources.map((r, i) => (
+                        <a
+                          key={i}
+                          href={r.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 bg-muted border border-border/50 rounded-md text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          🔗 {r.title || r.url}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Deliverable status */}
+                {detailsTask.deliverable_required && (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-widest font-medium text-muted-foreground mb-1.5">Deliverable</p>
+                    <div className={cn(
+                      "flex items-start gap-3 px-3 py-2.5 rounded-lg border text-sm",
+                      detailsTask.deliverable_vault_item_id
+                        ? "bg-green-50 border-green-200 dark:bg-green-950/20 dark:border-green-800"
+                        : "bg-blue-50 border-blue-200 dark:bg-blue-950/20 dark:border-blue-800"
+                    )}>
+                      <span className="text-base mt-0.5">{detailsTask.deliverable_vault_item_id ? "✅" : "⬆️"}</span>
+                      <div>
+                        <p className={cn(
+                          "font-medium text-xs",
+                          detailsTask.deliverable_vault_item_id ? "text-green-700 dark:text-green-400" : "text-blue-700 dark:text-blue-400"
+                        )}>
+                          {detailsTask.deliverable_vault_item_id ? "Deliverable submitted" : "Deliverable required on completion"}
+                        </p>
+                        {detailsTask.deliverable_description && (
+                          <p className="text-xs text-muted-foreground mt-0.5">{detailsTask.deliverable_description}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Comments */}
                 <div>
-                  <Label className="text-xs font-semibold text-muted-foreground">Priority</Label>
-                  <div className="mt-1">
-                    <Badge className={`${getPriorityColor(detailsTask.priority)}`}>{detailsTask.priority}</Badge>
+                  <p className="text-[10px] uppercase tracking-widest font-medium text-muted-foreground mb-2">Comments</p>
+                  <div className="border border-border/50 rounded-lg p-3 h-[280px]">
+                    <TaskComments
+                      taskId={detailsTask.id}
+                      onCommentCountChange={(count) => handleCommentCountChange(detailsTask.id, count)}
+                    />
                   </div>
                 </div>
               </div>
 
-              {/* Deadline */}
-              {detailsTask.due_date && (
-                <div>
-                  <Label className="text-xs font-semibold text-muted-foreground">Deadline</Label>
-                  <div className="mt-1 text-sm flex items-center gap-2">
-                    <Calendar size={16} className="text-muted-foreground" />
-                    {format(new Date(detailsTask.due_date), "PPP p")}
-                    {getDeadlineBadge(detailsTask.due_date)}
-                  </div>
-                </div>
-              )}
-
-              {/* Assigned To */}
-              {detailsTask.assigned_to && (
-                <div>
-                  <Label className="text-xs font-semibold text-muted-foreground">Assigned To</Label>
-                  <div className="mt-1 text-sm">
-                    {getAssigneeName(detailsTask.assigned_to) || detailsTask.assigned_to}
-                  </div>
-                </div>
-              )}
-
-              {/* Linked To */}
-              {detailsTask.linked && (
-                <div>
-                  <Label className="text-xs font-semibold text-muted-foreground">Linked To</Label>
-                  <div className="mt-1">
-                    <Badge variant="outline">{detailsTask.linked}</Badge>
-                  </div>
-                </div>
-              )}
-
-              {/* Notes */}
-              {detailsTask.notes && (
-                <div>
-                  <Label className="text-xs font-semibold text-muted-foreground">Notes</Label>
-                  <div className="mt-1 text-sm whitespace-pre-wrap">{detailsTask.notes}</div>
-                </div>
-              )}
-
-              {/* Resources */}
-              {detailsTask.resources && detailsTask.resources.length > 0 && (
-                <div>
-                  <Label className="text-xs font-semibold text-muted-foreground">Resources</Label>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {detailsTask.resources.map((resource, index) => (
-                      <a
-                        key={index}
-                        href={resource.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 hover:bg-primary/20 text-xs text-primary font-medium"
-                        title={resource.url}
-                      >
-                        {resource.title || "Link"}
-                        <span className="text-primary/60">→</span>
-                      </a>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Metadata */}
-              {detailsTask.related_context_type && (
-                <div>
-                  <Label className="text-xs font-semibold text-muted-foreground">Related Context</Label>
-                  <div className="mt-1 text-sm capitalize">
-                    {detailsTask.related_context_type}
-                    {detailsTask.related_context_name && ` - ${detailsTask.related_context_name}`}
-                  </div>
-                </div>
-              )}
-
-              {/* Project ID */}
-              {detailsTask.project_id && (
-                <div>
-                  <Label className="text-xs font-semibold text-muted-foreground">Project</Label>
-                  <div className="mt-1 text-sm">
-                    <ProjectNameDisplay projectId={detailsTask.project_id} />
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <Label className="text-xs font-semibold text-muted-foreground mb-3 block">Comments</Label>
-                <div className="border rounded-lg p-4 h-[400px]">
-                  <TaskComments
-                    taskId={detailsTask.id}
-                    onCommentCountChange={(count) => handleCommentCountChange(detailsTask.id, count)}
-                  />
-                </div>
-              </div>
-
-              <div className="pt-4 border-t flex gap-2">
-                {canEditOrDelete && ( // Using new permission check
+              {/* Footer actions */}
+              <div className="px-6 py-4 border-t border-border/40 flex gap-2">
+                {canEditOrDelete && (
                   <>
                     <Button
-                      variant="default"
-                      onClick={() => {
-                        handleEditClick(detailsTask)
-                        setIsDetailsOpen(false)
-                      }}
+                      size="sm"
+                      onClick={() => { handleEditClick(detailsTask); setIsDetailsOpen(false) }}
                     >
-                      Edit Task
+                      Edit task
                     </Button>
                     <Button
+                      size="sm"
                       variant="destructive"
-                      onClick={() => {
-                        handleDeleteClick(detailsTask.id)
-                        setIsDetailsOpen(false)
-                      }}
+                      onClick={() => { handleDeleteClick(detailsTask.id); setIsDetailsOpen(false) }}
                     >
-                      Delete Task
+                      Delete
                     </Button>
                   </>
                 )}
-                <Button variant="outline" onClick={() => setIsDetailsOpen(false)} className="ml-auto">
+                <Button size="sm" variant="outline" onClick={() => setIsDetailsOpen(false)} className="ml-auto">
                   Close
                 </Button>
               </div>

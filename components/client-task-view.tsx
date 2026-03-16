@@ -24,6 +24,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { toast } from "sonner"
+import { cn } from "@/lib/utils"
 import { format, isPast, differenceInDays } from "date-fns"
 import { Plus, Trash2, CheckCircle2, Activity, Clock, Filter, Pencil, MessageSquare } from "lucide-react"
 
@@ -506,52 +507,51 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
       </div>
 
       {/* Tasks Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {/* Tasks Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         {filteredTasks.length > 0 ? (
           filteredTasks.map((task) => (
-            <Card key={task.id} className="group hover:border-primary/30 transition-all">
+            <Card key={task.id} className={cn("group hover:border-primary/30 transition-all border-border/50", task.is_completed && "opacity-50")}>
               <CardContent className="p-4">
-                <div className="flex gap-4">
+                <div className="flex gap-3">
                   {/* Checkbox */}
                   <div
-                    className={`size-6 rounded border-2 flex items-center justify-center transition-colors shrink-0 cursor-pointer ${
-                      task.is_completed
-                        ? "bg-primary border-primary"
-                        : "border-muted-foreground/30 hover:border-primary hover:bg-primary/10"
-                    }`}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      updateTaskStatus(task.id, task.is_completed ? "todo" : "completed")
-                    }}
+                    className={cn(
+                      "size-5 rounded border-2 flex items-center justify-center transition-colors shrink-0 mt-0.5 cursor-pointer",
+                      task.is_completed ? "bg-primary border-primary" : "border-muted-foreground/30 hover:border-primary hover:bg-primary/10"
+                    )}
+                    onClick={(e) => { e.stopPropagation(); updateTaskStatus(task.id, task.is_completed ? "todo" : "completed") }}
                   >
-                    {task.is_completed && <CheckCircle2 size={16} className="text-primary-foreground" />}
+                    {task.is_completed && <CheckCircle2 size={12} className="text-primary-foreground" />}
                   </div>
 
                   {/* Task Content */}
                   <div className="flex-1 min-w-0">
-                    <h3 className={`font-semibold mb-2 ${task.is_completed ? "line-through opacity-60" : ""}`}>
-                      {task.title}
-                    </h3>
-
-                    {/* Badges */}
-                    <div className="flex flex-wrap gap-2 mb-3">
-                      <Badge
-                        className={`text-[9px] font-bold uppercase tracking-widest ${getPriorityColor(task.priority)}`}
-                      >
-                        {task.priority}
-                      </Badge>
-                      <Badge
-                        variant="outline"
-                        className={`text-[9px] font-bold uppercase tracking-widest ${getStatusColor(task.status)}`}
-                      >
-                        {task.status.replace("-", " ")}
-                      </Badge>
-                      {task.due_date && getDeadlineBadge(task.due_date)}
+                    {/* Title + priority + deadline */}
+                    <div className="flex items-start gap-2 mb-2 flex-wrap">
+                      <h3 className={cn("font-semibold text-sm flex-1 min-w-0 leading-snug", task.is_completed && "line-through")}>
+                        {task.title}
+                      </h3>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <span className={cn(
+                          "text-[10px] px-1.5 py-0.5 rounded font-medium capitalize",
+                          task.priority === "urgent" ? "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400" :
+                          task.priority === "high" ? "bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-400" :
+                          task.priority === "medium" ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-950/40 dark:text-yellow-400" :
+                          "bg-muted text-muted-foreground"
+                        )}>{task.priority}</span>
+                        {task.due_date && getDeadlineBadge(task.due_date)}
+                      </div>
                     </div>
 
-                    {/* Status Dropdown */}
+                    {/* Notes preview */}
+                    {(task as any).notes && (
+                      <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{(task as any).notes}</p>
+                    )}
+
+                    {/* Status dropdown — single control */}
                     <Select value={task.status} onValueChange={(v) => updateTaskStatus(task.id, v)}>
-                      <SelectTrigger className="h-8 text-xs">
+                      <SelectTrigger className="h-6 w-auto text-[11px] border-0 bg-muted/60 px-2 gap-1 rounded-md" onClick={(e) => e.stopPropagation()}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -565,35 +565,32 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
                   </div>
 
                   {/* Action Buttons */}
-                  <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="size-8 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                      className="size-7 text-muted-foreground hover:text-primary hover:bg-primary/10"
                       onClick={(e) => { e.stopPropagation(); setCommentTask(task) }}
-                      title="Comments"
                     >
-                      <MessageSquare size={16} />
+                      <MessageSquare size={14} />
                     </Button>
                     {clientData?.can_create_tasks && (
                       <>
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="size-8 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                          className="size-7 text-muted-foreground hover:text-primary hover:bg-primary/10"
                           onClick={(e) => { e.stopPropagation(); handleEditClick(task) }}
-                          title="Edit task"
                         >
-                          <Pencil size={16} />
+                          <Pencil size={14} />
                         </Button>
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="size-8 text-destructive hover:bg-destructive/10"
+                          className="size-7 text-destructive hover:bg-destructive/10"
                           onClick={(e) => { e.stopPropagation(); handleDeleteClick(task) }}
-                          title="Delete task"
                         >
-                          <Trash2 size={16} />
+                          <Trash2 size={14} />
                         </Button>
                       </>
                     )}
