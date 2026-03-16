@@ -29,14 +29,52 @@ import {
 } from "lucide-react"
 import { TaskForm } from "@/components/task-form"
 import { ProjectNameDisplay } from "@/components/project-name-display"
-import {
-  createTaskComment,
-  deleteTaskComment,
-  getTaskComments,
-  type TaskComment,
-} from "@/lib/supabase/queries/task-comments"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { createClient as createSupabaseClient } from "@/lib/supabase/client"
+
+interface TaskComment {
+  id: string
+  task_id: string
+  user_id: string
+  content: string
+  created_at: string
+  updated_at: string
+  profile?: {
+    full_name: string
+    avatar_url?: string
+  }
+}
+
+async function getTaskComments(taskId: string): Promise<TaskComment[]> {
+  const supabase = createSupabaseClient()
+  const { data, error } = await supabase
+    .from("task_comments")
+    .select("*, profile:profiles(full_name, avatar_url)")
+    .eq("task_id", taskId)
+    .order("created_at", { ascending: true })
+  if (error) throw error
+  return data || []
+}
+
+async function createTaskComment(taskId: string, content: string) {
+  const supabase = createSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error("Not authenticated")
+  const { data, error } = await supabase
+    .from("task_comments")
+    .insert({ task_id: taskId, user_id: user.id, content })
+    .select("*, profile:profiles(full_name, avatar_url)")
+    .single()
+  if (error) throw error
+  return data
+}
+
+async function deleteTaskComment(commentId: string) {
+  const supabase = createSupabaseClient()
+  const { error } = await supabase.from("task_comments").delete().eq("id", commentId)
+  if (error) throw error
+}
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
