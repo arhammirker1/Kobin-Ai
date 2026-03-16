@@ -24,9 +24,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { toast } from "sonner"
-import { cn } from "@/lib/utils"
 import { format, isPast, differenceInDays } from "date-fns"
-import { Plus, Trash2, CheckCircle2, Activity, Clock, Filter, Pencil, MessageSquare } from "lucide-react"
+import { Plus, Trash2, CheckCircle2, Filter, Pencil, MessageSquare } from "lucide-react"
+import { cn } from "@/lib/utils"
 
 const BUCKETS = ["today", "this-week", "delegated", "backlog"]
 const PRIORITIES = ["low", "medium", "high", "urgent"]
@@ -360,15 +360,18 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
   )
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div
+      className="flex flex-col rounded-xl overflow-hidden border border-[#333331]"
+      style={{ fontFamily: "'DM Sans', sans-serif", background: "#1C1C1A" }}
+    >
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-3xl font-bold tracking-tight">Tasks & Execution</h1>
-          <p className="text-muted-foreground text-sm">Manage your project tasks with ease.</p>
+      <div className="flex items-start justify-between px-5 pt-5 pb-4 border-b border-[#333331] bg-[#1C1C1A]">
+        <div>
+          <h1 className="text-lg font-semibold text-[#F0EFEC] tracking-tight">Tasks & Execution</h1>
+          <p className="text-xs text-[#555552] mt-0.5">Your project tasks — no complexity, just momentum.</p>
         </div>
         {clientData?.can_create_tasks && (
-          <div className="flex gap-2 w-full md:w-auto">
+          <div className="flex gap-2">
             <Dialog
               open={isDialogOpen}
               onOpenChange={(open) => {
@@ -377,14 +380,13 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
               }}
             >
               <DialogTrigger asChild>
-                <Button className="gap-2 shadow-sm font-bold w-full md:w-auto">
-                  <Plus size={18} />
-                  Add Task
-                </Button>
+                <button className="h-8 px-3 text-xs font-medium rounded-md bg-[#F0EFEC] hover:bg-white text-[#1C1C1A] transition-colors flex items-center gap-1.5">
+                  <Plus size={13} />Add task
+                </button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-[580px]">
+              <DialogContent className="sm:max-w-[580px] bg-[#1C1C1A] border-[#333331] text-[#F0EFEC]">
                 <DialogHeader>
-                  <DialogTitle>Add New Task</DialogTitle>
+                  <DialogTitle className="text-[#F0EFEC]">Add New Task</DialogTitle>
                 </DialogHeader>
                 <ClientTaskForm
                   task={newTask}
@@ -396,16 +398,10 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
                   projectId={clientData?.project_id}
                 />
                 <DialogFooter>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setIsDialogOpen(false)
-                      resetForm()
-                    }}
-                  >
+                  <Button variant="outline" onClick={() => { setIsDialogOpen(false); resetForm() }} className="border-[#444442] text-[#8A8A85] bg-transparent hover:bg-[#252523]">
                     Cancel
                   </Button>
-                  <Button onClick={createOrUpdateTask} disabled={isLoading}>
+                  <Button onClick={createOrUpdateTask} disabled={isLoading} className="bg-[#F0EFEC] text-[#1C1C1A] hover:bg-white">
                     {isLoading ? "Creating..." : "Create Task"}
                   </Button>
                 </DialogFooter>
@@ -413,9 +409,9 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
             </Dialog>
 
             <Dialog open={isEditOpen} onOpenChange={(open) => { setIsEditOpen(open); if (!open) resetForm() }}>
-              <DialogContent className="sm:max-w-[580px]">
+              <DialogContent className="sm:max-w-[580px] bg-[#1C1C1A] border-[#333331] text-[#F0EFEC]">
                 <DialogHeader>
-                  <DialogTitle>Edit Task</DialogTitle>
+                  <DialogTitle className="text-[#F0EFEC]">Edit Task</DialogTitle>
                 </DialogHeader>
                 <ClientTaskForm
                   task={newTask}
@@ -427,10 +423,10 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
                   projectId={clientData?.project_id}
                 />
                 <DialogFooter>
-                  <Button variant="outline" onClick={() => { setIsEditOpen(false); resetForm() }}>
+                  <Button variant="outline" onClick={() => { setIsEditOpen(false); resetForm() }} className="border-[#444442] text-[#8A8A85] bg-transparent hover:bg-[#252523]">
                     Cancel
                   </Button>
-                  <Button onClick={createOrUpdateTask} disabled={isLoading}>
+                  <Button onClick={createOrUpdateTask} disabled={isLoading} className="bg-[#F0EFEC] text-[#1C1C1A] hover:bg-white">
                     {isLoading ? "Updating..." : "Update Task"}
                   </Button>
                 </DialogFooter>
@@ -440,192 +436,216 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
         )}
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card className="border-primary/10 bg-card/50">
-          <CardContent className="p-4 flex flex-col gap-1">
-            <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">In Progress</span>
-            <div className="flex items-center justify-between">
-              <span className="text-2xl font-bold">{taskStats.inProgress}</span>
-              <Activity size={16} className="text-blue-500 opacity-50" />
+      {/* Analytics bar — project scoped, no workload */}
+      <div className="border-b border-[#333331] bg-[#1C1C1A]">
+        <div className="grid grid-cols-4 divide-x divide-[#333331]">
+          {/* Completion rate */}
+          <div className="px-4 py-3">
+            <p className="text-[10px] uppercase tracking-widest text-[#555552] mb-1.5">Completion rate</p>
+            <div className="flex items-baseline gap-2 mb-2">
+              <span className="text-xl font-medium text-emerald-400">
+                {tasks.length > 0 ? Math.round((taskStats.completed / tasks.length) * 100) : 0}%
+              </span>
+              <span className="text-xs text-[#555552]">this project</span>
             </div>
-          </CardContent>
-        </Card>
-        <Card className="border-primary/10 bg-card/50">
-          <CardContent className="p-4 flex flex-col gap-1">
-            <span className="text-[10px] text-red-400 font-bold uppercase tracking-wider">Blocked</span>
-            <div className="flex items-center justify-between">
-              <span className="text-2xl font-bold text-red-400">{taskStats.blocked}</span>
-              <Activity size={16} className="text-red-500 opacity-50" />
+            <div className="h-1 bg-[#252523] rounded-full overflow-hidden">
+              <div
+                className="h-full bg-emerald-500 rounded-full transition-all duration-500"
+                style={{ width: `${tasks.length > 0 ? Math.round((taskStats.completed / tasks.length) * 100) : 0}%` }}
+              />
             </div>
-          </CardContent>
-        </Card>
-        <Card className="border-primary/10 bg-card/50">
-          <CardContent className="p-4 flex flex-col gap-1">
-            <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">Completed</span>
-            <div className="flex items-center justify-between">
-              <span className="text-2xl font-bold text-emerald-400">{taskStats.completed}</span>
-              <Activity size={16} className="text-emerald-500 opacity-50" />
+          </div>
+          {/* Volume */}
+          <div className="px-4 py-3">
+            <p className="text-[10px] uppercase tracking-widest text-[#555552] mb-1.5">Volume</p>
+            <div className="flex items-baseline gap-3">
+              <div>
+                <span className="text-xl font-medium text-[#F0EFEC]">{tasks.length}</span>
+                <span className="text-[10px] text-[#555552] ml-1">total</span>
+              </div>
+              <span className="text-[#333331]">·</span>
+              <div>
+                <span className="text-xl font-medium text-emerald-400">{taskStats.completed}</span>
+                <span className="text-[10px] text-[#555552] ml-1">done</span>
+              </div>
             </div>
-          </CardContent>
-        </Card>
-        <Card className="border-primary/10 bg-card/50">
-          <CardContent className="p-4 flex flex-col gap-1">
-            <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Total Todo</span>
-            <div className="flex items-center justify-between">
-              <span className="text-2xl font-bold">{taskStats.todo}</span>
-              <Activity size={16} className="text-muted-foreground opacity-30" />
+          </div>
+          {/* Overdue */}
+          <div className="px-4 py-3">
+            <p className="text-[10px] uppercase tracking-widest text-[#555552] mb-1.5">Overdue</p>
+            <div className="flex items-baseline gap-2">
+              <span className={cn("text-xl font-medium", tasks.filter(t => t.due_date && isPast(new Date(t.due_date)) && !t.is_completed).length > 0 ? "text-red-400" : "text-[#8A8A85]")}>
+                {tasks.filter(t => t.due_date && isPast(new Date(t.due_date)) && !t.is_completed).length}
+              </span>
+              <span className="text-xs text-[#555552]">tasks</span>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+          {/* Blocked */}
+          <div className="px-4 py-3">
+            <p className="text-[10px] uppercase tracking-widest text-[#555552] mb-1.5">Blocked</p>
+            <div className="flex items-baseline gap-2">
+              <span className={cn("text-xl font-medium", taskStats.blocked > 0 ? "text-amber-400" : "text-[#8A8A85]")}>
+                {taskStats.blocked}
+              </span>
+              <span className="text-xs text-[#555552]">tasks</span>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Bucket Tabs and Controls */}
-      <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-        <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0 w-full md:w-auto scrollbar-hide">
+      {/* Toolbar */}
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[#333331] bg-[#1C1C1A]">
+        <div className="flex items-center gap-1.5">
           {BUCKETS.map((bucket) => (
-            <Button
+            <button
               key={bucket}
-              variant={activeBucket === bucket ? "default" : "outline"}
-              className="shrink-0"
               onClick={() => setActiveBucket(bucket)}
+              className={cn(
+                "px-3 py-1.5 rounded-md text-xs transition-colors",
+                activeBucket === bucket
+                  ? "bg-[#2E2E2C] text-[#F0EFEC] font-medium"
+                  : "text-[#555552] hover:text-[#F0EFEC]"
+              )}
             >
               {bucket.charAt(0).toUpperCase() + bucket.slice(1).replace("-", " ")}
-            </Button>
+            </button>
           ))}
         </div>
-
-        <div className="flex items-center gap-2 w-full md:w-auto">
-          <div className="relative flex-1 md:w-64">
-            <Filter className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search tasks..."
-              className="pl-9 bg-white border-muted shadow-none h-10"
+        <div className="flex items-center gap-2 ml-auto">
+          <div className="relative">
+            <Filter size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#555552]" />
+            <input
+              placeholder="Search tasks…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              className="h-7 pl-7 pr-3 text-xs bg-[#252523] border border-[#333331] rounded-md text-[#F0EFEC] placeholder:text-[#555552] outline-none focus:border-[#555552] w-44"
             />
           </div>
-          <Select value={filterPriority} onValueChange={setFilterPriority}>
-            <SelectTrigger className="w-[130px] h-10 bg-white border-muted">
-              <SelectValue placeholder="Priority" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Priorities</SelectItem>
-              {PRIORITIES.map((p) => (
-                <SelectItem key={p} value={p}>
-                  {p.charAt(0).toUpperCase() + p.slice(1)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <select
+            value={filterPriority}
+            onChange={(e) => setFilterPriority(e.target.value)}
+            className="h-7 px-2 text-xs bg-[#252523] border border-[#333331] rounded-md text-[#8A8A85] outline-none focus:border-[#555552]"
+          >
+            <option value="all">All priorities</option>
+            {PRIORITIES.map((p) => (
+              <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
+            ))}
+          </select>
         </div>
       </div>
 
-      {/* Tasks Grid */}
-      {/* Tasks Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-        {filteredTasks.length > 0 ? (
-          filteredTasks.map((task) => (
-            <Card key={task.id} className={cn("group hover:border-primary/30 transition-all border-border/50", task.is_completed && "opacity-50")}>
-              <CardContent className="p-4">
-                <div className="flex gap-3">
+      {/* Task list */}
+      <div className="overflow-y-auto max-h-[600px]">
+        <div className="px-3 py-2 flex flex-col gap-0.5 bg-[#1C1C1A]">
+          {/* Active */}
+          {filteredTasks.filter(t => !t.is_completed).length > 0 && (
+            <>
+              <div className="flex items-center gap-1.5 px-1 py-1.5 mb-0.5">
+                <span className="text-[10px] uppercase tracking-widest text-[#555552] font-medium">Active</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#252523] text-[#555552]">
+                  {filteredTasks.filter(t => !t.is_completed).length}
+                </span>
+              </div>
+              {filteredTasks.filter(t => !t.is_completed).map((task) => (
+                <div
+                  key={task.id}
+                  className="flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer group transition-all border border-transparent hover:bg-[#252523]/80 hover:border-[#333331] bg-[#1C1C1A]"
+                >
                   {/* Checkbox */}
-                  <div
-                    className={cn(
-                      "size-5 rounded border-2 flex items-center justify-center transition-colors shrink-0 mt-0.5 cursor-pointer",
-                      task.is_completed ? "bg-primary border-primary" : "border-muted-foreground/30 hover:border-primary hover:bg-primary/10"
+                  <button
+                    onClick={() => updateTaskStatus(task.id, "completed")}
+                    className="w-4 h-4 rounded-full border border-[#444442] hover:border-emerald-500/60 flex items-center justify-center shrink-0 transition-all"
+                  />
+                  {/* Priority dot */}
+                  <span style={{
+                    width: 7, height: 7, borderRadius: "50%", flexShrink: 0, display: "inline-block",
+                    background: task.priority === "urgent" ? "#E24B4A" : task.priority === "high" ? "#EF9F27" : task.priority === "medium" ? "#888780" : "#B4B2A9"
+                  }} />
+                  {/* Title */}
+                  <span className="flex-1 min-w-0 text-sm text-[#F0EFEC] truncate">{task.title}</span>
+                  {/* Meta */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {task.due_date && isPast(new Date(task.due_date)) && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full border font-medium whitespace-nowrap bg-red-500/15 text-red-400 border-red-500/20">Overdue</span>
                     )}
-                    onClick={(e) => { e.stopPropagation(); updateTaskStatus(task.id, task.is_completed ? "todo" : "completed") }}
-                  >
-                    {task.is_completed && <CheckCircle2 size={12} className="text-primary-foreground" />}
-                  </div>
-
-                  {/* Task Content */}
-                  <div className="flex-1 min-w-0">
-                    {/* Title + priority + deadline */}
-                    <div className="flex items-start gap-2 mb-2 flex-wrap">
-                      <h3 className={cn("font-semibold text-sm flex-1 min-w-0 leading-snug", task.is_completed && "line-through")}>
-                        {task.title}
-                      </h3>
-                      <div className="flex items-center gap-1 shrink-0">
-                        <span className={cn(
-                          "text-[10px] px-1.5 py-0.5 rounded font-medium capitalize",
-                          task.priority === "urgent" ? "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400" :
-                          task.priority === "high" ? "bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-400" :
-                          task.priority === "medium" ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-950/40 dark:text-yellow-400" :
-                          "bg-muted text-muted-foreground"
-                        )}>{task.priority}</span>
-                        {task.due_date && getDeadlineBadge(task.due_date)}
-                      </div>
-                    </div>
-
-                    {/* Notes preview */}
-                    {(task as any).notes && (
-                      <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{(task as any).notes}</p>
+                    {task.due_date && !isPast(new Date(task.due_date)) && differenceInDays(new Date(task.due_date), new Date()) <= 2 && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full border font-medium whitespace-nowrap bg-amber-500/15 text-amber-400 border-amber-500/20">
+                        {differenceInDays(new Date(task.due_date), new Date())}d left
+                      </span>
                     )}
-
-                    {/* Status dropdown — single control */}
-                    <Select value={task.status} onValueChange={(v) => updateTaskStatus(task.id, v)}>
-                      <SelectTrigger className="h-6 w-auto text-[11px] border-0 bg-muted/60 px-2 gap-1 rounded-md" onClick={(e) => e.stopPropagation()}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {STATUSES.map((s) => (
-                          <SelectItem key={s} value={s} className="text-xs capitalize">
-                            {s.replace("-", " ")}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <span className={cn(
+                      "text-[10px] px-2 py-0.5 rounded-full border font-medium whitespace-nowrap capitalize",
+                      task.status === "completed" ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" :
+                      task.status === "in-progress" ? "bg-blue-500/15 text-blue-400 border-blue-500/20" :
+                      task.status === "blocked" ? "bg-red-500/15 text-red-400 border-red-500/20" :
+                      "bg-[#252523] text-[#8A8A85] border-[#333331]"
+                    )}>{task.status.replace("-", " ")}</span>
                   </div>
-
-                  {/* Action Buttons */}
-                  <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-7 text-muted-foreground hover:text-primary hover:bg-primary/10"
-                      onClick={(e) => { e.stopPropagation(); setCommentTask(task) }}
-                    >
-                      <MessageSquare size={14} />
-                    </Button>
+                  {/* Hover actions */}
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                    <button onClick={() => setCommentTask(task)} className="w-6 h-6 rounded flex items-center justify-center text-[#555552] hover:text-[#F0EFEC] hover:bg-[#252523] transition-colors">
+                      <MessageSquare size={11} />
+                    </button>
                     {clientData?.can_create_tasks && (
                       <>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-7 text-muted-foreground hover:text-primary hover:bg-primary/10"
-                          onClick={(e) => { e.stopPropagation(); handleEditClick(task) }}
-                        >
-                          <Pencil size={14} />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-7 text-destructive hover:bg-destructive/10"
-                          onClick={(e) => { e.stopPropagation(); handleDeleteClick(task) }}
-                        >
-                          <Trash2 size={14} />
-                        </Button>
+                        <button onClick={() => handleEditClick(task)} className="w-6 h-6 rounded flex items-center justify-center text-[#555552] hover:text-[#F0EFEC] hover:bg-[#252523] transition-colors">
+                          <Pencil size={11} />
+                        </button>
+                        <button onClick={() => handleDeleteClick(task)} className="w-6 h-6 rounded flex items-center justify-center text-[#555552] hover:text-red-400 hover:bg-[#252523] transition-colors">
+                          <Trash2 size={11} />
+                        </button>
                       </>
                     )}
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-          ))
-        ) : (
-          <div className="col-span-full flex flex-col items-center justify-center py-12 text-center">
-            <Activity size={32} className="text-muted-foreground/30 mb-4" />
-            <p className="text-muted-foreground">No tasks in this bucket</p>
-          </div>
-        )}
+              ))}
+            </>
+          )}
+
+          {/* Completed */}
+          {filteredTasks.filter(t => t.is_completed).length > 0 && (
+            <div className="mt-2">
+              <div className="flex items-center gap-1.5 px-1 py-1.5 mb-0.5">
+                <span className="text-[10px] uppercase tracking-widest text-[#555552] font-medium">Completed</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#252523] text-[#555552]">
+                  {filteredTasks.filter(t => t.is_completed).length}
+                </span>
+              </div>
+              {filteredTasks.filter(t => t.is_completed).map((task) => (
+                <div key={task.id} className="flex items-center gap-2.5 px-3 py-2 rounded-lg group transition-all opacity-40 bg-[#1C1C1A]">
+                  <button
+                    onClick={() => updateTaskStatus(task.id, "todo")}
+                    className="w-4 h-4 rounded-full bg-emerald-500 border-emerald-500 flex items-center justify-center shrink-0"
+                  >
+                    <CheckCircle2 size={10} className="text-white" />
+                  </button>
+                  <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, display: "inline-block", background: "#888780" }} />
+                  <span className="flex-1 min-w-0 text-sm text-[#8A8A85] truncate line-through">{task.title}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Empty state */}
+          {filteredTasks.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+              <div className="w-10 h-10 rounded-xl bg-[#252523] border border-[#333331] flex items-center justify-center">
+                <CheckCircle2 size={18} className="text-[#444442]" />
+              </div>
+              <div>
+                <p className="text-sm text-[#555552] font-medium">No tasks here</p>
+                <p className="text-xs text-[#444442] mt-0.5">{searchQuery ? "Try a different search" : "Add a task to get started"}</p>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Comments Dialog */}
       <Dialog open={!!commentTask} onOpenChange={(v) => { if (!v) setCommentTask(null) }}>
-        <DialogContent className="sm:max-w-[600px] h-[500px] flex flex-col">
+        <DialogContent className="sm:max-w-[600px] h-[500px] flex flex-col bg-[#1C1C1A] border-[#333331]">
           <DialogHeader>
-            <DialogTitle className="truncate">{commentTask?.title}</DialogTitle>
+            <DialogTitle className="truncate text-[#F0EFEC]">{commentTask?.title}</DialogTitle>
           </DialogHeader>
           <div className="flex-1 min-h-0">
             {commentTask && <TaskComments taskId={commentTask.id} />}
@@ -635,21 +655,16 @@ export function ClientTaskView({ clientData }: { clientData: any }) {
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent className="bg-[#1C1C1A] border-[#333331]">
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Task</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete "{selectedTask?.title}"? This action cannot be undone.
+            <AlertDialogTitle className="text-[#F0EFEC]">Delete Task</AlertDialogTitle>
+            <AlertDialogDescription className="text-[#555552]">
+              This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={deleteTask}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Delete
-            </AlertDialogAction>
+            <AlertDialogCancel className="border-[#444442] text-[#8A8A85] bg-transparent hover:bg-[#252523]">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={deleteTask} className="bg-red-600 hover:bg-red-500 text-white border-none">Delete</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
