@@ -585,7 +585,7 @@ function mentionPalette(name: string) {
 }
 
 function MentionText({ text, isOwn }: { text: string; isOwn: boolean }) {
-  const parts = text.split(/(@[A-Za-z]+(?:\s[A-Za-z]+)?)/g)
+  const parts = text.split(/(@[A-Za-z]+)/g)
   return (
     <>
       {parts.map((part, i) => {
@@ -971,7 +971,7 @@ function MessageInput({
     }
 
     // Detect @ trigger
-    const mentionMatch = beforeCaret.match(/@(\w*)$/)
+    const mentionMatch = beforeCaret.match(/@([A-Za-z]*)$/)
     if (mentionMatch) {
       setMentionQuery(mentionMatch[1] || "")
       setShowMentionPicker(true)
