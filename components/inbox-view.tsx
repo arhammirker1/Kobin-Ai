@@ -1031,7 +1031,7 @@ function MessageInput({
           ))}
           {filteredTasks.length === 0 && (
             <p className="px-3 py-2 text-xs text-muted-foreground">
-              {roomTasks.length === 0 ? "No active tasks found for this room" : "No tasks match"}
+              {tasks.length === 0 ? "No active tasks found for this room" : "No tasks match"}
             </p>
           )}
         </div>
