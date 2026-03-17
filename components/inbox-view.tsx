@@ -1664,11 +1664,26 @@ const { data: allUnread } = await supabase
   }, [activeRoomId, currentUser, supabase])
 
   // ── Scroll to bottom on new messages ──────────────────────────────────────
+  // Scroll to bottom when room first loads
   useEffect(() => {
-    if (!loadingMessages) {
+    if (!loadingMessages && messages.length > 0) {
       messagesEndRef.current?.scrollIntoView({ behavior: "instant" })
     }
   }, [loadingMessages])
+
+  // Scroll to bottom when new messages arrive (sent or received)
+  const prevMessageCountRef = useRef(0)
+  useEffect(() => {
+    if (loadingMore) return // don't scroll when loading older messages upward
+    const container = messagesContainerRef.current
+    if (!container) return
+    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 120
+    const messageCountIncreased = messages.length > prevMessageCountRef.current
+    if (messageCountIncreased && (isNearBottom || messages[messages.length - 1]?.sender_id === currentUser?.id)) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+    }
+    prevMessageCountRef.current = messages.length
+  }, [messages.length])
 
   // ── Send message ───────────────────────────────────────────────────────────
   const handleSend = useCallback(async (content: string, file?: File, taskRef?: TaskPreview) => {
