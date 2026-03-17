@@ -1,6 +1,6 @@
 "use client"
 
-import {
+import React, {
   useEffect,
   useState,
   useRef,
@@ -535,6 +535,7 @@ function EventInviteCard({
   )
 }
 
+
 // ─── Task Ref Card ────────────────────────────────────────────────────────────
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -613,7 +614,7 @@ function MentionText({ text, isOwn }: { text: string; isOwn: boolean }) {
 
 const QUICK_EMOJIS = ["👍", "❤️", "😂", "🙌", "🔥", "✅"]
 
-function MessageBubble({
+const MessageBubble = React.memo(function MessageBubble({
   msg, isOwn, showAvatar, roomType, onReply, onDelete, onEdit, onForward, onReact, currentUserId, onImageClick,
 }: {
   msg: ChatMessage; isOwn: boolean; showAvatar: boolean; roomType: string
@@ -874,7 +875,7 @@ function MessageBubble({
       </div>
     </div>
   )
-}
+})
 
 // ─── Message Input ─────────────────────────────────────────────────────────────
 
@@ -1190,6 +1191,7 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [people, setPeople] = useState<Profile[]>([])
+  const peopleRef = useRef<Profile[]>([])
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
   const [editingMsg, setEditingMsg] = useState<ChatMessage | null>(null)
   const [newDMOpen, setNewDMOpen] = useState(false)
@@ -1204,6 +1206,10 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
   const [deletingRoomId, setDeletingRoomId] = useState<string | null>(null)
   const [createChannelOpen, setCreateChannelOpen] = useState(false)
   const [roomTasks, setRoomTasks] = useState<TaskPreview[]>([])
+
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
 
 // ── PASTE THE THREE useMemos HERE ──────────────────────────────────────────
 const activeRoom = useMemo(
@@ -1232,6 +1238,7 @@ const filteredRooms = useMemo(() => {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const realtimeRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
+  const messagesRef = useRef<ChatMessage[]>([])
   // ── Boot ────────────────────────────────────────────────────────────────────
   useEffect(() => {
     const init = async () => {
@@ -1426,6 +1433,7 @@ const { data: allUnread } = await supabase
     ].filter((p) => p.id !== userId) as Profile[]
 
     setPeople(allPeople)
+    peopleRef.current = allPeople
   }, [supabase])
 
   // ── Load messages for active room ──────────────────────────────────────────
@@ -1473,6 +1481,7 @@ const { data: allUnread } = await supabase
         }
       })
       setMessages(msgs)
+      messagesRef.current = msgs
       setLoadingMessages(false)
 
       if (msgs.length === PAGE_SIZE) setHasMore(true)
@@ -1619,7 +1628,7 @@ const { data: allUnread } = await supabase
   // then add — no extra DB fetch needed
   const enriched: ChatMessage = {
     ...newMsg,
-    sender: people.find((p) => p.id === newMsg.sender_id) || { id: newMsg.sender_id, full_name: "Unknown" },
+    sender: peopleRef.current.find((p) => p.id === newMsg.sender_id) || { id: newMsg.sender_id, full_name: "Unknown" },
     reply_to: null, // reply_to enrichment on demand is fine
   }
 
@@ -1652,7 +1661,7 @@ const { data: allUnread } = await supabase
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [activeRoomId, currentUser, supabase, people])
+  }, [activeRoomId, currentUser, supabase])
 
   // ── Scroll to bottom on new messages ──────────────────────────────────────
   useEffect(() => {
@@ -1849,8 +1858,7 @@ if (error) {
   const handleReact = useCallback(async (msgId: string, emoji: string) => {
     if (!currentUser) return
 
-    // Check current state optimistically
-    const msg = messages.find((m) => m.id === msgId)
+    const msg = messagesRef.current.find((m) => m.id === msgId)
     const existing = msg?.reactions?.find((r) => r.emoji === emoji)
     const alreadyReacted = existing?.reacted_by_me ?? false
 
@@ -1906,7 +1914,7 @@ if (error) {
         message_id: msgId, user_id: currentUser.id, emoji,
       })
     }
-  }, [currentUser, supabase, messages])
+  }, [currentUser, supabase])
 
   // Handle Delete Room
 
