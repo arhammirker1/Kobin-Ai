@@ -1643,73 +1643,6 @@ const { data: allUnread } = await supabase
         }
       )
       
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "message_reactions",
-        },
-        async (payload) => {
-          const { message_id, emoji, user_id } = payload.new as any
-          setMessages((prev) =>
-            prev.map((m) => {
-              if (m.id !== message_id) return m
-              const existing = m.reactions || []
-              const idx = existing.findIndex((r) => r.emoji === emoji)
-              if (idx >= 0) {
-                const updated = [...existing]
-                if (!updated[idx].user_ids.includes(user_id)) {
-                  updated[idx] = {
-                    ...updated[idx],
-                    count: updated[idx].count + 1,
-                    user_ids: [...updated[idx].user_ids, user_id],
-                    reacted_by_me: updated[idx].reacted_by_me || user_id === currentUser?.id,
-                  }
-                }
-                return { ...m, reactions: updated }
-              }
-              return {
-                ...m,
-                reactions: [...existing, {
-                  emoji,
-                  count: 1,
-                  user_ids: [user_id],
-                  reacted_by_me: user_id === currentUser?.id,
-                }],
-              }
-            })
-          )
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "DELETE",
-          schema: "public",
-          table: "message_reactions",
-        },
-        (payload) => {
-          const { message_id, emoji, user_id } = payload.old as any
-          setMessages((prev) =>
-            prev.map((m) => {
-              if (m.id !== message_id) return m
-              const updated = (m.reactions || [])
-                .map((r) => {
-                  if (r.emoji !== emoji) return r
-                  return {
-                    ...r,
-                    count: r.count - 1,
-                    user_ids: r.user_ids.filter((id) => id !== user_id),
-                    reacted_by_me: r.reacted_by_me && user_id !== currentUser?.id,
-                  }
-                })
-                .filter((r) => r.count > 0)
-              return { ...m, reactions: updated }
-            })
-          )
-        }
-      )
       .subscribe()
 
     realtimeRef.current = channel
@@ -1916,39 +1849,65 @@ if (error) {
   // ── React to message ───────────────────────────────────────────────────────
   const handleReact = useCallback(async (msgId: string, emoji: string) => {
     if (!currentUser) return
-    const { data: existing } = await supabase
-      .from("message_reactions")
-      .select("id")
-      .eq("message_id", msgId)
-      .eq("user_id", currentUser.id)
-      .eq("emoji", emoji)
-      .maybeSingle()
 
-    if (existing) {
-      await supabase.from("message_reactions").delete().eq("id", existing.id)
+    // Check current state optimistically
+    const msg = messages.find((m) => m.id === msgId)
+    const existing = msg?.reactions?.find((r) => r.emoji === emoji)
+    const alreadyReacted = existing?.reacted_by_me ?? false
+
+    // Optimistic update immediately
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== msgId) return m
+        const reactions = m.reactions || []
+        if (alreadyReacted) {
+          return {
+            ...m,
+            reactions: reactions
+              .map((r) => r.emoji !== emoji ? r : {
+                ...r,
+                count: r.count - 1,
+                user_ids: r.user_ids.filter((id) => id !== currentUser.id),
+                reacted_by_me: false,
+              })
+              .filter((r) => r.count > 0),
+          }
+        } else {
+          const idx = reactions.findIndex((r) => r.emoji === emoji)
+          if (idx >= 0) {
+            const updated = [...reactions]
+            updated[idx] = {
+              ...updated[idx],
+              count: updated[idx].count + 1,
+              user_ids: [...updated[idx].user_ids, currentUser.id],
+              reacted_by_me: true,
+            }
+            return { ...m, reactions: updated }
+          }
+          return {
+            ...m,
+            reactions: [...reactions, { emoji, count: 1, user_ids: [currentUser.id], reacted_by_me: true }],
+          }
+        }
+      })
+    )
+
+    // Persist to DB
+    if (alreadyReacted) {
+      const { data: row } = await supabase
+        .from("message_reactions")
+        .select("id")
+        .eq("message_id", msgId)
+        .eq("user_id", currentUser.id)
+        .eq("emoji", emoji)
+        .maybeSingle()
+      if (row) await supabase.from("message_reactions").delete().eq("id", row.id)
     } else {
       await supabase.from("message_reactions").insert({
         message_id: msgId, user_id: currentUser.id, emoji,
       })
     }
-
-    // Reload reactions for this message
-    const { data: allReactions } = await supabase
-      .from("message_reactions")
-      .select("emoji, user_id")
-      .eq("message_id", msgId)
-
-    const grouped: Record<string, { count: number; user_ids: string[] }> = {}
-    for (const r of allReactions || []) {
-      if (!grouped[r.emoji]) grouped[r.emoji] = { count: 0, user_ids: [] }
-      grouped[r.emoji].count++
-      grouped[r.emoji].user_ids.push(r.user_id)
-    }
-    const reactions: MessageReaction[] = Object.entries(grouped).map(([emoji, d]) => ({
-      emoji, count: d.count, user_ids: d.user_ids, reacted_by_me: d.user_ids.includes(currentUser.id),
-    }))
-    setMessages((prev) => prev.map((m) => m.id === msgId ? { ...m, reactions } : m))
-  }, [currentUser, supabase])
+  }, [currentUser, supabase, messages])
 
   // Handle Delete Room
 
