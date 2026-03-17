@@ -1134,6 +1134,30 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
   const [createChannelOpen, setCreateChannelOpen] = useState(false)
   const [roomTasks, setRoomTasks] = useState<TaskPreview[]>([])
 
+// ── PASTE THE THREE useMemos HERE ──────────────────────────────────────────
+const activeRoom = useMemo(
+  () => rooms.find((r) => r.id === activeRoomId),
+  [rooms, activeRoomId]
+)
+
+const groupedRooms = useMemo(() => ({
+  project: rooms.filter((r) => r.type === "project"),
+  group: rooms.filter((r) => r.type === "group"),
+  direct: rooms.filter((r) => r.type === "direct"),
+}), [rooms])
+
+const filteredRooms = useMemo(() => {
+  if (!sidebarSearch) return rooms
+  return rooms.filter((r) =>
+    r.display_name.toLowerCase().includes(sidebarSearch.toLowerCase())
+  )
+}, [rooms, sidebarSearch])
+
+
+// ... rest of your hooks
+
+   
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const realtimeRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
@@ -1808,23 +1832,6 @@ if (error) {
   }, [currentUser, supabase, loadRooms])
 
   // ── Computed ───────────────────────────────────────────────────────────────
-  const activeRoom = useMemo(
-    () => rooms.find((r) => r.id === activeRoomId),
-    [rooms, activeRoomId]
-  )
-
-  const groupedRooms = useMemo(() => ({
-    project: rooms.filter((r) => r.type === "project"),
-    group: rooms.filter((r) => r.type === "group"),
-    direct: rooms.filter((r) => r.type === "direct"),
-  }), [rooms])
-
-  const filteredRooms = useMemo(() => {
-    if (!sidebarSearch) return rooms
-    return rooms.filter((r) =>
-      r.display_name.toLowerCase().includes(sidebarSearch.toLowerCase())
-    )
-  }, [rooms, sidebarSearch])
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
