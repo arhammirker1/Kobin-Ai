@@ -83,8 +83,7 @@ async function showNotification(payload) {
       badge: "/badge.png",
       vibrate: [100, 50, 100],
       requireInteraction: false,
-      tag: `room-${payload.room_id}`,
-      renotify: true,
+      tag: `room-${payload.room_id}-${Date.now()}`,
       actions: [
         { action: "reply", title: "💬 Reply" },
         { action: "view", title: "Open" },
