@@ -65,6 +65,13 @@ interface ChatRoom {
   other_user?: Profile  // for DMs
 }
 
+interface MessageReaction {
+  emoji: string
+  count: number
+  reacted_by_me: boolean
+  user_ids: string[]
+}
+
 interface ChatMessage {
   id: string
   room_id: string
@@ -79,9 +86,19 @@ interface ChatMessage {
   created_at: string
   message_type?: string | null
   invite_id?: string | null
+  task_id?: string | null
   // Joined
   sender?: Profile
   reply_to?: ChatMessage | null
+  reactions?: MessageReaction[]
+}
+
+interface TaskPreview {
+  id: string
+  title: string
+  priority: string
+  status: string
+  project_id: string | null
 }
 
 interface FileAttachment {
@@ -209,6 +226,125 @@ function ImageLightbox({
         onClick={(e) => e.stopPropagation()}
       />
     </div>
+  )
+}
+
+// ─── Create Channel Dialog ────────────────────────────────────────────────────
+
+function CreateChannelDialog({
+  open,
+  onOpenChange,
+  currentUser,
+  people,
+  onCreated,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  currentUser: Profile | null
+  people: Profile[]
+  onCreated: (roomId: string) => void
+}) {
+  const supabase = useMemo(() => createClient(), [])
+  const [name, setName] = useState("")
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [creating, setCreating] = useState(false)
+
+  useEffect(() => {
+    if (!open) { setName(""); setSelectedIds([]) }
+  }, [open])
+
+  const toggleMember = (id: string) =>
+    setSelectedIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])
+
+  const handleCreate = async () => {
+    if (!name.trim() || !currentUser) return
+    setCreating(true)
+    try {
+      const { data: room, error } = await supabase
+        .from("chat_rooms")
+        .insert({
+          name: name.trim(),
+          type: "group",
+          founder_id: currentUser.id,
+          created_by: currentUser.id,
+        })
+        .select()
+        .single()
+
+      if (error || !room) throw error
+
+      const memberIds = [...new Set([currentUser.id, ...selectedIds])]
+      await supabase.from("chat_room_members").insert(
+        memberIds.map((uid) => ({ room_id: room.id, user_id: uid }))
+      )
+
+      toast.success(`#${name.trim()} created`)
+      onCreated(room.id)
+      onOpenChange(false)
+    } catch {
+      toast.error("Failed to create channel")
+    }
+    setCreating(false)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>New Channel</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 border border-border rounded-lg px-3 py-2 focus-within:border-primary/50 transition-colors">
+            <Hash className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+              placeholder="channel-name"
+              autoFocus
+              className="flex-1 bg-transparent text-sm outline-none"
+            />
+          </div>
+          {people.length > 0 && (
+            <div>
+              <p className="text-xs text-muted-foreground mb-2">Add members</p>
+              <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
+                {people.map((p) => {
+                  const sel = selectedIds.includes(p.id)
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => toggleMember(p.id)}
+                      className={cn(
+                        "flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs transition-colors",
+                        sel
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border text-muted-foreground hover:border-foreground/40"
+                      )}
+                    >
+                      <div className={cn(
+                        "w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white",
+                        avatarColor(p.id)
+                      )}>
+                        {avatarInitials(p.full_name)[0]}
+                      </div>
+                      {p.full_name.split(" ")[0]}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+          <button
+            onClick={handleCreate}
+            disabled={!name.trim() || creating}
+            className="w-full py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-40 transition-colors"
+          >
+            {creating ? "Creating…" : "Create channel"}
+          </button>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -399,21 +535,60 @@ function EventInviteCard({
   )
 }
 
+// ─── Task Ref Card ────────────────────────────────────────────────────────────
+
+const PRIORITY_COLORS: Record<string, string> = {
+  urgent: "#E24B4A", high: "#EF9F27", medium: "#888780", low: "#B4B2A9",
+}
+const STATUS_STYLES: Record<string, string> = {
+  completed: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20",
+  "in-progress": "bg-blue-500/15 text-blue-400 border-blue-500/20",
+  blocked: "bg-red-500/15 text-red-400 border-red-500/20",
+  todo: "bg-zinc-500/10 text-zinc-400 border-zinc-500/15",
+}
+
+function TaskRefCard({ task }: { task: TaskPreview }) {
+  return (
+    <div className="max-w-xs rounded-xl border border-border bg-card overflow-hidden">
+      <div className="px-3 py-2 border-b border-border/50 flex items-center gap-1.5">
+        <span style={{ width: 7, height: 7, borderRadius: "50%", background: PRIORITY_COLORS[task.priority?.toLowerCase()] || PRIORITY_COLORS.low, display: "inline-block", flexShrink: 0 }} />
+        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Task</span>
+      </div>
+      <div className="px-3 py-2.5 space-y-1.5">
+        <p className="text-sm font-medium leading-snug">{task.title}</p>
+        <div className="flex items-center gap-1.5">
+          <span className={cn(
+            "text-[10px] px-2 py-0.5 rounded-full border font-medium capitalize",
+            STATUS_STYLES[task.status] || STATUS_STYLES.todo
+          )}>
+            {task.status?.replace("-", " ")}
+          </span>
+          <span className="text-[10px] text-muted-foreground capitalize">{task.priority}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 
 
+const QUICK_EMOJIS = ["👍", "❤️", "😂", "🙌", "🔥", "✅"]
+
 function MessageBubble({
-  msg, isOwn, showAvatar, roomType, onReply, onDelete, onEdit, onForward, currentUserId, onImageClick,
+  msg, isOwn, showAvatar, roomType, onReply, onDelete, onEdit, onForward, onReact, currentUserId, onImageClick,
 }: {
   msg: ChatMessage; isOwn: boolean; showAvatar: boolean; roomType: string
   onReply: (msg: ChatMessage) => void
   onDelete: (id: string) => void
   onEdit: (msg: ChatMessage) => void
   onForward: (msg: ChatMessage) => void
+  onReact: (msgId: string, emoji: string) => void
   currentUserId: string; onImageClick: (src: string, name: string) => void
 }) {
   const [hovered, setHovered] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [emojiOpen, setEmojiOpen] = useState(false)
   const FileIcon = getFileIcon(msg.file_type)
 
 
@@ -470,6 +645,13 @@ function MessageBubble({
         {/* Bubble */}
         {msg.message_type === "event_invite" ? (
           <EventInviteCard message={msg} currentUserId={currentUserId} />
+        ) : msg.message_type === "task_ref" && msg.content ? (
+          (() => {
+            try {
+              const task = JSON.parse(msg.content) as TaskPreview
+              return <TaskRefCard task={task} />
+            } catch { return null }
+          })()
         ) : (
         <div className={cn(
           "relative px-3.5 py-2 text-sm leading-relaxed",
@@ -528,6 +710,27 @@ function MessageBubble({
             </span>
           )}
         </div>
+
+        {/* Reactions */}
+        {msg.reactions && msg.reactions.length > 0 && (
+          <div className={cn("flex flex-wrap gap-1 mt-1 px-1", isOwn ? "justify-end" : "justify-start")}>
+            {msg.reactions.map((r) => (
+              <button
+                key={r.emoji}
+                onClick={() => onReact(msg.id, r.emoji)}
+                className={cn(
+                  "flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-xs transition-colors",
+                  r.reacted_by_me
+                    ? "border-primary/40 bg-primary/10 text-primary"
+                    : "border-border bg-muted/40 hover:bg-muted"
+                )}
+              >
+                <span style={{ fontSize: 13 }}>{r.emoji}</span>
+                <span className="text-[10px] font-medium">{r.count}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Hover actions */}
@@ -545,13 +748,33 @@ function MessageBubble({
           <Reply className="h-3.5 w-3.5" />
         </button>
 
-        {/* Reaction */}
-        <button
-          className="p-1.5 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground text-sm"
-          title="React"
-        >
-          😊
-        </button>
+        {/* Reaction picker */}
+        <div className="relative">
+          <button
+            onClick={() => setEmojiOpen((v) => !v)}
+            className="p-1.5 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground text-sm"
+            title="React"
+          >
+            😊
+          </button>
+          {emojiOpen && (
+            <div className={cn(
+              "absolute z-50 bottom-8 bg-popover border border-border rounded-xl shadow-lg p-1.5 flex gap-0.5",
+              isOwn ? "right-0" : "left-0"
+            )}>
+              {QUICK_EMOJIS.map((emoji) => (
+                <button
+                  key={emoji}
+                  onClick={() => { onReact(msg.id, emoji); setEmojiOpen(false); setHovered(false) }}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-muted transition-colors"
+                  style={{ fontSize: 16 }}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* More menu */}
         <div className="relative" ref={menuRef}>
@@ -609,26 +832,42 @@ function MessageBubble({
 // ─── Message Input ─────────────────────────────────────────────────────────────
 
 function MessageInput({
-  onSend, replyTo, onCancelReply, editingMsg, onCancelEdit, disabled,
+  onSend, replyTo, onCancelReply, editingMsg, onCancelEdit, disabled, tasks, people,
 }: {
-  onSend: (content: string, file?: File) => Promise<void>
+  onSend: (content: string, file?: File, taskRef?: TaskPreview) => Promise<void>
   replyTo: ChatMessage | null; onCancelReply: () => void
   editingMsg: ChatMessage | null; onCancelEdit: () => void
   disabled?: boolean
+  tasks: TaskPreview[]
+  people: Profile[]
 }) {
   const [text, setText] = useState("")
   const [file, setFile] = useState<File | null>(null)
   const [sending, setSending] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const textRef = useRef<HTMLTextAreaElement>(null)
-  
-  
+
+  // /task picker
+  const [taskQuery, setTaskQuery] = useState("")
+  const [showTaskPicker, setShowTaskPicker] = useState(false)
+
+  // @mention picker
+  const [mentionQuery, setMentionQuery] = useState("")
+  const [showMentionPicker, setShowMentionPicker] = useState(false)
+  const [caretPos, setCaretPos] = useState(0)
+
   useEffect(() => {
-    if (editingMsg) {
-      setText(editingMsg.content || "")
-      textRef.current?.focus()
-    }
+    if (editingMsg) { setText(editingMsg.content || ""); textRef.current?.focus() }
   }, [editingMsg])
+
+  const filteredTasks = tasks.filter((t) =>
+    t.title.toLowerCase().includes(taskQuery.toLowerCase())
+  ).slice(0, 6)
+
+  const filteredPeople = people.filter((p) =>
+    p.full_name.toLowerCase().includes(mentionQuery.toLowerCase())
+  ).slice(0, 5)
+
   const canSend = (text.trim().length > 0 || file !== null) && !sending && !disabled
 
   const handleSend = async () => {
@@ -643,20 +882,109 @@ function MessageInput({
   }
 
   const handleKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
+    if ((showTaskPicker || showMentionPicker) && (e.key === "Escape")) {
+      setShowTaskPicker(false); setShowMentionPicker(false); return
+    }
+    if (e.key === "Enter" && !e.shiftKey && !showTaskPicker && !showMentionPicker) {
+      e.preventDefault(); handleSend()
     }
   }
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setText(e.target.value)
+    const val = e.target.value
+    const caret = e.target.selectionStart || 0
+    setText(val)
+    setCaretPos(caret)
     e.target.style.height = "auto"
     e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`
+
+    // Detect /task trigger
+    const beforeCaret = val.slice(0, caret)
+    const taskMatch = beforeCaret.match(/\/task\s*(.*)$/)
+    if (taskMatch) {
+      setTaskQuery(taskMatch[1] || "")
+      setShowTaskPicker(true)
+      setShowMentionPicker(false)
+      return
+    } else {
+      setShowTaskPicker(false)
+    }
+
+    // Detect @ trigger
+    const mentionMatch = beforeCaret.match(/@(\w*)$/)
+    if (mentionMatch) {
+      setMentionQuery(mentionMatch[1] || "")
+      setShowMentionPicker(true)
+      return
+    } else {
+      setShowMentionPicker(false)
+    }
+  }
+
+  const selectTask = async (task: TaskPreview) => {
+    setShowTaskPicker(false)
+    setText("")
+    setSending(true)
+    await onSend("", undefined, task)
+    setSending(false)
+    textRef.current?.focus()
+  }
+
+  const selectMention = (person: Profile) => {
+    const beforeCaret = text.slice(0, caretPos)
+    const afterCaret = text.slice(caretPos)
+    const replaced = beforeCaret.replace(/@(\w*)$/, `@${person.full_name.split(" ")[0]} `)
+    setText(replaced + afterCaret)
+    setShowMentionPicker(false)
+    setTimeout(() => textRef.current?.focus(), 0)
   }
 
   return (
     <div className="px-3 pb-3 pt-1">
+
+      {/* Task picker popover */}
+      {showTaskPicker && filteredTasks.length > 0 && (
+        <div className="mb-2 bg-popover border border-border rounded-xl overflow-hidden shadow-lg">
+          <div className="px-3 py-1.5 border-b border-border/50 flex items-center gap-2">
+            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Attach task</span>
+          </div>
+          {filteredTasks.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => selectTask(t)}
+              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-muted transition-colors text-left"
+            >
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: PRIORITY_COLORS[t.priority?.toLowerCase()] || PRIORITY_COLORS.low, display: "inline-block", flexShrink: 0 }} />
+              <span className="text-sm flex-1 truncate">{t.title}</span>
+              <span className={cn(
+                "text-[10px] px-1.5 py-0.5 rounded-full border capitalize shrink-0",
+                STATUS_STYLES[t.status] || STATUS_STYLES.todo
+              )}>{t.status?.replace("-", " ")}</span>
+            </button>
+          ))}
+          {taskQuery && filteredTasks.length === 0 && (
+            <p className="px-3 py-2 text-xs text-muted-foreground">No tasks match</p>
+          )}
+        </div>
+      )}
+
+      {/* Mention picker popover */}
+      {showMentionPicker && filteredPeople.length > 0 && (
+        <div className="mb-2 bg-popover border border-border rounded-xl overflow-hidden shadow-lg">
+          {filteredPeople.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => selectMention(p)}
+              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-muted transition-colors text-left"
+            >
+              <div className={cn("w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0", avatarColor(p.id))}>
+                {avatarInitials(p.full_name)[0]}
+              </div>
+              <span className="text-sm">{p.full_name}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Edit preview */}
       {editingMsg && (
@@ -664,9 +992,7 @@ function MessageInput({
           <span className="text-[10px]">✏️</span>
           <span className="text-muted-foreground">Editing message</span>
           <span className="font-medium truncate flex-1">{editingMsg.content}</span>
-          <button onClick={onCancelEdit} className="text-muted-foreground hover:text-foreground ml-1">
-            <X className="h-3 w-3" />
-          </button>
+          <button onClick={onCancelEdit} className="text-muted-foreground hover:text-foreground ml-1"><X className="h-3 w-3" /></button>
         </div>
       )}
 
@@ -676,9 +1002,7 @@ function MessageInput({
           <Reply className="h-3 w-3 text-muted-foreground flex-shrink-0" />
           <span className="text-muted-foreground">Replying to</span>
           <span className="font-medium truncate flex-1">{replyTo.content || replyTo.file_name}</span>
-          <button onClick={onCancelReply} className="text-muted-foreground hover:text-foreground ml-1">
-            <X className="h-3 w-3" />
-          </button>
+          <button onClick={onCancelReply} className="text-muted-foreground hover:text-foreground ml-1"><X className="h-3 w-3" /></button>
         </div>
       )}
 
@@ -688,48 +1012,32 @@ function MessageInput({
           <Paperclip className="h-3 w-3 text-primary flex-shrink-0" />
           <span className="truncate flex-1 font-medium">{file.name}</span>
           <span className="text-muted-foreground">{formatFileSize(file.size)}</span>
-          <button onClick={() => setFile(null)} className="text-muted-foreground hover:text-destructive ml-1">
-            <X className="h-3 w-3" />
-          </button>
+          <button onClick={() => setFile(null)} className="text-muted-foreground hover:text-destructive ml-1"><X className="h-3 w-3" /></button>
         </div>
       )}
 
       <div className="flex items-end gap-2">
-        {/* Attachment button */}
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          className="p-2 text-muted-foreground hover:text-foreground transition-colors flex-shrink-0 mb-0.5"
-        >
+        <button type="button" onClick={() => fileRef.current?.click()}
+          className="p-2 text-muted-foreground hover:text-foreground transition-colors flex-shrink-0 mb-0.5">
           <Paperclip className="h-5 w-5" />
         </button>
-        <input
-          ref={fileRef} type="file" className="hidden"
+        <input ref={fileRef} type="file" className="hidden"
           accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip"
-          onChange={(e) => setFile(e.target.files?.[0] || null)}
-        />
+          onChange={(e) => setFile(e.target.files?.[0] || null)} />
 
-        {/* Pill input */}
         <div className="flex items-end flex-1 bg-muted/40 border border-border/60 rounded-[24px] px-4 py-2 focus-within:border-border transition-colors">
           <textarea
-            ref={textRef}
-            value={text}
-            onChange={handleTextChange}
-            onKeyDown={handleKey}
-            placeholder={disabled ? "No permission to send" : "Message…"}
-            disabled={disabled || sending}
-            rows={1}
+            ref={textRef} value={text} onChange={handleTextChange} onKeyDown={handleKey}
+            placeholder={disabled ? "No permission to send" : "Message… or /task to attach a task"}
+            disabled={disabled || sending} rows={1}
             className="flex-1 bg-transparent text-sm resize-none outline-none placeholder:text-muted-foreground/50 min-h-[20px] max-h-[120px] leading-5"
             style={{ height: "20px" }}
           />
         </div>
 
-        {/* Send / mic button */}
         {canSend ? (
-          <button
-            onClick={handleSend}
-            className="p-2 text-primary hover:text-primary/80 transition-colors flex-shrink-0 mb-0.5 font-semibold text-sm"
-          >
+          <button onClick={handleSend}
+            className="p-2 text-primary hover:text-primary/80 transition-colors flex-shrink-0 mb-0.5 font-semibold text-sm">
             <Send className="h-5 w-5" />
           </button>
         ) : (
@@ -823,6 +1131,8 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
   const [lightbox, setLightbox] = useState<{ src: string; name: string } | null>(null)
   const [forwardMsg, setForwardMsg] = useState<ChatMessage | null>(null)
   const [deletingRoomId, setDeletingRoomId] = useState<string | null>(null)
+  const [createChannelOpen, setCreateChannelOpen] = useState(false)
+  const [roomTasks, setRoomTasks] = useState<TaskPreview[]>([])
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -1103,6 +1413,21 @@ const { data: allUnread } = await supabase
     setLoadingMore(false)
   }, [activeRoomId, hasMore, loadingMore, oldestMsgDate, supabase])
 
+  // ── Load tasks for active room ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!activeRoom || !currentUser) return
+    const load = async () => {
+      const founderId = currentUser.user_type === "founder" ? currentUser.id : null
+      if (!founderId) return
+      let query = supabase.from("tasks").select("id, title, priority, status, project_id")
+        .eq("user_id", founderId).eq("is_completed", false)
+      if (activeRoom.project_id) query = query.eq("project_id", activeRoom.project_id)
+      const { data } = await query.order("created_at", { ascending: false }).limit(50)
+      setRoomTasks((data as TaskPreview[]) || [])
+    }
+    load()
+  }, [activeRoom, currentUser, supabase])
+
   // ── Scroll handler ─────────────────────────────────────────────────────────
   const handleScroll = useCallback(() => {
     const container = messagesContainerRef.current
@@ -1207,8 +1532,19 @@ const { data: allUnread } = await supabase
   }, [loadingMessages])
 
   // ── Send message ───────────────────────────────────────────────────────────
-  const handleSend = useCallback(async (content: string, file?: File) => {
+  const handleSend = useCallback(async (content: string, file?: File, taskRef?: TaskPreview) => {
     if (!activeRoomId || !currentUser) return
+
+    // Task reference message
+    if (taskRef) {
+      const taskContent = JSON.stringify(taskRef)
+      const { error } = await supabase.from("chat_messages").insert({
+        room_id: activeRoomId, sender_id: currentUser.id,
+        content: taskContent, message_type: "task_ref", task_id: taskRef.id,
+      })
+      if (error) toast.error("Failed to send task reference")
+      return
+    }
 
     // Edit mode
     if (editingMsg) {
@@ -1364,6 +1700,43 @@ if (error) {
     toast.success("Message forwarded")
   }, [currentUser, forwardMsg, supabase])
 
+  // ── React to message ───────────────────────────────────────────────────────
+  const handleReact = useCallback(async (msgId: string, emoji: string) => {
+    if (!currentUser) return
+    const { data: existing } = await supabase
+      .from("message_reactions")
+      .select("id")
+      .eq("message_id", msgId)
+      .eq("user_id", currentUser.id)
+      .eq("emoji", emoji)
+      .maybeSingle()
+
+    if (existing) {
+      await supabase.from("message_reactions").delete().eq("id", existing.id)
+    } else {
+      await supabase.from("message_reactions").insert({
+        message_id: msgId, user_id: currentUser.id, emoji,
+      })
+    }
+
+    // Reload reactions for this message
+    const { data: allReactions } = await supabase
+      .from("message_reactions")
+      .select("emoji, user_id")
+      .eq("message_id", msgId)
+
+    const grouped: Record<string, { count: number; user_ids: string[] }> = {}
+    for (const r of allReactions || []) {
+      if (!grouped[r.emoji]) grouped[r.emoji] = { count: 0, user_ids: [] }
+      grouped[r.emoji].count++
+      grouped[r.emoji].user_ids.push(r.user_id)
+    }
+    const reactions: MessageReaction[] = Object.entries(grouped).map(([emoji, d]) => ({
+      emoji, count: d.count, user_ids: d.user_ids, reacted_by_me: d.user_ids.includes(currentUser.id),
+    }))
+    setMessages((prev) => prev.map((m) => m.id === msgId ? { ...m, reactions } : m))
+  }, [currentUser, supabase])
+
   // Handle Delete Room
 
   // ── Delete entire chat room ────────────────────────────────────────────────
@@ -1504,16 +1877,24 @@ if (error) {
           )}
 
           {/* Group Channels */}
+          <div className="pt-3 px-2">
+            <div className="flex items-center justify-between px-2 mb-1">
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Channels</span>
+              <button
+                onClick={() => setCreateChannelOpen(true)}
+                className="p-0.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+              >
+                <Plus className="h-3 w-3" />
+              </button>
+            </div>
           {groupedRooms.group.length > 0 && (
-            <div className="pt-3 px-2">
-              <div className="flex items-center justify-between px-2 mb-1">
-                <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Channels</span>
-              </div>
+            <>
               {groupedRooms.group.map((room) => (
                 <RoomButton key={room.id} room={room} active={activeRoomId === room.id} onClick={() => setActiveRoomId(room.id)} />
               ))}
-            </div>
+            </>
           )}
+          </div>
 
           {/* Direct Messages */}
           <div className="pt-3 px-2 pb-3">
@@ -1648,6 +2029,7 @@ if (error) {
                           onDelete={handleDelete}
                           onEdit={handleEdit}
                           onForward={setForwardMsg}
+                          onReact={handleReact}
                           currentUserId={currentUser?.id || ""}
                           onImageClick={(src, name) => setLightbox({ src, name })}
                         />
@@ -1667,6 +2049,8 @@ if (error) {
               editingMsg={editingMsg}
               onCancelEdit={() => setEditingMsg(null)}
               disabled={!canSendMessages}
+              tasks={roomTasks}
+              people={people}
             />
           </>
         ) : (
@@ -1705,6 +2089,16 @@ if (error) {
         onOpenChange={setNewDMOpen}
         people={people}
         onSelect={handleStartDM}
+      />
+
+      <CreateChannelDialog
+        open={createChannelOpen}
+        onOpenChange={setCreateChannelOpen}
+        currentUser={currentUser}
+        people={people}
+        onCreated={(roomId) => {
+          loadRooms(currentUser!.id).then(() => setActiveRoomId(roomId))
+        }}
       />
 
       {/* Forward Dialogue*/}
