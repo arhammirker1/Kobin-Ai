@@ -1796,12 +1796,9 @@ if (error) {
         const senderName = currentUser.full_name || "Someone"
         await Promise.all(
           members.map((m) =>
-            fetch("/api/push/send", {
+            fetch("/api/push/send-to-user", {
               method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "x-internal-secret": process.env.NEXT_PUBLIC_INTERNAL_API_SECRET || "",
-              },
+              headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 user_id: m.user_id,
                 payload: {
