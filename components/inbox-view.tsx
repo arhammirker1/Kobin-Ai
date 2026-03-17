@@ -570,28 +570,39 @@ function TaskRefCard({ task }: { task: TaskPreview }) {
   )
 }
 
+const MENTION_PALETTES = [
+  { bg: "bg-violet-500/20", text: "text-violet-400" },
+  { bg: "bg-blue-500/20",   text: "text-blue-400"   },
+  { bg: "bg-emerald-500/20",text: "text-emerald-400" },
+  { bg: "bg-amber-500/20",  text: "text-amber-500"  },
+  { bg: "bg-rose-500/20",   text: "text-rose-400"   },
+  { bg: "bg-cyan-500/20",   text: "text-cyan-400"   },
+]
+function mentionPalette(name: string) {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h)
+  return MENTION_PALETTES[Math.abs(h) % MENTION_PALETTES.length]
+}
+
 function MentionText({ text, isOwn }: { text: string; isOwn: boolean }) {
-  // Matches @Word or @First Last (two words)
   const parts = text.split(/(@[A-Za-z]+(?:\s[A-Za-z]+)?)/g)
   return (
     <>
-      {parts.map((part, i) =>
-        /^@[A-Za-z]/.test(part) ? (
+      {parts.map((part, i) => {
+        if (!/^@[A-Za-z]/.test(part)) return <span key={i}>{part}</span>
+        const p = isOwn ? null : mentionPalette(part)
+        return (
           <span
             key={i}
             className={cn(
               "inline-flex items-center rounded px-1 py-0.5 text-[0.85em] font-semibold",
-              isOwn
-                ? "bg-white/25 text-white"
-                : "bg-primary/20 text-primary"
+              isOwn ? "bg-white/25 text-white" : `${p!.bg} ${p!.text}`
             )}
           >
             {part}
           </span>
-        ) : (
-          <span key={i}>{part}</span>
         )
-      )}
+      })}
     </>
   )
 }
@@ -885,6 +896,8 @@ function MessageInput({
   // @mention picker
   const [mentionQuery, setMentionQuery] = useState("")
   const [showMentionPicker, setShowMentionPicker] = useState(false)
+  const [mentionIndex, setMentionIndex] = useState(0)
+  const [taskIndex, setTaskIndex] = useState(0)
   const [caretPos, setCaretPos] = useState(0)
 
   useEffect(() => {
@@ -913,10 +926,20 @@ function MessageInput({
   }
 
   const handleKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((showTaskPicker || showMentionPicker) && (e.key === "Escape")) {
+    if (e.key === "Escape") {
       setShowTaskPicker(false); setShowMentionPicker(false); return
     }
-    if (e.key === "Enter" && !e.shiftKey && !showTaskPicker && !showMentionPicker) {
+    if (showMentionPicker) {
+      if (e.key === "ArrowDown") { e.preventDefault(); setMentionIndex(i => Math.min(i + 1, filteredPeople.length - 1)); return }
+      if (e.key === "ArrowUp")   { e.preventDefault(); setMentionIndex(i => Math.max(i - 1, 0)); return }
+      if (e.key === "Enter")     { e.preventDefault(); filteredPeople[mentionIndex] && selectMention(filteredPeople[mentionIndex]); return }
+    }
+    if (showTaskPicker) {
+      if (e.key === "ArrowDown") { e.preventDefault(); setTaskIndex(i => Math.min(i + 1, filteredTasks.length - 1)); return }
+      if (e.key === "ArrowUp")   { e.preventDefault(); setTaskIndex(i => Math.max(i - 1, 0)); return }
+      if (e.key === "Enter")     { e.preventDefault(); filteredTasks[taskIndex] && selectTask(filteredTasks[taskIndex]); return }
+    }
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault(); handleSend()
     }
   }
@@ -935,6 +958,7 @@ function MessageInput({
     if (taskMatch) {
       setTaskQuery(taskMatch[1] || "")
       setShowTaskPicker(true)
+      setTaskIndex(0)
       setShowMentionPicker(false)
       return
     } else {
@@ -946,6 +970,7 @@ function MessageInput({
     if (mentionMatch) {
       setMentionQuery(mentionMatch[1] || "")
       setShowMentionPicker(true)
+      setMentionIndex(0)
       return
     } else {
       setShowMentionPicker(false)
@@ -965,16 +990,24 @@ function MessageInput({
     const beforeCaret = text.slice(0, caretPos)
     const afterCaret = text.slice(caretPos)
     const replaced = beforeCaret.replace(/@(\w*)$/, `@${person.full_name.split(" ")[0]} `)
-    setText(replaced + afterCaret)
+    const newText = replaced + afterCaret
+    setText(newText)
     setShowMentionPicker(false)
-    setTimeout(() => textRef.current?.focus(), 0)
+    setMentionIndex(0)
+    const newPos = replaced.length
+    setTimeout(() => {
+      if (textRef.current) {
+        textRef.current.focus()
+        textRef.current.setSelectionRange(newPos, newPos)
+      }
+    }, 0)
   }
 
   return (
     <div className="px-3 pb-3 pt-1">
 
       {/* Task picker popover */}
-      {showTaskPicker && filteredTasks.length > 0 && (
+      {showTaskPicker && (
         <div className="mb-2 bg-popover border border-border rounded-xl overflow-hidden shadow-lg">
           <div className="px-3 py-1.5 border-b border-border/50 flex items-center gap-2">
             <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Attach task</span>
@@ -983,7 +1016,7 @@ function MessageInput({
             <button
               key={t.id}
               onClick={() => selectTask(t)}
-              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-muted transition-colors text-left"
+              className={cn("w-full flex items-center gap-2.5 px-3 py-2 transition-colors text-left", filteredTasks.indexOf(t) === taskIndex ? "bg-muted" : "hover:bg-muted")}
             >
               <span style={{ width: 7, height: 7, borderRadius: "50%", background: PRIORITY_COLORS[t.priority?.toLowerCase()] || PRIORITY_COLORS.low, display: "inline-block", flexShrink: 0 }} />
               <span className="text-sm flex-1 truncate">{t.title}</span>
@@ -993,8 +1026,10 @@ function MessageInput({
               )}>{t.status?.replace("-", " ")}</span>
             </button>
           ))}
-          {taskQuery && filteredTasks.length === 0 && (
-            <p className="px-3 py-2 text-xs text-muted-foreground">No tasks match</p>
+          {filteredTasks.length === 0 && (
+            <p className="px-3 py-2 text-xs text-muted-foreground">
+              {roomTasks.length === 0 ? "No active tasks found for this room" : "No tasks match"}
+            </p>
           )}
         </div>
       )}
@@ -1006,7 +1041,7 @@ function MessageInput({
             <button
               key={p.id}
               onClick={() => selectMention(p)}
-              className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-muted transition-colors text-left"
+              className={cn("w-full flex items-center gap-2.5 px-3 py-2 transition-colors text-left", filteredPeople.indexOf(p) === mentionIndex ? "bg-muted" : "hover:bg-muted")}
             >
               <div className={cn("w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0", avatarColor(p.id))}>
                 {avatarInitials(p.full_name)[0]}
@@ -1604,6 +1639,7 @@ const { data: allUnread } = await supabase
           setMessages((prev) => prev.filter((m) => m.id !== (payload.old as ChatMessage).id))
         }
       )
+      
       .subscribe()
 
     realtimeRef.current = channel
