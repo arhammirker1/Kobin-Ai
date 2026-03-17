@@ -570,6 +570,33 @@ function TaskRefCard({ task }: { task: TaskPreview }) {
   )
 }
 
+function MentionText({ text, isOwn }: { text: string; isOwn: boolean }) {
+  // Matches @Word or @First Last (two words)
+  const parts = text.split(/(@[A-Za-z]+(?:\s[A-Za-z]+)?)/g)
+  return (
+    <>
+      {parts.map((part, i) =>
+        /^@[A-Za-z]/.test(part) ? (
+          <span
+            key={i}
+            className={cn(
+              "inline-flex items-center rounded px-1 py-0.5 text-[0.85em] font-semibold",
+              isOwn
+                ? "bg-white/25 text-white"
+                : "bg-primary/20 text-primary"
+            )}
+          >
+            {part}
+          </span>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </>
+  )
+}
+
+
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 
 
@@ -660,7 +687,11 @@ function MessageBubble({
             : "bg-muted text-foreground rounded-[20px] rounded-bl-[4px]",
           msg.file_url && !msg.content && "p-1 bg-transparent"
         )}>
-          {msg.content && <p className="whitespace-pre-wrap break-words">{msg.content}</p>}
+          {msg.content && (
+  <p className="whitespace-pre-wrap break-words">
+    <MentionText text={msg.content} isOwn={isOwn} />
+  </p>
+)}
 
           {msg.file_url && (
             <div className={msg.content ? "mt-2" : ""}>
@@ -1377,13 +1408,30 @@ const { data: allUnread } = await supabase
           reply_to:chat_messages!reply_to_id(
             id, content, file_name,
             sender:profiles(id, full_name)
-          )
+          ),
+          reactions:message_reactions(emoji, user_id)
         `)
         .eq("room_id", activeRoomId)
         .order("created_at", { ascending: false })
         .limit(PAGE_SIZE)
 
-      const msgs = ((data as ChatMessage[]) || []).reverse()
+      const msgs: ChatMessage[] = ((data as any[]) || []).reverse().map((msg) => {
+        const grouped: Record<string, { count: number; user_ids: string[] }> = {}
+        for (const r of msg.reactions || []) {
+          if (!grouped[r.emoji]) grouped[r.emoji] = { count: 0, user_ids: [] }
+          grouped[r.emoji].count++
+          grouped[r.emoji].user_ids.push(r.user_id)
+        }
+        return {
+          ...msg,
+          reactions: Object.entries(grouped).map(([emoji, d]) => ({
+            emoji,
+            count: d.count,
+            user_ids: d.user_ids,
+            reacted_by_me: d.user_ids.includes(currentUser?.id ?? ""),
+          })),
+        }
+      })
       setMessages(msgs)
       setLoadingMessages(false)
 
@@ -1392,7 +1440,7 @@ const { data: allUnread } = await supabase
     }
 
     load()
-  }, [activeRoomId, supabase])
+  }, [activeRoomId, supabase, currentUser])
 
   // ── Load more (scroll up) ──────────────────────────────────────────────────
   const loadMore = useCallback(async () => {
@@ -1410,14 +1458,31 @@ const { data: allUnread } = await supabase
         reply_to:chat_messages!reply_to_id(
           id, content, file_name,
           sender:profiles(id, full_name)
-        )
+        ),
+        reactions:message_reactions(emoji, user_id)
       `)
       .eq("room_id", activeRoomId)
       .lt("created_at", oldestMsgDate)
       .order("created_at", { ascending: false })
       .limit(PAGE_SIZE)
 
-    const older = ((data as ChatMessage[]) || []).reverse()
+    const older: ChatMessage[] = ((data as any[]) || []).reverse().map((msg) => {
+      const grouped: Record<string, { count: number; user_ids: string[] }> = {}
+      for (const r of msg.reactions || []) {
+        if (!grouped[r.emoji]) grouped[r.emoji] = { count: 0, user_ids: [] }
+        grouped[r.emoji].count++
+        grouped[r.emoji].user_ids.push(r.user_id)
+      }
+      return {
+        ...msg,
+        reactions: Object.entries(grouped).map(([emoji, d]) => ({
+          emoji,
+          count: d.count,
+          user_ids: d.user_ids,
+          reacted_by_me: d.user_ids.includes(currentUser?.id ?? ""),
+        })),
+      }
+    })
 
     if (older.length > 0) {
       setMessages((prev) => [...older, ...prev])
@@ -1435,7 +1500,7 @@ const { data: allUnread } = await supabase
     }
 
     setLoadingMore(false)
-  }, [activeRoomId, hasMore, loadingMore, oldestMsgDate, supabase])
+  }, [activeRoomId, hasMore, loadingMore, oldestMsgDate, supabase, currentUser])
 
   // ── Load tasks for active room ──────────────────────────────────────────────
   useEffect(() => {
