@@ -917,7 +917,7 @@ function MessageInput({
     p.full_name.toLowerCase().includes(mentionQuery.toLowerCase())
   ).slice(0, 5)
 
-  const canSend = (text.trim().length > 0 || file !== null) && !sending && !disabled
+  const canSend = (text.trim().length > 0 || file !== null) && !disabled
 
   const handleSend = async () => {
     if (!canSend) return
@@ -1100,7 +1100,7 @@ function MessageInput({
           <textarea
             ref={textRef} value={text} onChange={handleTextChange} onKeyDown={handleKey}
             placeholder={disabled ? "No permission to send" : "Message… or /task to attach a task"}
-            disabled={disabled || sending} rows={1}
+            disabled={disabled} rows={1}
             className="flex-1 bg-transparent text-sm resize-none outline-none placeholder:text-muted-foreground/50 min-h-[20px] max-h-[120px] leading-5"
             style={{ height: "20px" }}
           />
