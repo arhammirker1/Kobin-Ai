@@ -595,8 +595,8 @@ function MentionText({ text, isOwn }: { text: string; isOwn: boolean }) {
           <span
             key={i}
             className={cn(
-              "inline-flex items-center rounded px-1 py-0.5 text-[0.85em] font-semibold",
-              isOwn ? "bg-white/25 text-white" : `${p!.bg} ${p!.text}`
+              "font-semibold",
+              isOwn ? "text-white/90" : p!.text
             )}
           >
             {part}
