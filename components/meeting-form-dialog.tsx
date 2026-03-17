@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Video, Link2, CheckCircle2, Loader2, Plus, X, Users, Mail,
 } from "lucide-react"
@@ -528,7 +527,7 @@ export function MeetingFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           {prefilledClientName && (
@@ -538,55 +537,49 @@ export function MeetingFormDialog({
 
         <div className="space-y-4 py-2">
 
-          {/* Title */}
-          <div className="space-y-1.5">
-            <Label>Title *</Label>
+          {/* Title + type pills on same row */}
+          <div className="flex items-center gap-2">
             <Input
               value={form.title}
               onChange={e => set("title", e.target.value)}
               placeholder="Meeting title…"
+              className="flex-1 text-base font-medium border-0 shadow-none px-0 focus-visible:ring-0 placeholder:text-muted-foreground/50"
             />
-          </div>
-
-          {/* Date + Type */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Date</Label>
-              <Input type="date" value={form.date} onChange={e => set("date", e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Type</Label>
-              <Select value={form.type} onValueChange={v => set("type", v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="internal">Internal</SelectItem>
-                  <SelectItem value="deal">Deal</SelectItem>
-                  <SelectItem value="hiring">Hiring</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="flex gap-1 shrink-0">
+              {(["internal", "deal", "hiring"] as const).map(t => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => set("type", t)}
+                  className={cn(
+                    "text-[11px] px-2.5 py-1 rounded-full border capitalize transition-colors",
+                    form.type === t
+                      ? "bg-[#1C1C1A] text-[#F0EFEC] border-[#1C1C1A] font-medium dark:bg-[#F0EFEC] dark:text-[#1C1C1A]"
+                      : "border-[#333331] text-muted-foreground hover:border-foreground/40"
+                  )}
+                >
+                  {t}
+                </button>
+              ))}
             </div>
           </div>
 
-          {/* Start + End */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Start</Label>
-              <Input type="time" value={form.startTime} onChange={e => set("startTime", e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>End</Label>
-              <Input type="time" value={form.endTime} onChange={e => set("endTime", e.target.value)} />
-            </div>
-          </div>
+          <div className="h-px bg-border/50" />
 
-          {/* Purpose */}
-          <div className="space-y-1.5">
-            <Label>Purpose</Label>
-            <Input
-              value={form.purpose}
-              onChange={e => set("purpose", e.target.value)}
-              placeholder="What's the goal of this meeting?"
-            />
+          {/* Date + Start + End on one row */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-1">
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">Date</p>
+              <Input type="date" value={form.date} onChange={e => set("date", e.target.value)} className="h-8 text-xs" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">Start</p>
+              <Input type="time" value={form.startTime} onChange={e => set("startTime", e.target.value)} className="h-8 text-xs" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">End</p>
+              <Input type="time" value={form.endTime} onChange={e => set("endTime", e.target.value)} className="h-8 text-xs" />
+            </div>
           </div>
 
           {/* ── Meeting Link Section ── */}
@@ -669,51 +662,46 @@ export function MeetingFormDialog({
                 Participants
               </Label>
 
-              {/* Internal */}
+              {/* Internal — tap-to-toggle chips */}
               {workspaceMembers.length > 0 && (
                 <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest">
                     Workspace Members
                   </p>
-                  <div className="border border-border rounded-lg overflow-hidden divide-y divide-border">
-                    {workspaceMembers.map(member => (
-                      <button
-                        key={member.user_id}
-                        type="button"
-                        onClick={() => toggleInternal(member.user_id)}
-                        className={cn(
-                          "w-full flex items-center gap-3 px-3 py-2 text-left transition-colors",
-                          selectedInternalIds.includes(member.user_id)
-                            ? "bg-primary/10"
-                            : "hover:bg-muted/40"
-                        )}
-                      >
-                        <div className={cn(
-                          "size-4 rounded border flex items-center justify-center shrink-0 transition-colors",
-                          selectedInternalIds.includes(member.user_id)
-                            ? "border-primary bg-primary"
-                            : "border-border"
-                        )}>
-                          {selectedInternalIds.includes(member.user_id) && (
-                            <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
-                              <path d="M1 4l2 2 4-4" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
+                  <div className="flex flex-wrap gap-2">
+                    {workspaceMembers.map(member => {
+                      const selected = selectedInternalIds.includes(member.user_id)
+                      const initials = member.full_name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)
+                      return (
+                        <button
+                          key={member.user_id}
+                          type="button"
+                          onClick={() => toggleInternal(member.user_id)}
+                          className={cn(
+                            "flex items-center gap-2 pl-1.5 pr-3 py-1 rounded-full border text-xs transition-colors",
+                            selected
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground"
                           )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{member.full_name}</p>
-                          <p className="text-xs text-muted-foreground truncate">{member.email}</p>
-                        </div>
-                      </button>
-                    ))}
+                        >
+                          <div className={cn(
+                            "w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-semibold shrink-0",
+                            selected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                          )}>
+                            {initials}
+                          </div>
+                          {member.full_name.split(" ")[0]}
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
               )}
 
               {/* External */}
               <div className="space-y-1.5">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
-                  External Participants
+                <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest">
+                  External
                 </p>
                 <div className="flex gap-2">
                   <Input
@@ -749,8 +737,8 @@ export function MeetingFormDialog({
                 )}
                 <p className="text-[10px] text-muted-foreground">
                   {linkMode === "google" && isGoogleConnected
-                    ? "Google Calendar invites will be sent to all participants listed above."
-                    : "Add clients, contacts, or anyone outside your workspace."}
+                    ? "Google Calendar invites will be sent to all participants."
+                    : "Add clients or anyone outside your workspace."}
                 </p>
               </div>
             </div>
