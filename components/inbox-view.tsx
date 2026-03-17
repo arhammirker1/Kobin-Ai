@@ -921,13 +921,15 @@ function MessageInput({
 
   const handleSend = async () => {
     if (!canSend) return
-    setSending(true)
-    await onSend(text.trim(), file || undefined)
+    const content = text.trim()
+    const attachedFile = file || undefined
     setText("")
     setFile(null)
     if (textRef.current) textRef.current.style.height = "20px"
-    setSending(false)
     textRef.current?.focus()
+    setSending(true)
+    await onSend(content, attachedFile)
+    setSending(false)
   }
 
   const handleKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
