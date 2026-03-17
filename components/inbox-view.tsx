@@ -694,10 +694,12 @@ function MessageBubble({
         <div className={cn(
           "relative px-3.5 py-2 text-sm leading-relaxed",
           isOwn
-            ? "bg-primary text-primary-foreground rounded-[20px] rounded-br-[4px]"
+            ? "text-white rounded-[20px] rounded-br-[4px]"
             : "bg-muted text-foreground rounded-[20px] rounded-bl-[4px]",
           msg.file_url && !msg.content && "p-1 bg-transparent"
-        )}>
+        )}
+        style={isOwn && !(msg.file_url && !msg.content) ? { background: "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)" } : undefined}
+        >
           {msg.content && (
   <p className="whitespace-pre-wrap break-words">
     <MentionText text={msg.content} isOwn={isOwn} />
@@ -746,6 +748,9 @@ function MessageBubble({
           <span className="text-[9px] text-muted-foreground/60">
             {format(new Date(msg.created_at), "h:mm a")}
           </span>
+          {isOwn && (
+            <span className="text-[9px]" style={{ color: "#9F7AEA" }}>✓✓</span>
+          )}
           {msg.edited_at && (
             <span className="text-[9px] text-muted-foreground/50">
               · Edited {format(new Date(msg.edited_at), "h:mm a")}
@@ -763,7 +768,7 @@ function MessageBubble({
                 className={cn(
                   "flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-xs transition-colors",
                   r.reacted_by_me
-                    ? "border-primary/40 bg-primary/10 text-primary"
+                    ? "border-violet-400/40 bg-violet-500/10 text-violet-500"
                     : "border-border bg-muted/40 hover:bg-muted"
                 )}
               >
@@ -977,12 +982,10 @@ function MessageInput({
     }
   }
 
-  const selectTask = async (task: TaskPreview) => {
+  const selectTask = (task: TaskPreview) => {
     setShowTaskPicker(false)
     setText("")
-    setSending(true)
-    await onSend("", undefined, task)
-    setSending(false)
+    onSend("", undefined, task)
     textRef.current?.focus()
   }
 
@@ -1640,6 +1643,73 @@ const { data: allUnread } = await supabase
         }
       )
       
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "message_reactions",
+        },
+        async (payload) => {
+          const { message_id, emoji, user_id } = payload.new as any
+          setMessages((prev) =>
+            prev.map((m) => {
+              if (m.id !== message_id) return m
+              const existing = m.reactions || []
+              const idx = existing.findIndex((r) => r.emoji === emoji)
+              if (idx >= 0) {
+                const updated = [...existing]
+                if (!updated[idx].user_ids.includes(user_id)) {
+                  updated[idx] = {
+                    ...updated[idx],
+                    count: updated[idx].count + 1,
+                    user_ids: [...updated[idx].user_ids, user_id],
+                    reacted_by_me: updated[idx].reacted_by_me || user_id === currentUser?.id,
+                  }
+                }
+                return { ...m, reactions: updated }
+              }
+              return {
+                ...m,
+                reactions: [...existing, {
+                  emoji,
+                  count: 1,
+                  user_ids: [user_id],
+                  reacted_by_me: user_id === currentUser?.id,
+                }],
+              }
+            })
+          )
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "DELETE",
+          schema: "public",
+          table: "message_reactions",
+        },
+        (payload) => {
+          const { message_id, emoji, user_id } = payload.old as any
+          setMessages((prev) =>
+            prev.map((m) => {
+              if (m.id !== message_id) return m
+              const updated = (m.reactions || [])
+                .map((r) => {
+                  if (r.emoji !== emoji) return r
+                  return {
+                    ...r,
+                    count: r.count - 1,
+                    user_ids: r.user_ids.filter((id) => id !== user_id),
+                    reacted_by_me: r.reacted_by_me && user_id !== currentUser?.id,
+                  }
+                })
+                .filter((r) => r.count > 0)
+              return { ...m, reactions: updated }
+            })
+          )
+        }
+      )
       .subscribe()
 
     realtimeRef.current = channel
@@ -1663,11 +1733,29 @@ const { data: allUnread } = await supabase
     // Task reference message
     if (taskRef) {
       const taskContent = JSON.stringify(taskRef)
+      const tempTaskId = `temp-${Date.now()}`
+      const optimisticTask: ChatMessage = {
+        id: tempTaskId,
+        room_id: activeRoomId,
+        sender_id: currentUser.id,
+        content: taskContent,
+        file_url: null, file_name: null, file_type: null, file_size: null,
+        reply_to_id: null, edited_at: null,
+        created_at: new Date().toISOString(),
+        message_type: "task_ref",
+        task_id: taskRef.id,
+        sender: { id: currentUser.id, full_name: currentUser.full_name },
+        reply_to: null,
+      }
+      setMessages((prev) => [...prev, optimisticTask])
       const { error } = await supabase.from("chat_messages").insert({
         room_id: activeRoomId, sender_id: currentUser.id,
         content: taskContent, message_type: "task_ref", task_id: taskRef.id,
       })
-      if (error) toast.error("Failed to send task reference")
+      if (error) {
+        setMessages((prev) => prev.filter((m) => m.id !== tempTaskId))
+        toast.error("Failed to send task reference")
+      }
       return
     }
 
