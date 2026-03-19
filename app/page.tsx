@@ -18,6 +18,14 @@ export default function Page() {
   const router = useRouter()
   const supabase = useMemo(() => createClient(), [])
 
+  // Navigate-tab: fired by TodayView quick actions — MUST be before all early returns
+  useEffect(() => {
+    const handler = (e: CustomEvent<string>) => setActiveTab(e.detail)
+    window.addEventListener("navigate-tab", handler as EventListener)
+    return () => window.removeEventListener("navigate-tab", handler as EventListener)
+  }, [])
+
+  // Auth check
   useEffect(() => {
     let cancelled = false
 
@@ -30,10 +38,7 @@ export default function Page() {
 
     const checkAuth = async () => {
       try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser()
-
+        const { data: { user } } = await supabase.auth.getUser()
         if (cancelled) return
 
         if (user) {
@@ -99,13 +104,6 @@ export default function Page() {
       </div>
     )
   }
-
-  // Listen for navigate-tab events fired by TodayView quick actions
-  useEffect(() => {
-    const handler = (e: CustomEvent<string>) => setActiveTab(e.detail)
-    window.addEventListener("navigate-tab", handler as EventListener)
-    return () => window.removeEventListener("navigate-tab", handler as EventListener)
-  }, [])
 
   if (!isAuthenticated) return null
 
