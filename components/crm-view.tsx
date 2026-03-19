@@ -98,26 +98,53 @@ export function CrmView() {
 
   const fetchRelationships = async () => {
     setIsLoading(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
 
-    const { data, error } = await supabase
-      .from("relationships")
-      .select("*")
-      .eq("user_id", user.id)
-      .eq("status", "active")
-      .order("updated_at", { ascending: false })
+      // Run both queries in parallel — relationships + all upcoming meetings in one shot
+      const [relResult, eventsResult] = await Promise.all([
+        supabase
+          .from("relationships")
+          .select("*")
+          .eq("user_id", user.id)
+          .eq("status", "active")
+          .order("updated_at", { ascending: false }),
 
-    if (error) {
-      console.error("[v0] Error fetching relationships:", error)
-      toast.error("Failed to load relationships")
-    } else {
-      setRelationships(data || [])
-      data?.forEach((rel) => fetchNextMeeting(rel.id))
+        supabase
+          .from("events")
+          .select("id, title, start_time, end_time, meeting_link, purpose, outcome, relationship_id")
+          .eq("user_id", user.id)
+          .gte("start_time", new Date().toISOString())
+          .not("relationship_id", "is", null)
+          .order("start_time", { ascending: true }),
+      ])
+
+      if (relResult.error) {
+        console.error("[v0] Error fetching relationships:", relResult.error)
+        toast.error("Failed to load relationships")
+        return
+      }
+
+      setRelationships(relResult.data || [])
+
+      // Build lookup map: relationship_id → earliest upcoming event
+      // One pass through the events array — already sorted asc so first match wins
+      if (!eventsResult.error && eventsResult.data) {
+        const meetingMap: Record<string, CalendarEvent> = {}
+        for (const event of eventsResult.data) {
+          if (event.relationship_id && !meetingMap[event.relationship_id]) {
+            meetingMap[event.relationship_id] = event
+          }
+        }
+        setUpcomingMeetings(meetingMap)
+      }
+    } finally {
+      setIsLoading(false)
     }
-    setIsLoading(false)
   }
 
+  // Refresh a single contact's next meeting after scheduling (targeted, not full reload)
   const fetchNextMeeting = async (relationshipId: string) => {
     const { data, error } = await supabase
       .from("events")
@@ -126,9 +153,9 @@ export function CrmView() {
       .gte("start_time", new Date().toISOString())
       .order("start_time", { ascending: true })
       .limit(1)
-      .single()
+      .maybeSingle()
 
-    if (!error && data) {
+    if (!error) {
       setUpcomingMeetings((prev) => ({ ...prev, [relationshipId]: data }))
     }
   }
