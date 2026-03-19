@@ -7,13 +7,13 @@ import { Input, Textarea } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Search, Plus, Video, CalendarIcon, FileText, Linkedin } from "lucide-react"
+import { Search, Plus, Video, CalendarIcon, FileText, Linkedin, LayoutList, Kanban } from "lucide-react"
 import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { toast } from "sonner"
 import { format, parseISO } from "date-fns"
 import { cn } from "@/lib/utils"
-import { MeetingFormDialog } from "@/components/meeting-form-dialog"
+import { PipelineView, STAGES, type PipelineContact, type PipelineStage } from "@/components/pipeline-view"
 
 const RELATIONSHIP_TYPES = [
   { value: "lead", label: "Lead" },
@@ -32,6 +32,12 @@ type Relationship = {
   meeting_link: string | null
   status: "active" | "archived"
   tags: string[]
+  pipeline_stage: PipelineStage
+  deal_value: number | null
+  close_probability: number | null
+  stage_entered_at: string | null
+  expected_close_date: string | null
+  pipeline_notes: string | null
   created_at: string
   updated_at: string
 }
@@ -46,11 +52,14 @@ type CalendarEvent = {
   outcome: string | null
 }
 
+type ViewMode = "list" | "pipeline"
+
 export function CrmView() {
   const [relationships, setRelationships] = useState<Relationship[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedType, setSelectedType] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<ViewMode>("pipeline")
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isMeetingDialogOpen, setIsMeetingDialogOpen] = useState(false)
@@ -69,9 +78,17 @@ export function CrmView() {
     meeting_link: "",
     status: "active",
     tags: [],
+    pipeline_stage: "new_lead",
   })
 
-  
+  const [newMeeting, setNewMeeting] = useState({
+    title: "",
+    date: format(new Date(), "yyyy-MM-dd"),
+    startTime: "09:00",
+    endTime: "10:00",
+    meetingLink: "",
+    purpose: "",
+  })
 
   const supabase = createClient()
 
@@ -81,9 +98,7 @@ export function CrmView() {
 
   const fetchRelationships = async () => {
     setIsLoading(true)
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
     const { data, error } = await supabase
@@ -91,7 +106,7 @@ export function CrmView() {
       .select("*")
       .eq("user_id", user.id)
       .eq("status", "active")
-      .order("created_at", { ascending: false })
+      .order("updated_at", { ascending: false })
 
     if (error) {
       console.error("[v0] Error fetching relationships:", error)
@@ -118,10 +133,53 @@ export function CrmView() {
     }
   }
 
+  // ─── Pipeline handlers ───────────────────────────────────────────────────────
+
+  const handleStageChange = async (id: string, stage: PipelineStage) => {
+    // Optimistic update
+    setRelationships((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, pipeline_stage: stage } : r)),
+    )
+
+    const { error } = await supabase
+      .from("relationships")
+      .update({ pipeline_stage: stage, updated_at: new Date().toISOString() })
+      .eq("id", id)
+
+    if (error) {
+      console.error("[v0] Error updating pipeline stage:", error)
+      toast.error("Failed to update stage")
+      fetchRelationships() // revert
+    } else {
+      const stageName = STAGES.find((s) => s.id === stage)?.label ?? stage
+      toast.success(`Moved to ${stageName}`)
+    }
+  }
+
+  const handleDealUpdate = async (id: string, updates: Partial<PipelineContact>) => {
+    // Optimistic update
+    setRelationships((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, ...updates } : r)),
+    )
+
+    const { error } = await supabase
+      .from("relationships")
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq("id", id)
+
+    if (error) {
+      console.error("[v0] Error updating deal:", error)
+      toast.error("Failed to update deal")
+      fetchRelationships()
+    } else {
+      toast.success("Deal updated")
+    }
+  }
+
+  // ─── CRUD ────────────────────────────────────────────────────────────────────
+
   const handleAddRelationship = async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
     if (!newRelationship.full_name) {
@@ -139,23 +197,20 @@ export function CrmView() {
       meeting_link: newRelationship.meeting_link || null,
       status: "active",
       tags: newRelationship.tags || [],
+      pipeline_stage: newRelationship.pipeline_stage || "new_lead",
     })
 
     if (error) {
       console.error("[v0] Error adding relationship:", error)
       toast.error("Failed to add relationship")
     } else {
-      toast.success("Relationship added")
+      toast.success("Contact added to pipeline")
       setIsAddDialogOpen(false)
       setNewRelationship({
-        full_name: "",
-        company: "",
-        role: "",
-        relationship_type: "lead",
-        linkedin_profile_url: "",
-        meeting_link: "",
-        status: "active",
-        tags: [],
+        full_name: "", company: "", role: "",
+        relationship_type: "lead", linkedin_profile_url: "",
+        meeting_link: "", status: "active", tags: [],
+        pipeline_stage: "new_lead",
       })
       fetchRelationships()
     }
@@ -181,7 +236,7 @@ export function CrmView() {
       console.error("[v0] Error updating relationship:", error)
       toast.error("Failed to update relationship")
     } else {
-      toast.success("Relationship updated")
+      toast.success("Contact updated")
       setIsEditDialogOpen(false)
       fetchRelationships()
     }
@@ -189,24 +244,70 @@ export function CrmView() {
 
   const handleDeleteRelationship = async (id: string) => {
     const { error } = await supabase.from("relationships").delete().eq("id", id)
-
     if (error) {
-      console.error("[v0] Error deleting relationship:", error)
-      toast.error("Failed to delete relationship")
+      toast.error("Failed to delete")
     } else {
-      toast.success("Relationship deleted")
+      toast.success("Contact deleted")
       fetchRelationships()
     }
   }
 
+  const handleScheduleMeeting = async () => {
+    if (!selectedRelationship) return
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
+    const { data: exists } = await supabase
+      .from("relationships")
+      .select("id")
+      .eq("id", selectedRelationship.id)
+      .eq("user_id", user.id)
+      .single()
+
+    if (!exists) {
+      toast.error("Relationship not found")
+      return
+    }
+
+    const start = parseISO(`${newMeeting.date}T${newMeeting.startTime}`)
+    const end = parseISO(`${newMeeting.date}T${newMeeting.endTime}`)
+
+    const { error } = await supabase.from("events").insert({
+      user_id: user.id,
+      title: newMeeting.title,
+      start_time: start.toISOString(),
+      end_time: end.toISOString(),
+      type: "deal",
+      relationship_id: selectedRelationship.id,
+      meeting_link: newMeeting.meetingLink || selectedRelationship.meeting_link || "",
+      purpose: newMeeting.purpose,
+    })
+
+    if (error) {
+      toast.error("Failed to schedule meeting")
+    } else {
+      toast.success("Meeting scheduled")
+      // Auto-advance to meeting_booked if in new_lead or contacted
+      if (["new_lead", "contacted"].includes(selectedRelationship.pipeline_stage)) {
+        await handleStageChange(selectedRelationship.id, "meeting_booked")
+      }
+      setIsMeetingDialogOpen(false)
+      setNewMeeting({
+        title: "", date: format(new Date(), "yyyy-MM-dd"),
+        startTime: "09:00", endTime: "10:00", meetingLink: "", purpose: "",
+      })
+      fetchNextMeeting(selectedRelationship.id)
+    }
+  }
 
   const handleSaveOutcome = async () => {
     if (!selectedEvent) return
-
-    const { error } = await supabase.from("events").update({ outcome: outcomeText }).eq("id", selectedEvent.id)
+    const { error } = await supabase
+      .from("events")
+      .update({ outcome: outcomeText })
+      .eq("id", selectedEvent.id)
 
     if (error) {
-      console.error("[v0] Error saving outcome:", error)
       toast.error("Failed to save outcome")
     } else {
       toast.success("Outcome saved")
@@ -216,6 +317,8 @@ export function CrmView() {
     }
   }
 
+  // ─── Filtered list ────────────────────────────────────────────────────────────
+
   const filteredRelationships = relationships.filter((r) => {
     const matchesSearch =
       r.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -224,127 +327,162 @@ export function CrmView() {
     return matchesSearch && matchesType
   })
 
+  // ─── Render ───────────────────────────────────────────────────────────────────
+
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex flex-col gap-1">
           <h1 className="text-3xl font-bold tracking-tight">Relationships</h1>
           <p className="text-muted-foreground text-sm">
-            Manage leads, investors, partners, and talents. Calendar is the source of truth.
+            Manage your pipeline, track deals, and never lose a lead.
           </p>
         </div>
-        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="gap-2 shadow-sm font-bold">
-              <Plus size={18} />
-              <span className="hidden md:inline">New Relationship</span>
-              <span className="md:hidden">New</span>
+        <div className="flex items-center gap-2">
+          {/* View toggle */}
+          <div className="flex items-center gap-1 border rounded-lg p-1 bg-muted/30">
+            <Button
+              variant={viewMode === "pipeline" ? "default" : "ghost"}
+              size="sm"
+              className="h-7 gap-1.5 text-xs"
+              onClick={() => setViewMode("pipeline")}
+            >
+              <Kanban size={13} />
+              Pipeline
             </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Add New Relationship</DialogTitle>
-            </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid gap-2">
-                <Label htmlFor="name">Full Name *</Label>
-                <Input
-                  id="name"
-                  value={newRelationship.full_name}
-                  onChange={(e) => setNewRelationship({ ...newRelationship, full_name: e.target.value })}
-                  placeholder="John Doe"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
+            <Button
+              variant={viewMode === "list" ? "default" : "ghost"}
+              size="sm"
+              className="h-7 gap-1.5 text-xs"
+              onClick={() => setViewMode("list")}
+            >
+              <LayoutList size={13} />
+              List
+            </Button>
+          </div>
+
+          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="gap-2 shadow-sm font-bold">
+                <Plus size={18} />
+                <span className="hidden md:inline">Add contact</span>
+                <span className="md:hidden">Add</span>
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Add New Contact</DialogTitle>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
                 <div className="grid gap-2">
-                  <Label htmlFor="company">Company</Label>
+                  <Label htmlFor="name">Full Name *</Label>
                   <Input
-                    id="company"
-                    value={newRelationship.company || ""}
-                    onChange={(e) => setNewRelationship({ ...newRelationship, company: e.target.value })}
-                    placeholder="Acme Inc"
+                    id="name"
+                    value={newRelationship.full_name}
+                    onChange={(e) => setNewRelationship({ ...newRelationship, full_name: e.target.value })}
+                    placeholder="John Doe"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="company">Company</Label>
+                    <Input
+                      id="company"
+                      value={newRelationship.company || ""}
+                      onChange={(e) => setNewRelationship({ ...newRelationship, company: e.target.value })}
+                      placeholder="Acme Inc"
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="role">Role</Label>
+                    <Input
+                      id="role"
+                      value={newRelationship.role || ""}
+                      onChange={(e) => setNewRelationship({ ...newRelationship, role: e.target.value })}
+                      placeholder="CEO"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="type">Type</Label>
+                    <Select
+                      value={newRelationship.relationship_type}
+                      onValueChange={(v: any) => setNewRelationship({ ...newRelationship, relationship_type: v })}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {RELATIONSHIP_TYPES.map((t) => (
+                          <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="stage">Pipeline stage</Label>
+                    <Select
+                      value={newRelationship.pipeline_stage}
+                      onValueChange={(v: any) => setNewRelationship({ ...newRelationship, pipeline_stage: v })}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {STAGES.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="linkedin">LinkedIn Profile</Label>
+                  <Input
+                    id="linkedin"
+                    value={newRelationship.linkedin_profile_url || ""}
+                    onChange={(e) => setNewRelationship({ ...newRelationship, linkedin_profile_url: e.target.value })}
+                    placeholder="https://linkedin.com/in/..."
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="role">Role</Label>
+                  <Label htmlFor="meeting">Default Meeting Link</Label>
                   <Input
-                    id="role"
-                    value={newRelationship.role || ""}
-                    onChange={(e) => setNewRelationship({ ...newRelationship, role: e.target.value })}
-                    placeholder="CEO"
+                    id="meeting"
+                    value={newRelationship.meeting_link || ""}
+                    onChange={(e) => setNewRelationship({ ...newRelationship, meeting_link: e.target.value })}
+                    placeholder="https://meet.google.com/..."
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="tags">Tags</Label>
+                  <Input
+                    id="tags"
+                    value={newRelationship.tags?.join(", ") || ""}
+                    onChange={(e) =>
+                      setNewRelationship({
+                        ...newRelationship,
+                        tags: e.target.value.split(",").map((t) => t.trim()).filter(Boolean),
+                      })
+                    }
+                    placeholder="follow-up, urgent, hot-lead"
                   />
                 </div>
               </div>
-              <div className="grid gap-2">
-                <Label htmlFor="type">Relationship Type</Label>
-                <Select
-                  value={newRelationship.relationship_type}
-                  onValueChange={(v: any) => setNewRelationship({ ...newRelationship, relationship_type: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {RELATIONSHIP_TYPES.map((type) => (
-                      <SelectItem key={type.value} value={type.value}>
-                        {type.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="linkedin">LinkedIn Profile (Optional)</Label>
-                <Input
-                  id="linkedin"
-                  value={newRelationship.linkedin_profile_url || ""}
-                  onChange={(e) => setNewRelationship({ ...newRelationship, linkedin_profile_url: e.target.value })}
-                  placeholder="https://linkedin.com/in/..."
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="meeting">Default Meeting Link (Optional)</Label>
-                <Input
-                  id="meeting"
-                  value={newRelationship.meeting_link || ""}
-                  onChange={(e) => setNewRelationship({ ...newRelationship, meeting_link: e.target.value })}
-                  placeholder="https://meet.google.com/..."
-                />
-                <p className="text-xs text-muted-foreground">Used as default for meetings with this person</p>
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="tags">Tags</Label>
-                <Input
-                  id="tags"
-                  value={newRelationship.tags?.join(", ") || ""}
-                  onChange={(e) =>
-                    setNewRelationship({
-                      ...newRelationship,
-                      tags: e.target.value
-                        .split(",")
-                        .map((t) => t.trim())
-                        .filter(Boolean),
-                    })
-                  }
-                  placeholder="follow-up, urgent, hot-lead"
-                />
-                <p className="text-xs text-muted-foreground">Comma-separated tags</p>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button onClick={handleAddRelationship}>Add Relationship</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+              <DialogFooter>
+                <Button onClick={handleAddRelationship}>Add Contact</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
-        <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0 w-full md:w-auto no-scrollbar">
+      {/* Search + type filter (always visible) */}
+      <div className="flex flex-col md:flex-row gap-3 items-center">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 md:pb-0 w-full md:w-auto no-scrollbar">
           {RELATIONSHIP_TYPES.map((type) => (
             <Badge
               key={type.value}
               variant={selectedType === type.value ? "default" : "outline"}
-              className="px-4 py-1.5 rounded-full font-bold whitespace-nowrap cursor-pointer hover:bg-muted/50 capitalize"
+              className="px-3 py-1 rounded-full font-bold whitespace-nowrap cursor-pointer hover:bg-muted/50 capitalize"
               onClick={() => setSelectedType(selectedType === type.value ? null : type.value)}
             >
               {type.label}
@@ -355,229 +493,233 @@ export function CrmView() {
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search people..."
-            className="pl-9 bg-white border-muted shadow-none h-10"
+            className="pl-9 bg-white border-muted shadow-none h-9"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredRelationships.map((rel) => {
-          const nextMeeting = upcomingMeetings[rel.id]
-          const hasUpcomingMeeting = nextMeeting && new Date(nextMeeting.start_time) > new Date()
-          const meetingPassed = nextMeeting && new Date(nextMeeting.start_time) < new Date()
+      {/* ─── PIPELINE VIEW ─────────────────────────────────────────────────────── */}
+      {viewMode === "pipeline" && (
+        <PipelineView
+          contacts={filteredRelationships as PipelineContact[]}
+          onStageChange={handleStageChange}
+          onDealUpdate={handleDealUpdate}
+          loading={isLoading}
+        />
+      )}
 
-          return (
-            <Card key={rel.id} className="hover:shadow-md transition-all">
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1 min-w-0">
-                    <CardTitle className="text-base truncate">{rel.full_name}</CardTitle>
-                    {rel.company && <p className="text-sm text-muted-foreground truncate">{rel.company}</p>}
-                  </div>
-                  <Badge
-                    variant="outline"
-                    className={cn(
-                      "text-[10px] uppercase font-bold shrink-0",
-                      rel.relationship_type === "lead" && "bg-blue-50 text-blue-600 border-blue-200",
-                      rel.relationship_type === "investor" && "bg-purple-50 text-purple-600 border-purple-200",
-                      rel.relationship_type === "partner" && "bg-amber-50 text-amber-600 border-amber-200",
-                      rel.relationship_type === "talent" && "bg-cyan-50 text-cyan-600 border-cyan-200",
-                    )}
-                  >
-                    {rel.relationship_type}
-                  </Badge>
-                </div>
-                {rel.role && <p className="text-xs text-muted-foreground mt-1">{rel.role}</p>}
-                {rel.tags && rel.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-2">
-                    {rel.tags.map((tag, idx) => (
-                      <Badge key={idx} variant="secondary" className="text-[9px] h-5">
-                        {tag}
-                      </Badge>
-                    ))}
-                  </div>
-                )}
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {hasUpcomingMeeting && (
-                  <div className="p-3 rounded-lg bg-primary/5 border border-primary/20">
-                    <p className="text-xs font-semibold text-primary mb-1">Next Meeting</p>
-                    <p className="text-xs font-medium truncate">{nextMeeting.title}</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {format(parseISO(nextMeeting.start_time), "MMM d, h:mm a")}
-                    </p>
-                    {nextMeeting.purpose && (
-                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">Purpose: {nextMeeting.purpose}</p>
-                    )}
-                    {nextMeeting.meeting_link && (
-                      <Button
-                        size="sm"
-                        className="w-full mt-2 h-8 text-xs"
-                        onClick={() => window.open(nextMeeting.meeting_link!, "_blank")}
+      {/* ─── LIST VIEW ─────────────────────────────────────────────────────────── */}
+      {viewMode === "list" && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredRelationships.map((rel) => {
+            const nextMeeting = upcomingMeetings[rel.id]
+            const hasUpcomingMeeting = nextMeeting && new Date(nextMeeting.start_time) > new Date()
+            const meetingPassed = nextMeeting && new Date(nextMeeting.start_time) < new Date()
+            const stageCfg = STAGES.find((s) => s.id === rel.pipeline_stage)
+
+            return (
+              <Card key={rel.id} className="hover:shadow-md transition-all">
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 min-w-0">
+                      <CardTitle className="text-base truncate">{rel.full_name}</CardTitle>
+                      {rel.company && <p className="text-sm text-muted-foreground truncate">{rel.company}</p>}
+                    </div>
+                    <div className="flex flex-col items-end gap-1.5">
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "text-[10px] uppercase font-bold shrink-0",
+                          rel.relationship_type === "lead" && "bg-blue-50 text-blue-600 border-blue-200",
+                          rel.relationship_type === "investor" && "bg-purple-50 text-purple-600 border-purple-200",
+                          rel.relationship_type === "partner" && "bg-amber-50 text-amber-600 border-amber-200",
+                          rel.relationship_type === "talent" && "bg-cyan-50 text-cyan-600 border-cyan-200",
+                        )}
                       >
-                        <Video className="h-3 w-3 mr-1" />
-                        Join Meeting
-                      </Button>
-                    )}
+                        {rel.relationship_type}
+                      </Badge>
+                      {stageCfg && (
+                        <span className={cn(
+                          "text-[10px] font-semibold px-1.5 py-0.5 rounded-full",
+                          stageCfg.color, stageCfg.textColor,
+                        )}>
+                          {stageCfg.label}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                )}
-                {meetingPassed && !nextMeeting.outcome && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="w-full h-8 text-xs bg-transparent"
-                    onClick={() => {
-                      setSelectedEvent(nextMeeting)
-                      setOutcomeText(nextMeeting.outcome || "")
-                      setIsOutcomeDialogOpen(true)
-                    }}
-                  >
-                    <FileText className="h-3 w-3 mr-1 shrink-0" />
-                    <span className="truncate">Add Meeting Outcome</span>
-                  </Button>
-                )}
-                <div className="flex flex-wrap gap-2">
-                  {rel.linkedin_profile_url && (
+                  {rel.role && <p className="text-xs text-muted-foreground mt-1">{rel.role}</p>}
+                  {rel.deal_value && (
+                    <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400 mt-1">
+                      ${rel.deal_value.toLocaleString()}
+                      {rel.close_probability ? ` · ${rel.close_probability}%` : ""}
+                    </p>
+                  )}
+                  {rel.tags && rel.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {rel.tags.map((tag, idx) => (
+                        <Badge key={idx} variant="secondary" className="text-[9px] h-5">{tag}</Badge>
+                      ))}
+                    </div>
+                  )}
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {hasUpcomingMeeting && (
+                    <div className="p-3 rounded-lg bg-primary/5 border border-primary/20">
+                      <p className="text-xs font-semibold text-primary mb-1">Next Meeting</p>
+                      <p className="text-xs font-medium truncate">{nextMeeting.title}</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {format(parseISO(nextMeeting.start_time), "MMM d, h:mm a")}
+                      </p>
+                      {nextMeeting.meeting_link && (
+                        <Button
+                          size="sm"
+                          className="w-full mt-2 h-8 text-xs"
+                          onClick={() => window.open(nextMeeting.meeting_link!, "_blank")}
+                        >
+                          <Video className="h-3 w-3 mr-1" />Join Meeting
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                  {meetingPassed && nextMeeting && !nextMeeting.outcome && (
                     <Button
-                      size="sm"
-                      variant="outline"
-                      className="flex-1 min-w-0 h-8 text-xs bg-transparent"
-                      onClick={() => window.open(rel.linkedin_profile_url!, "_blank")}
+                      size="sm" variant="outline"
+                      className="w-full h-8 text-xs bg-transparent"
+                      onClick={() => {
+                        setSelectedEvent(nextMeeting)
+                        setOutcomeText(nextMeeting.outcome || "")
+                        setIsOutcomeDialogOpen(true)
+                      }}
                     >
-                      <Linkedin className="h-3 w-3 mr-1 shrink-0" />
-                      <span className="truncate">LinkedIn</span>
+                      <FileText className="h-3 w-3 mr-1 shrink-0" />
+                      Add Meeting Outcome
                     </Button>
                   )}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="flex-1 min-w-0 h-8 text-xs bg-transparent"
-                    onClick={() => {
-                      setSelectedRelationship(rel)
-                      setIsMeetingDialogOpen(true)
-                    }}
-                  >
-                    <CalendarIcon className="h-3 w-3 mr-1 shrink-0" />
-                    <span className="truncate">Schedule</span>
-                  </Button>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="flex-1 h-8 text-xs"
-                    onClick={() => {
-                      setSelectedRelationship(rel)
-                      setIsEditDialogOpen(true)
-                    }}
-                  >
-                    Edit
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="flex-1 h-8 text-xs text-destructive hover:text-destructive"
-                    onClick={() => handleDeleteRelationship(rel.id)}
-                  >
-                    Delete
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          )
-        })}
-      </div>
+                  <div className="flex flex-wrap gap-2">
+                    {rel.linkedin_profile_url && (
+                      <Button
+                        size="sm" variant="outline"
+                        className="flex-1 min-w-0 h-8 text-xs bg-transparent"
+                        onClick={() => window.open(rel.linkedin_profile_url!, "_blank")}
+                      >
+                        <Linkedin className="h-3 w-3 mr-1 shrink-0" />LinkedIn
+                      </Button>
+                    )}
+                    <Button
+                      size="sm" variant="outline"
+                      className="flex-1 min-w-0 h-8 text-xs bg-transparent"
+                      onClick={() => {
+                        setSelectedRelationship(rel)
+                        setNewMeeting({
+                          title: `Meeting with ${rel.full_name}`,
+                          date: format(new Date(), "yyyy-MM-dd"),
+                          startTime: "09:00", endTime: "10:00",
+                          meetingLink: "", purpose: "",
+                        })
+                        setIsMeetingDialogOpen(true)
+                      }}
+                    >
+                      <CalendarIcon className="h-3 w-3 mr-1 shrink-0" />Schedule
+                    </Button>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm" variant="ghost" className="flex-1 h-8 text-xs"
+                      onClick={() => { setSelectedRelationship(rel); setIsEditDialogOpen(true) }}
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      size="sm" variant="ghost"
+                      className="flex-1 h-8 text-xs text-destructive hover:text-destructive"
+                      onClick={() => handleDeleteRelationship(rel.id)}
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
+      )}
 
+      {/* ─── Shared dialogs ────────────────────────────────────────────────────── */}
+
+      {/* Edit contact dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Edit Relationship</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Edit Contact</DialogTitle></DialogHeader>
           {selectedRelationship && (
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
-                <Label htmlFor="edit-name">Full Name</Label>
+                <Label>Full Name</Label>
                 <Input
-                  id="edit-name"
                   value={selectedRelationship.full_name}
                   onChange={(e) => setSelectedRelationship({ ...selectedRelationship, full_name: e.target.value })}
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
-                  <Label htmlFor="edit-company">Company</Label>
+                  <Label>Company</Label>
                   <Input
-                    id="edit-company"
                     value={selectedRelationship.company || ""}
                     onChange={(e) => setSelectedRelationship({ ...selectedRelationship, company: e.target.value })}
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="edit-role">Role</Label>
+                  <Label>Role</Label>
                   <Input
-                    id="edit-role"
                     value={selectedRelationship.role || ""}
                     onChange={(e) => setSelectedRelationship({ ...selectedRelationship, role: e.target.value })}
                   />
                 </div>
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="edit-type">Relationship Type</Label>
+                <Label>Relationship Type</Label>
                 <Select
                   value={selectedRelationship.relationship_type}
                   onValueChange={(v: any) => setSelectedRelationship({ ...selectedRelationship, relationship_type: v })}
                 >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {RELATIONSHIP_TYPES.map((type) => (
-                      <SelectItem key={type.value} value={type.value}>
-                        {type.label}
-                      </SelectItem>
+                    {RELATIONSHIP_TYPES.map((t) => (
+                      <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="edit-linkedin">LinkedIn Profile (Optional)</Label>
+                <Label>LinkedIn Profile</Label>
                 <Input
-                  id="edit-linkedin"
                   value={selectedRelationship.linkedin_profile_url || ""}
-                  onChange={(e) =>
-                    setSelectedRelationship({ ...selectedRelationship, linkedin_profile_url: e.target.value })
-                  }
+                  onChange={(e) => setSelectedRelationship({ ...selectedRelationship, linkedin_profile_url: e.target.value })}
                   placeholder="https://linkedin.com/in/..."
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="edit-meeting">Default Meeting Link (Optional)</Label>
+                <Label>Default Meeting Link</Label>
                 <Input
-                  id="edit-meeting"
                   value={selectedRelationship.meeting_link || ""}
                   onChange={(e) => setSelectedRelationship({ ...selectedRelationship, meeting_link: e.target.value })}
                   placeholder="https://meet.google.com/..."
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="edit-tags">Tags</Label>
+                <Label>Tags</Label>
                 <Input
-                  id="edit-tags"
                   value={selectedRelationship.tags?.join(", ") || ""}
                   onChange={(e) =>
                     setSelectedRelationship({
                       ...selectedRelationship,
-                      tags: e.target.value
-                        .split(",")
-                        .map((t) => t.trim())
-                        .filter(Boolean),
+                      tags: e.target.value.split(",").map((t) => t.trim()).filter(Boolean),
                     })
                   }
-                  placeholder="follow-up, urgent, hot-lead"
+                  placeholder="follow-up, urgent"
                 />
-                <p className="text-xs text-muted-foreground">Comma-separated tags</p>
               </div>
             </div>
           )}
@@ -587,29 +729,67 @@ export function CrmView() {
         </DialogContent>
       </Dialog>
 
-      {selectedRelationship && (
-        <MeetingFormDialog
-          open={isMeetingDialogOpen}
-          onOpenChange={setIsMeetingDialogOpen}
-          title="Schedule Meeting"
-          prefilledClientName={selectedRelationship.full_name}
-          relationshipId={selectedRelationship.id}
-          initial={{ type: "deal", title: `Meeting with ${selectedRelationship.full_name}` }}
-          showInternalParticipants={false}
-          onSaved={() => fetchNextMeeting(selectedRelationship.id)}
-        />
-      )}
-
-      <Dialog open={isOutcomeDialogOpen} onOpenChange={setIsOutcomeDialogOpen}>
+      {/* Schedule meeting dialog */}
+      <Dialog open={isMeetingDialogOpen} onOpenChange={setIsMeetingDialogOpen}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Meeting Outcome</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Schedule Meeting</DialogTitle></DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
-              <Label htmlFor="outcome">What was the result of this meeting?</Label>
+              <Label>Meeting Title</Label>
+              <Input
+                value={newMeeting.title}
+                onChange={(e) => setNewMeeting({ ...newMeeting, title: e.target.value })}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label>Date</Label>
+                <Input type="date" value={newMeeting.date}
+                  onChange={(e) => setNewMeeting({ ...newMeeting, date: e.target.value })} />
+              </div>
+              <div className="grid gap-2">
+                <Label>Start Time</Label>
+                <Input type="time" value={newMeeting.startTime}
+                  onChange={(e) => setNewMeeting({ ...newMeeting, startTime: e.target.value })} />
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <Label>End Time</Label>
+              <Input type="time" value={newMeeting.endTime}
+                onChange={(e) => setNewMeeting({ ...newMeeting, endTime: e.target.value })} />
+            </div>
+            <div className="grid gap-2">
+              <Label>Purpose</Label>
               <Textarea
-                id="outcome"
+                value={newMeeting.purpose}
+                onChange={(e) => setNewMeeting({ ...newMeeting, purpose: e.target.value })}
+                placeholder="What's the goal of this meeting?"
+                rows={3}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Meeting Link (optional)</Label>
+              <Input
+                value={newMeeting.meetingLink}
+                onChange={(e) => setNewMeeting({ ...newMeeting, meetingLink: e.target.value })}
+                placeholder="https://meet.google.com/..."
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={handleScheduleMeeting}>Schedule Meeting</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Meeting outcome dialog */}
+      <Dialog open={isOutcomeDialogOpen} onOpenChange={setIsOutcomeDialogOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Meeting Outcome</DialogTitle></DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label>What was the result of this meeting?</Label>
+              <Textarea
                 value={outcomeText}
                 onChange={(e) => setOutcomeText(e.target.value)}
                 placeholder="Key takeaways, next steps, decisions made..."
@@ -618,9 +798,7 @@ export function CrmView() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsOutcomeDialogOpen(false)}>
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={() => setIsOutcomeDialogOpen(false)}>Cancel</Button>
             <Button onClick={handleSaveOutcome}>Save Outcome</Button>
           </DialogFooter>
         </DialogContent>
