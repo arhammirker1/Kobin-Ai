@@ -1,555 +1,711 @@
 "use client"
- 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+
+import { useEffect, useState, useMemo, useCallback } from "react"
+import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { format } from "date-fns"
-import { CalendarIcon, Zap, ChevronRight, Linkedin, CheckSquare, Users, Video, Plus, Activity } from "lucide-react"
-import { useEffect, useState, useMemo } from "react"
-import { createClient } from "@/lib/supabase/client"
+import {
+  CalendarIcon,
+  Video,
+  Plus,
+  ArrowRight,
+  Clock,
+  AlertCircle,
+  CheckCircle2,
+  Users,
+  TrendingUp,
+  FileText,
+  Calendar,
+} from "lucide-react"
+import { format, formatDistanceToNow, isPast, differenceInDays, isToday, isTomorrow } from "date-fns"
 import { cn } from "@/lib/utils"
-import { differenceInHours } from "date-fns"
- 
-// ─── Types ────────────────────────────────────────────────────────────────────
- 
-interface CalendarEvent {
+
+// ─── Types ─────────────────────────────────────────────────────────────────────
+
+interface MeetingEvent {
   id: string
   title: string
   start_time: string
   end_time: string
-  type: string
   meeting_link: string | null
   purpose: string | null
-  outcome: string | null
+  type: string
   relationship_id: string | null
-  relationships?: {
-    id: string
-    full_name: string
-    company: string | null
-    tags: string[] | null
-  } | null
+  contact_name?: string | null
 }
- 
-interface Task {
+
+interface ActionItem {
   id: string
   title: string
-  status: string
-  priority: string
-  due_date: string | null
+  source: string
+  urgency: "overdue" | "today" | "soon" | "normal"
+  badge: string
+  href?: string
 }
- 
-interface Priority {
-  title: string
-  tag: string
-  status: string
-  due_date: string | null
-  isUrgent: boolean
-  type: "meeting" | "task"
+
+interface PulseData {
+  tasksDueToday: number
+  overdueCount: number
+  meetingsToday: number
+  nextMeetingIn: string | null
+  pipelineValue: number
+  activeDeals: number
+  staleContacts: number
 }
- 
-interface TaskStats {
-  inProgress: number
-  blocked: number
-  completed: number
-  todo: number
+
+interface PipelineStageCount {
+  stage: string
+  label: string
+  count: number
+  color: string
 }
- 
-export function TodayView() {
-  const supabase = useMemo(() => createClient(), [])
- 
-  const [upcomingMeetings, setUpcomingMeetings] = useState<CalendarEvent[]>([])
-  const [priorities, setPriorities] = useState<Priority[]>([])
-  const [taskStats, setTaskStats] = useState<TaskStats>({
-    inProgress: 0,
-    blocked: 0,
-    completed: 0,
-    todo: 0,
-  })
-  const [realStats, setRealStats] = useState({ leads: 0, posts: 0 })
- 
-  useEffect(() => {
-    const loadDashboardData = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-      if (!user) return
- 
-      await Promise.all([
-        fetchMeetingsAndMergePriorities(user.id),
-        fetchTaskStats(user.id),
-        fetchRealStats(user.id),
-      ])
-    }
- 
-    loadDashboardData()
-  }, [supabase])
- 
-  const fetchMeetingsAndMergePriorities = async (userId: string) => {
-    const now = new Date()
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
-    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
- 
-    const { data: events, error: eventsError } = await supabase
-      .from("events")
-      .select(`
-        id, 
-        title, 
-        start_time, 
-        end_time, 
-        type, 
-        meeting_link, 
-        purpose, 
-        outcome,
-        relationship_id
-      `)
-      .eq("user_id", userId)
-      .gte("start_time", startOfToday.toISOString())
-      .lte("start_time", endOfToday.toISOString())
-      .order("start_time", { ascending: true })
- 
-    if (eventsError) {
-      console.warn("Failed to fetch today's events:", eventsError.message)
-    }
- 
-    let eventsWithRelationships: CalendarEvent[] = events || []
- 
-    if (events && events.length > 0) {
-      const relationshipIds = [
-        ...new Set(events.map((e) => e.relationship_id).filter(Boolean)),
-      ] as string[]
- 
-      if (relationshipIds.length > 0) {
-        const { data: relationships, error: relError } = await supabase
-          .from("relationships")
-          .select("id, full_name, company, tags")
-          .in("id", relationshipIds)
- 
-        if (!relError && relationships) {
-          const relationshipMap = Object.fromEntries(relationships.map((r) => [r.id, r]))
-          eventsWithRelationships = events.map((event) => ({
-            ...event,
-            relationships: relationshipMap[event.relationship_id] || null,
-          }))
-        }
-      }
-    }
- 
-    const upcomingEvents = eventsWithRelationships.filter((event) => {
-      const eventEndTime = new Date(event.end_time || event.start_time)
-      return eventEndTime >= now
-    })
- 
-    setUpcomingMeetings(upcomingEvents)
- 
-    const { data: tasks } = await supabase
-      .from("tasks")
-      .select("id, title, status, priority, due_date")
-      .eq("user_id", userId)
-      .neq("status", "completed")
-      .order("due_date", { ascending: true })
- 
-    const meetingPriorities: Priority[] = upcomingEvents.map((e) => ({
-      title: `${e.title}${e.relationships?.full_name ? ` w/ ${e.relationships.full_name}` : ""}`,
-      tag: "Meeting",
-      status: "scheduled",
-      due_date: e.start_time,
-      isUrgent:
-        e.relationships?.tags?.some((t) =>
-          ["urgent", "follow-up"].includes(t.toLowerCase())
-        ) || false,
-      type: "meeting",
-    }))
- 
-    const taskPriorities: Priority[] = (tasks || []).map((t: Task) => ({
-      title: t.title,
-      tag: t.priority,
-      status: t.status,
-      due_date: t.due_date,
-      isUrgent:
-        t.priority.toLowerCase() === "urgent" ||
-        (t.due_date ? differenceInHours(new Date(t.due_date), new Date()) < 5 : false),
-      type: "task",
-    }))
- 
-    const merged = [...meetingPriorities, ...taskPriorities]
-      .sort((a, b) => {
-        const aTime = a.due_date ? new Date(a.due_date).getTime() : Number.POSITIVE_INFINITY
-        const bTime = b.due_date ? new Date(b.due_date).getTime() : Number.POSITIVE_INFINITY
-        return aTime - bTime
-      })
-      .slice(0, 3)
- 
-    setPriorities(merged)
+
+interface StaleContact {
+  id: string
+  full_name: string
+  company: string | null
+  days: number
+}
+
+// ─── Helpers ───────────────────────────────────────────────────────────────────
+
+function getGreeting(): string {
+  const h = new Date().getHours()
+  if (h < 12) return "Good morning"
+  if (h < 17) return "Good afternoon"
+  return "Good evening"
+}
+
+function getUrgency(dueDate: string | null, priority: string): ActionItem["urgency"] {
+  if (!dueDate) return "normal"
+  const d = new Date(dueDate)
+  if (isPast(d)) return "overdue"
+  if (isToday(d)) return "today"
+  if (isTomorrow(d)) return "soon"
+  return "normal"
+}
+
+function minutesUntil(iso: string): number {
+  return Math.round((new Date(iso).getTime() - Date.now()) / 60000)
+}
+
+// ─── Sub-components ────────────────────────────────────────────────────────────
+
+function PulseCard({
+  label,
+  value,
+  sub,
+  accent,
+}: {
+  label: string
+  value: string | number
+  sub?: string
+  accent?: "warn" | "good" | "info" | "neutral"
+}) {
+  const valColor = {
+    warn: "text-amber-700 dark:text-amber-400",
+    good: "text-emerald-700 dark:text-emerald-400",
+    info: "text-blue-700 dark:text-blue-400",
+    neutral: "text-foreground",
+  }[accent ?? "neutral"]
+
+  return (
+    <div className="bg-card border rounded-xl p-3.5">
+      <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
+        {label}
+      </p>
+      <p className={cn("text-2xl font-semibold leading-none", valColor)}>{value}</p>
+      {sub && <p className="text-[11px] text-muted-foreground mt-1.5">{sub}</p>}
+    </div>
+  )
+}
+
+function ActionRow({ item }: { item: ActionItem }) {
+  const urgencyStyles: Record<ActionItem["urgency"], string> = {
+    overdue: "border-l-[3px] border-l-red-500",
+    today: "border-l-[3px] border-l-amber-500",
+    soon: "border-l-[3px] border-l-blue-400",
+    normal: "border-l-[3px] border-l-transparent",
   }
- 
-  const fetchTaskStats = async (userId: string) => {
-    const { data, error } = await supabase
-      .from("tasks")
-      .select("status")
-      .eq("user_id", userId)
- 
-    if (!error && data) {
-      const stats = data.reduce(
-        (acc, task) => {
-          const s = (task.status || "todo").toLowerCase()
-          if (s === "in-progress") acc.inProgress++
-          else if (s === "blocked") acc.blocked++
-          else if (s === "completed") acc.completed++
-          else acc.todo++
-          return acc
-        },
-        { inProgress: 0, blocked: 0, completed: 0, todo: 0 },
-      )
-      setTaskStats(stats)
-    }
-  }
- 
-  const fetchRealStats = async (userId: string) => {
-    const [leadsRes, postsRes] = await Promise.all([
-      supabase
-        .from("relationships")
-        .select("id", { count: "exact" })
-        .eq("user_id", userId)
-        .eq("relationship_type", "lead"),
-      supabase
-        .from("linkedin_posts")
-        .select("id", { count: "exact" })
-        .eq("user_id", userId)
-        .eq("status", "Published"),
-    ])
- 
-    setRealStats({
-      leads: leadsRes.count || 0,
-      posts: postsRes.count || 0,
-    })
+  const badgeStyles: Record<ActionItem["urgency"], string> = {
+    overdue: "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-400",
+    today: "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400",
+    soon: "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400",
+    normal: "bg-muted text-muted-foreground",
   }
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      <section>
-        <div className="flex items-end justify-between mb-4">
-          <div className="flex flex-col gap-1">
-            <h1 className="text-3xl font-bold tracking-tight">Today View</h1>
-            <p className="text-muted-foreground italic text-sm text-balance">"What should I focus on today?"</p>
-          </div>
-          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground bg-muted/50 px-3 py-1.5 rounded-full border">
-            <CalendarIcon size={12} />
-            {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
-          </div>
+    <div
+      className={cn(
+        "bg-card border rounded-xl px-3.5 py-3 flex items-center gap-3 hover:border-primary/30 transition-colors cursor-pointer",
+        urgencyStyles[item.urgency],
+      )}
+    >
+      <div
+        className={cn(
+          "size-4 rounded-full border-2 flex-shrink-0",
+          item.urgency === "overdue" ? "border-red-400" : "border-muted-foreground/40",
+        )}
+      />
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-foreground truncate">{item.title}</p>
+        <p className="text-[11px] text-muted-foreground mt-0.5">{item.source}</p>
+      </div>
+      <span
+        className={cn(
+          "text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0",
+          badgeStyles[item.urgency],
+        )}
+      >
+        {item.badge}
+      </span>
+    </div>
+  )
+}
+
+function MeetingRow({ event }: { event: MeetingEvent }) {
+  const mins = minutesUntil(event.start_time)
+  const isSoon = mins > 0 && mins <= 60
+  const isNow = mins <= 0 && mins > -90
+
+  return (
+    <div
+      className={cn(
+        "border rounded-xl px-4 py-3 flex items-center gap-4",
+        isSoon
+          ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800"
+          : "bg-card",
+      )}
+    >
+      {isSoon && (
+        <div className="size-2 rounded-full bg-emerald-500 flex-shrink-0 animate-pulse" />
+      )}
+      <div className="text-center flex-shrink-0 w-11">
+        <p className="text-sm font-semibold text-foreground leading-none">
+          {format(new Date(event.start_time), "h:mm")}
+        </p>
+        <p className="text-[10px] text-muted-foreground uppercase mt-0.5">
+          {format(new Date(event.start_time), "a")}
+        </p>
+      </div>
+      <div className="w-px self-stretch bg-border flex-shrink-0" />
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-foreground truncate">{event.title}</p>
+        <p className="text-[11px] text-muted-foreground mt-0.5">
+          {event.contact_name
+            ? `with ${event.contact_name}`
+            : event.purpose
+            ? event.purpose
+            : ""}
+          {isSoon && ` · in ${mins} min`}
+          {isNow && " · happening now"}
+        </p>
+      </div>
+      {event.meeting_link && (
+        <Button
+          size="sm"
+          variant={isSoon ? "default" : "outline"}
+          className="h-7 text-xs px-3 flex-shrink-0"
+          onClick={() => window.open(event.meeting_link!, "_blank")}
+        >
+          Join
+        </Button>
+      )}
+    </div>
+  )
+}
+
+// ─── Main component ────────────────────────────────────────────────────────────
+
+export function TodayView() {
+  const supabase = useMemo(() => createClient(), [])
+
+  const [loading, setLoading] = useState(true)
+  const [userName, setUserName] = useState("there")
+  const [pulse, setPulse] = useState<PulseData>({
+    tasksDueToday: 0,
+    overdueCount: 0,
+    meetingsToday: 0,
+    nextMeetingIn: null,
+    pipelineValue: 0,
+    activeDeals: 0,
+    staleContacts: 0,
+  })
+  const [actionItems, setActionItems] = useState<ActionItem[]>([])
+  const [meetings, setMeetings] = useState<MeetingEvent[]>([])
+  const [pipelineStages, setPipelineStages] = useState<PipelineStageCount[]>([])
+  const [staleContacts, setStaleContacts] = useState<StaleContact[]>([])
+  const [clock, setClock] = useState(() => format(new Date(), "h:mm a"))
+
+  // Live clock
+  useEffect(() => {
+    const t = setInterval(() => setClock(format(new Date(), "h:mm a")), 30000)
+    return () => clearInterval(t)
+  }, [])
+
+  const loadAll = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
+    const now = new Date()
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0)
+    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
+    const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
+
+    // Single Promise.all — all queries in parallel
+    const [
+      profileRes,
+      eventsRes,
+      tasksDueRes,
+      allTasksRes,
+      relationshipsRes,
+      staleRes,
+    ] = await Promise.all([
+      supabase.from("profiles").select("full_name").eq("id", user.id).single(),
+
+      // Today's meetings
+      supabase
+        .from("events")
+        .select("id, title, start_time, end_time, meeting_link, purpose, type, relationship_id")
+        .eq("user_id", user.id)
+        .gte("start_time", todayStart.toISOString())
+        .lte("start_time", todayEnd.toISOString())
+        .order("start_time", { ascending: true }),
+
+      // Tasks with due_date today or overdue and not completed
+      supabase
+        .from("tasks")
+        .select("id, title, priority, status, due_date, bucket")
+        .eq("user_id", user.id)
+        .neq("status", "completed")
+        .lte("due_date", todayEnd.toISOString())
+        .order("due_date", { ascending: true })
+        .limit(10),
+
+      // All task statuses for stats
+      supabase
+        .from("tasks")
+        .select("status")
+        .eq("user_id", user.id),
+
+      // Pipeline: active relationships with deal_value + stage
+      supabase
+        .from("relationships")
+        .select("id, full_name, company, pipeline_stage, deal_value, stage_entered_at")
+        .eq("user_id", user.id)
+        .eq("status", "active")
+        .not("pipeline_stage", "in", '("closed_won","closed_lost")'),
+
+      // Stale: contacts not moved in 14+ days
+      supabase
+        .from("relationships")
+        .select("id, full_name, company, stage_entered_at")
+        .eq("user_id", user.id)
+        .eq("status", "active")
+        .not("pipeline_stage", "in", '("closed_won","closed_lost")')
+        .lt("stage_entered_at", fourteenDaysAgo.toISOString())
+        .order("stage_entered_at", { ascending: true })
+        .limit(5),
+    ])
+
+    // ── Profile ──────────────────────────────────────────────────────────────
+    if (profileRes.data?.full_name) {
+      const firstName = profileRes.data.full_name.split(" ")[0]
+      setUserName(firstName)
+    }
+
+    // ── Meetings ─────────────────────────────────────────────────────────────
+    const eventsData = eventsRes.data || []
+
+    // Bulk fetch contact names for meetings that have relationship_id
+    let contactMap: Record<string, string> = {}
+    const relIds = [...new Set(eventsData.map((e) => e.relationship_id).filter(Boolean))] as string[]
+    if (relIds.length > 0) {
+      const { data: contacts } = await supabase
+        .from("relationships")
+        .select("id, full_name")
+        .in("id", relIds)
+      if (contacts) {
+        contactMap = Object.fromEntries(contacts.map((c) => [c.id, c.full_name]))
+      }
+    }
+
+    const enrichedEvents: MeetingEvent[] = eventsData.map((e) => ({
+      ...e,
+      contact_name: e.relationship_id ? contactMap[e.relationship_id] ?? null : null,
+    }))
+
+    // Only show future + in-progress meetings
+    const futureMeetings = enrichedEvents.filter(
+      (e) => new Date(e.end_time || e.start_time) >= now,
+    )
+    setMeetings(futureMeetings)
+
+    // Next meeting countdown
+    const nextMeeting = futureMeetings[0]
+    const nextMins = nextMeeting ? minutesUntil(nextMeeting.start_time) : null
+    const nextMeetingLabel =
+      nextMins !== null
+        ? nextMins <= 0
+          ? "happening now"
+          : nextMins < 60
+          ? `in ${nextMins} min`
+          : `in ${Math.round(nextMins / 60)}h`
+        : null
+
+    // ── Tasks ────────────────────────────────────────────────────────────────
+    const tasksDue = tasksDueRes.data || []
+    const overdueCount = tasksDue.filter(
+      (t) => t.due_date && isPast(new Date(t.due_date)),
+    ).length
+
+    // Build action items from due tasks
+    const taskActions: ActionItem[] = tasksDue.slice(0, 4).map((t) => ({
+      id: t.id,
+      title: t.title,
+      source: `Tasks · ${t.priority} priority`,
+      urgency: getUrgency(t.due_date, t.priority),
+      badge: t.due_date && isPast(new Date(t.due_date))
+        ? "Overdue"
+        : isToday(new Date(t.due_date!))
+        ? "Today"
+        : "Soon",
+    }))
+
+    setActionItems(taskActions)
+
+    // ── Pipeline ─────────────────────────────────────────────────────────────
+    const relData = relationshipsRes.data || []
+    const pipelineValue = relData.reduce((sum, r) => sum + (r.deal_value ?? 0), 0)
+
+    const STAGE_CONFIG = [
+      { stage: "new_lead", label: "New lead", color: "#B4B2A9" },
+      { stage: "contacted", label: "Contacted", color: "#85B7EB" },
+      { stage: "meeting_booked", label: "Meeting booked", color: "#AFA9EC" },
+      { stage: "proposal", label: "Proposal sent", color: "#EF9F27" },
+      { stage: "negotiating", label: "Negotiating", color: "#D85A30" },
+    ]
+
+    const stageCounts: PipelineStageCount[] = STAGE_CONFIG.map((s) => ({
+      ...s,
+      count: relData.filter((r) => r.pipeline_stage === s.stage).length,
+    }))
+    setPipelineStages(stageCounts)
+
+    // ── Stale contacts ───────────────────────────────────────────────────────
+    const staleData = (staleRes.data || []).map((r) => ({
+      id: r.id,
+      full_name: r.full_name,
+      company: r.company,
+      days: r.stage_entered_at
+        ? differenceInDays(now, new Date(r.stage_entered_at))
+        : 0,
+    }))
+    setStaleContacts(staleData)
+
+    // ── Pulse summary ────────────────────────────────────────────────────────
+    setPulse({
+      tasksDueToday: tasksDue.length,
+      overdueCount,
+      meetingsToday: eventsData.length,
+      nextMeetingIn: nextMeetingLabel,
+      pipelineValue,
+      activeDeals: relData.length,
+      staleContacts: staleData.length,
+    })
+
+    setLoading(false)
+  }, [supabase])
+
+  useEffect(() => {
+    loadAll()
+  }, [loadAll])
+
+  // Max pipeline count for bar scaling
+  const maxStageCount = Math.max(...pipelineStages.map((s) => s.count), 1)
+
+  // ─── Render ────────────────────────────────────────────────────────────────
+
+  return (
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
+
+      {/* ── Greeting ─────────────────────────────────────────────────────── */}
+      <div className="flex items-end justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {getGreeting()}, {userName}.
+          </h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {format(new Date(), "EEEE")} — here's what needs your attention today.
+          </p>
         </div>
+        <div className="text-right hidden md:block">
+          <p className="text-xl font-semibold tabular-nums">{clock}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {format(new Date(), "EEE, d MMMM yyyy")}
+          </p>
+        </div>
+      </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* Main Content Area (Left & Middle) */}
-          <div className="lg:col-span-8 space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Today's Priorities */}
-              <Card className="border-primary/20 bg-card/50 overflow-hidden relative min-h-[280px]">
-                <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
-                  <Zap size={80} className="text-primary" />
-                </div>
-                <CardHeader className="flex flex-row items-center justify-between pb-2 relative">
-                  <div className="space-y-0.5">
-                    <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                      <Zap size={14} className="text-primary" />
-                      Top 3 Priorities
-                    </CardTitle>
-                    <p className="text-[9px] text-muted-foreground">Focus on these to move the needle today.</p>
-                  </div>
-                  <Button variant="ghost" size="sm" className="h-6 gap-1 text-[9px] font-normal px-2">
-                    <Plus size={10} />
-                    Override
-                  </Button>
-                </CardHeader>
-                <CardContent className="space-y-2 relative pb-4">
-                  {priorities.length > 0 ? (
-                    priorities.map((p, i) => (
-                      <div
-                        key={i}
-                        className="flex items-start justify-between p-2.5 rounded-lg bg-background/50 border border-border shadow-sm hover:border-primary/50 transition-all group cursor-pointer"
-                      >
-                        {/* ... existing priority item content ... */}
-                        <div className="flex items-start gap-2.5">
-                          <div className="mt-0.5 size-4 rounded-full border border-primary/30 flex items-center justify-center text-[9px] font-bold text-primary transition-all group-hover:bg-primary group-hover:text-primary-foreground">
-                            {i + 1}
-                          </div>
-                          <div className="space-y-0.5">
-                            <p className="font-semibold text-[11px] leading-tight group-hover:text-primary transition-colors line-clamp-1">
-                              {p.title}
-                            </p>
-                            <div className="flex items-center gap-1.5">
-                              <Badge
-                                variant="secondary"
-                                className={cn(
-                                  "text-[8px] h-3.5 font-bold uppercase tracking-tight px-1",
-                                  p.tag.toLowerCase() === "urgent" && "bg-red-500/10 text-red-500 border-red-500/20",
-                                  p.tag.toLowerCase() === "meeting" &&
-                                    "bg-blue-500/10 text-blue-500 border-blue-500/20",
-                                  p.tag.toLowerCase() === "high" &&
-                                    "bg-orange-500/10 text-orange-500 border-orange-500/20",
-                                )}
-                              >
-                                {p.tag}
-                              </Badge>
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  "text-[8px] h-3.5 font-medium px-1 bg-muted/50",
-                                  p.status === "blocked" && "text-red-400 border-red-400/30",
-                                  p.status === "in-progress" && "text-blue-400 border-blue-400/30",
-                                  p.status === "scheduled" && "text-emerald-400 border-emerald-400/30",
-                                )}
-                              >
-                                {(p.status || "todo").replace("-", " ")}
-                              </Badge>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="flex flex-col items-center justify-center py-6 text-center h-[180px]">
-                      <div className="size-10 rounded-full bg-muted/50 flex items-center justify-center mb-2">
-                        <Zap size={20} className="text-muted-foreground/30" />
-                      </div>
-                      <h3 className="text-xs font-semibold mb-0.5">No urgent priorities right now</h3>
-                      <p className="text-[10px] text-muted-foreground max-w-[180px]">
-                        Create tasks with due dates or schedule meetings to see focus items here.
-                      </p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+      {/* ── Two-column layout ─────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_288px] gap-6 items-start">
 
-              {/* Middle Section: Stats & Note Action */}
-              <div className="space-y-4">
-                <Card className="border-border/50 bg-card/30">
-                  <CardHeader className="pb-2 pt-4">
-                    <h3 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
-                      <Activity size={10} className="text-primary" />
-                      Execution Pipeline
-                    </h3>
-                  </CardHeader>
-                  <CardContent className="space-y-3 pb-4">
-                    <div className="grid grid-cols-2 gap-2">
-                      {[
-                        { label: "In Progress", val: taskStats.inProgress, color: "" },
-                        { label: "Blocked", val: taskStats.blocked, color: "text-red-400" },
-                      ].map((s, idx) => (
-                        <div
-                          key={idx}
-                          className="p-2 rounded-lg bg-card border border-border shadow-sm flex flex-col gap-0.5"
-                        >
-                          <span
-                            className={cn(
-                              "text-[8px] font-bold uppercase truncate",
-                              s.color || "text-muted-foreground",
-                            )}
-                          >
-                            {s.label}
-                          </span>
-                          <span className={cn("text-lg font-bold", s.color)}>{s.val}</span>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="p-3 rounded-xl bg-card border border-primary/20 shadow-sm flex flex-col gap-0.5 relative overflow-hidden group">
-                      <div className="absolute -right-2 -bottom-2 opacity-5 group-hover:scale-110 transition-transform">
-                        <Linkedin size={48} />
-                      </div>
-                      <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-bold">
-                        Updates
-                      </span>
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-xl font-bold">{realStats.posts}</span>
-                        <Badge
-                          variant="secondary"
-                          className="text-[8px] h-3.5 font-bold bg-primary/10 text-primary border-none"
-                        >
-                          Live
-                        </Badge>
-                      </div>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full h-9 px-2 bg-card hover:bg-primary hover:text-primary-foreground transition-all group border-primary/10 shadow-sm text-[10px]"
-                    >
-                      <Plus size={14} className="mr-1.5 text-primary group-hover:text-primary-foreground" />
-                      Note
-                    </Button>
-                  </CardContent>
-                </Card>
-              </div>
+        {/* LEFT COLUMN */}
+        <div className="space-y-6">
+
+          {/* ── Pulse cards ─────────────────────────────────────────────── */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <PulseCard
+              label="Tasks due today"
+              value={loading ? "—" : pulse.tasksDueToday}
+              sub={pulse.overdueCount > 0 ? `${pulse.overdueCount} overdue` : "All on track"}
+              accent={pulse.overdueCount > 0 ? "warn" : "good"}
+            />
+            <PulseCard
+              label="Meetings today"
+              value={loading ? "—" : pulse.meetingsToday}
+              sub={pulse.nextMeetingIn ? `next ${pulse.nextMeetingIn}` : "None scheduled"}
+              accent={pulse.nextMeetingIn ? "info" : "neutral"}
+            />
+            <PulseCard
+              label="Pipeline value"
+              value={
+                loading
+                  ? "—"
+                  : pulse.pipelineValue > 0
+                  ? `$${Math.round(pulse.pipelineValue / 1000)}k`
+                  : "$0"
+              }
+              sub={`${pulse.activeDeals} active deals`}
+              accent={pulse.pipelineValue > 0 ? "good" : "neutral"}
+            />
+            <PulseCard
+              label="Stale contacts"
+              value={loading ? "—" : pulse.staleContacts}
+              sub="14+ days silent"
+              accent={pulse.staleContacts > 0 ? "warn" : "good"}
+            />
+          </div>
+
+          {/* ── Action items ─────────────────────────────────────────────── */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold">Needs action now</h2>
+              <button
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                onClick={() => {
+                  const event = new CustomEvent("navigate-tab", { detail: "Tasks" })
+                  window.dispatchEvent(event)
+                }}
+              >
+                View all tasks <ArrowRight size={12} />
+              </button>
             </div>
-
-            {/* Meeting Hub (Spanning across Col 1 & 2) */}
-            <Card className="border-border/50 bg-card/30">
-              <CardHeader className="flex flex-row items-center justify-between py-3">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  <CalendarIcon size={16} className="text-primary" />
-                  Meetings Hub
-                </CardTitle>
-                <Badge
-                  variant="outline"
-                  className="font-bold text-[10px] border-emerald-200/50 text-emerald-400 bg-emerald-500/5"
-                >
-                  {upcomingMeetings.length} Today
-                </Badge>
-              </CardHeader>
-              <CardContent className="space-y-3 pb-4">
-                {/* ... existing meeting hub content ... */}
-                {upcomingMeetings.length > 0 ? (
-                  upcomingMeetings.map((m, i) => {
-                    const startTime = new Date(m.start_time)
-                    const formattedTime = format(startTime, "h:mm")
-                    const period = format(startTime, "a")
-                    const hasFollowUpTag = m.relationships?.tags?.includes("follow-up")
-
-                    return (
-                      <div
-                        key={i}
-                        className="flex gap-4 p-4 rounded-xl hover:bg-muted/50 transition-all cursor-pointer group border border-transparent hover:border-border"
-                      >
-                        <div className="flex flex-col items-center gap-1 text-sm font-bold text-muted-foreground tabular-nums whitespace-nowrap min-w-[70px]">
-                          {formattedTime}
-                          <span className="text-[10px] font-medium opacity-60 uppercase">{period}</span>
-                        </div>
-                        <div className="w-px bg-border group-hover:bg-primary/30 transition-colors" />
-                        <div className="flex-1 space-y-2">
-                          <div className="flex items-center justify-between">
-                            <p className="font-bold text-sm tracking-tight group-hover:text-primary transition-colors">
-                              {m.title}
-                            </p>
-                            <div className="flex gap-1">
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  "text-[9px] h-4 font-bold uppercase tracking-widest",
-                                  m.type === "deal"
-                                    ? "bg-amber-50 text-amber-600 border-amber-200"
-                                    : "bg-muted text-muted-foreground",
-                                )}
-                              >
-                                {m.type}
-                              </Badge>
-                              {hasFollowUpTag && (
-                                <Badge variant="destructive" className="text-[9px] h-4 font-bold uppercase">
-                                  Follow-up
-                                </Badge>
-                              )}
-                            </div>
-                          </div>
-                          {m.purpose && <p className="text-xs text-muted-foreground line-clamp-1">{m.purpose}</p>}
-                          <div className="flex items-center justify-between">
-                            {m.relationships && (
-                              <div className="text-xs font-medium text-muted-foreground">
-                                with {m.relationships.full_name}
-                                {m.relationships.company && ` (${m.relationships.company})`}
-                              </div>
-                            )}
-                            <div className="flex items-center gap-2">
-                              {m.meeting_link && (
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className="size-8 text-primary hover:bg-primary/10"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    window.open(m.meeting_link, "_blank")
-                                  }}
-                                >
-                                  <Video size={14} />
-                                </Button>
-                              )}
-                              <ChevronRight
-                                size={16}
-                                className="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-10 text-center space-y-2 opacity-60">
-                    <CalendarIcon size={24} className="text-muted-foreground" />
-                    <p className="text-sm font-medium">No meetings scheduled today</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            {loading ? (
+              <div className="space-y-2">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-16 bg-muted/40 rounded-xl animate-pulse" />
+                ))}
+              </div>
+            ) : actionItems.length > 0 ? (
+              <div className="space-y-2">
+                {actionItems.map((item) => (
+                  <ActionRow key={item.id} item={item} />
+                ))}
+              </div>
+            ) : (
+              <div className="bg-card border rounded-xl p-6 text-center">
+                <CheckCircle2 size={24} className="text-emerald-500 mx-auto mb-2" />
+                <p className="text-sm font-medium">Nothing overdue</p>
+                <p className="text-xs text-muted-foreground mt-1">You're on top of everything.</p>
+              </div>
+            )}
           </div>
 
-          {/* Right Sidebar Area */}
-          <div className="lg:col-span-4 space-y-6">
-            <Card className="border-border/50 bg-card/30 h-full flex flex-col">
-              <CardHeader className="pb-2 pt-4">
-                <h3 className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-1">
-                  Performance Metrics
-                </h3>
-              </CardHeader>
-              <CardContent className="space-y-4 flex-1">
-                <div className="grid grid-cols-1 gap-3">
-                  {[
-                    { label: "Completed", val: taskStats.completed, color: "text-emerald-400" },
-                    { label: "Total Todo", val: taskStats.todo, color: "" },
-                  ].map((s, idx) => (
-                    <div
-                      key={idx}
-                      className="p-3 rounded-lg bg-card border border-border shadow-sm flex flex-col gap-1"
-                    >
-                      <span
-                        className={cn("text-[9px] font-bold uppercase truncate", s.color || "text-muted-foreground")}
-                      >
-                        {s.label}
-                      </span>
-                      <span className={cn("text-2xl font-bold", s.color)}>{s.val}</span>
-                    </div>
-                  ))}
-                  <div className="p-4 rounded-xl bg-card border border-primary/20 shadow-sm flex flex-col gap-1 relative overflow-hidden group">
-                    <div className="absolute -right-2 -bottom-2 opacity-5 group-hover:scale-110 transition-transform">
-                      <Users size={64} />
-                    </div>
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">
-                      Leads Found
-                    </span>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-3xl font-bold">{realStats.leads}</span>
-                      <Badge className="text-[9px] h-4 bg-emerald-500/10 text-emerald-400 border-none font-bold">
-                        Active
-                      </Badge>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-4 border-t border-border/50 space-y-3">
-                  <h4 className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest px-1">
-                    Quick Actions
-                  </h4>
-                  <div className="grid grid-cols-1 gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full h-11 px-4 bg-card hover:bg-primary hover:text-primary-foreground transition-all group border-primary/10 shadow-sm text-xs justify-start font-semibold"
-                    >
-                      <Linkedin size={16} className="mr-3 text-primary group-hover:text-primary-foreground" />
-                      Schedule LinkedIn
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full h-11 px-4 bg-card hover:bg-primary hover:text-primary-foreground transition-all group border-primary/10 shadow-sm text-xs justify-start font-semibold"
-                    >
-                      <CheckSquare size={16} className="mr-3 text-primary group-hover:text-primary-foreground" />
-                      Log Follow-up
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+          {/* ── Today's meetings ──────────────────────────────────────────── */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold">Today's meetings</h2>
+              <button
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                onClick={() => {
+                  const event = new CustomEvent("navigate-tab", { detail: "Calendar" })
+                  window.dispatchEvent(event)
+                }}
+              >
+                Open calendar <ArrowRight size={12} />
+              </button>
+            </div>
+            {loading ? (
+              <div className="space-y-2">
+                {[1, 2].map((i) => (
+                  <div key={i} className="h-16 bg-muted/40 rounded-xl animate-pulse" />
+                ))}
+              </div>
+            ) : meetings.length > 0 ? (
+              <div className="space-y-2">
+                {meetings.map((m) => (
+                  <MeetingRow key={m.id} event={m} />
+                ))}
+              </div>
+            ) : (
+              <div className="bg-card border rounded-xl p-6 text-center">
+                <Calendar size={24} className="text-muted-foreground/40 mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">No meetings scheduled today</p>
+              </div>
+            )}
           </div>
+
         </div>
-      </section>
+
+        {/* RIGHT COLUMN */}
+        <div className="space-y-4">
+
+          {/* ── Pipeline snapshot ─────────────────────────────────────────── */}
+          <div className="bg-card border rounded-xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold">Pipeline snapshot</h2>
+              <button
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                onClick={() => {
+                  const event = new CustomEvent("navigate-tab", { detail: "Relationships" })
+                  window.dispatchEvent(event)
+                }}
+              >
+                Open <ArrowRight size={12} />
+              </button>
+            </div>
+            {loading ? (
+              <div className="space-y-2.5">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <div key={i} className="h-4 bg-muted/40 rounded animate-pulse" />
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {pipelineStages.map((s) => (
+                  <div key={s.stage} className="flex items-center gap-2.5">
+                    <span className="text-[11px] text-muted-foreground w-[90px] flex-shrink-0 truncate">
+                      {s.label}
+                    </span>
+                    <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all duration-500"
+                        style={{
+                          width: `${Math.round((s.count / maxStageCount) * 100)}%`,
+                          background: s.color,
+                        }}
+                      />
+                    </div>
+                    <span className="text-[11px] text-muted-foreground w-3 text-right flex-shrink-0">
+                      {s.count}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="mt-3 pt-3 border-t flex items-center justify-between">
+              <span className="text-[11px] text-muted-foreground">Total pipeline</span>
+              <span className="text-xs font-semibold">
+                {pulse.pipelineValue > 0
+                  ? `$${pulse.pipelineValue.toLocaleString()}`
+                  : "No deals yet"}
+              </span>
+            </div>
+          </div>
+
+          {/* ── Follow up needed ──────────────────────────────────────────── */}
+          <div className="bg-card border rounded-xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold">Follow up needed</h2>
+              <button
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                onClick={() => {
+                  const event = new CustomEvent("navigate-tab", { detail: "Relationships" })
+                  window.dispatchEvent(event)
+                }}
+              >
+                View all <ArrowRight size={12} />
+              </button>
+            </div>
+            {loading ? (
+              <div className="space-y-2">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-8 bg-muted/40 rounded animate-pulse" />
+                ))}
+              </div>
+            ) : staleContacts.length > 0 ? (
+              <div className="divide-y divide-border/60">
+                {staleContacts.map((c) => (
+                  <div key={c.id} className="flex items-center gap-2 py-2 first:pt-0 last:pb-0">
+                    <div
+                      className="size-1.5 rounded-full flex-shrink-0"
+                      style={{
+                        background: c.days >= 21 ? "#E24B4A" : c.days >= 14 ? "#EF9F27" : "#B4B2A9",
+                      }}
+                    />
+                    <span className="text-xs text-foreground flex-1 truncate">
+                      {c.full_name}
+                      {c.company && (
+                        <span className="text-muted-foreground"> · {c.company}</span>
+                      )}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground flex-shrink-0">
+                      {c.days}d
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground text-center py-3">
+                All contacts are up to date
+              </p>
+            )}
+          </div>
+
+          {/* ── Quick actions ─────────────────────────────────────────────── */}
+          <div className="bg-card border rounded-xl p-4">
+            <h2 className="text-sm font-semibold mb-3">Quick actions</h2>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                {
+                  icon: Plus,
+                  label: "Add task",
+                  tab: "Tasks",
+                },
+                {
+                  icon: Calendar,
+                  label: "Schedule meeting",
+                  tab: "Calendar",
+                },
+                {
+                  icon: Users,
+                  label: "Add contact",
+                  tab: "Relationships",
+                },
+                {
+                  icon: FileText,
+                  label: "Log a note",
+                  tab: "Vault",
+                },
+              ].map(({ icon: Icon, label, tab }) => (
+                <button
+                  key={label}
+                  className="flex flex-col gap-1.5 p-3 border rounded-lg bg-transparent hover:bg-muted/50 hover:border-border transition-colors text-left"
+                  onClick={() => {
+                    const event = new CustomEvent("navigate-tab", { detail: tab })
+                    window.dispatchEvent(event)
+                  }}
+                >
+                  <Icon size={14} className="text-muted-foreground" />
+                  <span className="text-[12px] text-muted-foreground font-medium">{label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+        </div>
+      </div>
     </div>
   )
 }

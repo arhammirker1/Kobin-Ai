@@ -10,13 +10,7 @@ import { DashboardContent } from "@/components/dashboard-content"
 const AUTH_TIMEOUT_MS = 8000
 
 export default function Page() {
-  const [activeTab, setActiveTab] = useState(() => {
-  if (typeof window !== "undefined") {
-    const params = new URLSearchParams(window.location.search)
-    if (params.get("tab") === "settings") return "Settings"
-  }
-  return "Home"
-})
+  const [activeTab, setActiveTab] = useState("Home")
   const [isLoading, setIsLoading] = useState(true)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
@@ -105,6 +99,13 @@ export default function Page() {
       </div>
     )
   }
+
+  // Listen for navigate-tab events fired by TodayView quick actions
+  useEffect(() => {
+    const handler = (e: CustomEvent<string>) => setActiveTab(e.detail)
+    window.addEventListener("navigate-tab", handler as EventListener)
+    return () => window.removeEventListener("navigate-tab", handler as EventListener)
+  }, [])
 
   if (!isAuthenticated) return null
 
