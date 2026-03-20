@@ -38,9 +38,10 @@ function extractBody(payload: any): string {
 
 export async function GET(
   _request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -57,7 +58,7 @@ export async function GET(
     const accessToken = await refreshGoogleToken(integration)
 
     const res = await fetch(
-      `https://gmail.googleapis.com/gmail/v1/users/me/threads/${params.id}?format=full`,
+      `https://gmail.googleapis.com/gmail/v1/users/me/threads/${id}?format=full`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
     )
 
@@ -87,7 +88,7 @@ export async function GET(
 
     // Mark as read (non-fatal)
     fetch(
-      `https://gmail.googleapis.com/gmail/v1/users/me/threads/${params.id}/modify`,
+      `https://gmail.googleapis.com/gmail/v1/users/me/threads/${id}/modify`,
       {
         method: "POST",
         headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
@@ -95,7 +96,7 @@ export async function GET(
       }
     ).catch(() => {})
 
-    return NextResponse.json({ messages, threadId: params.id })
+    return NextResponse.json({ messages, threadId: id })
   } catch (err) {
     const message = err instanceof Error ? err.message : "Server error"
     return NextResponse.json({ error: message }, { status: 500 })
