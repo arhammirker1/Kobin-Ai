@@ -51,6 +51,7 @@ interface GmailThreadViewProps {
   senderName: string
   subject: string
   onClose: () => void
+  onThreadSelect: (thread: { id: string; subject: string; senderEmail: string; senderName: string }) => void
   currentUser: { id: string; full_name: string; email?: string } | null
 }
 
@@ -94,6 +95,9 @@ function ContactPanel({
   taskCreating,
   onMoveStage,
   onLogOutcome,
+  contactThreads,
+  activeThreadId,
+  onThreadSelect,
 }: {
   contact: ContactContext | null
   loading: boolean
@@ -101,7 +105,11 @@ function ContactPanel({
   taskCreating: boolean
   onMoveStage: () => void
   onLogOutcome: () => void
+  contactThreads: Array<{ id: string; subject: string; snippet: string; date: string; unread: boolean }>
+  activeThreadId: string
+  onThreadSelect: (thread: { id: string; subject: string; senderEmail: string; senderName: string }) => void
 }) {
+  const [threadsOpen, setThreadsOpen] = useState(false)
   const daysInStage =
     contact?.stageEnteredAt
       ? differenceInDays(new Date(), new Date(contact.stageEnteredAt))
@@ -210,6 +218,91 @@ function ContactPanel({
         </div>
       )}
 
+      {/* All threads from this contact */}
+      {contact && contactThreads.length > 0 && (
+        <div className="border-t border-border/40">
+          <button
+            onClick={() => setThreadsOpen(v => !v)}
+            className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-muted/30 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                All threads
+              </span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground border border-border/40">
+                {contactThreads.length}
+              </span>
+            </div>
+            <span
+              className={cn(
+                "text-[10px] text-muted-foreground transition-transform duration-200",
+                threadsOpen && "rotate-180 inline-block"
+              )}
+            >
+              ▾
+            </span>
+          </button>
+
+          {threadsOpen && (
+            <div className="border-t border-border/40">
+              {contactThreads.map((t) => {
+                const isActive = t.id === activeThreadId
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() =>
+                      !isActive &&
+                      onThreadSelect({
+                        id: t.id,
+                        subject: t.subject,
+                        senderEmail: contact.email || "",
+                        senderName: contact.name,
+                      })
+                    }
+                    className={cn(
+                      "w-full text-left px-4 py-2.5 border-b border-border/30 last:border-0 transition-colors",
+                      isActive
+                        ? "border-l-2 border-l-foreground pl-[14px] bg-muted/20"
+                        : "hover:bg-muted/30 cursor-pointer"
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-0.5">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        {t.unread && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" />
+                        )}
+                        <span
+                          className={cn(
+                            "text-[11px] truncate",
+                            isActive
+                              ? "font-medium text-foreground"
+                              : "text-muted-foreground",
+                            t.unread && "font-medium text-foreground"
+                          )}
+                        >
+                          {t.subject || "(no subject)"}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-muted-foreground flex-shrink-0">
+                        {t.date
+                          ? new Date(t.date).toLocaleDateString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                            })
+                          : ""}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-muted-foreground truncate pl-0">
+                      {t.snippet}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Actions */}
       {contact && (
         <div className="px-4 py-3 space-y-2">
@@ -276,6 +369,7 @@ export function GmailThreadView({
   senderName,
   subject,
   onClose,
+  onThreadSelect,
   currentUser,
 }: GmailThreadViewProps) {
   const supabase = createClient()
@@ -286,12 +380,32 @@ export function GmailThreadView({
   const [replyText, setReplyText] = useState("")
   const [sending, setSending] = useState(false)
   const [taskCreating, setTaskCreating] = useState(false)
+  const [contactThreads, setContactThreads] = useState<Array<{
+    id: string
+    subject: string
+    snippet: string
+    date: string
+    unread: boolean
+  }>>([])
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     loadThread()
     loadContact()
+    setContactThreads([])
   }, [threadId])
+
+  const loadContactThreads = async (email: string) => {
+    try {
+      const res = await fetch(
+        `/api/gmail/threads?from=${encodeURIComponent(email)}`
+      )
+      const data = await res.json()
+      setContactThreads(data.threads || [])
+    } catch {
+      // non-fatal
+    }
+  }
 
   useEffect(() => {
     if (!loadingMessages) {
@@ -319,6 +433,9 @@ export function GmailThreadView({
       const res = await fetch(`/api/gmail/contact?${params}`)
       const data = await res.json()
       setContact(data.contact)
+      if (data.contact) {
+        loadContactThreads(senderEmail)
+      }
     } finally {
       setLoadingContact(false)
     }
@@ -564,6 +681,9 @@ export function GmailThreadView({
         taskCreating={taskCreating}
         onMoveStage={handleMoveStage}
         onLogOutcome={handleLogOutcome}
+        contactThreads={contactThreads}
+        activeThreadId={threadId}
+        onThreadSelect={onThreadSelect}
       />
     </div>
   )

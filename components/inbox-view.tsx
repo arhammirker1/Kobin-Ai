@@ -2198,6 +2198,16 @@ if (error) {
             senderName={activeGmailThread.senderName}
             subject={activeGmailThread.subject}
             onClose={() => setActiveGmailThread(null)}
+            onThreadSelect={(thread) => setActiveGmailThread({
+              id: thread.id,
+              subject: thread.subject,
+              senderEmail: thread.senderEmail,
+              senderName: thread.senderName,
+              date: "",
+              messageCount: 0,
+              snippet: "",
+              unread: false,
+            })}
             currentUser={currentUser}
           />
         ) : activeRoom ? (

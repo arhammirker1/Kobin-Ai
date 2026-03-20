@@ -20,8 +20,14 @@ export async function GET() {
 
     const accessToken = await refreshGoogleToken(integration)
 
+    const { searchParams } = new URL(request.url)
+    const fromEmail = searchParams.get("from") || ""
+    const query = fromEmail
+      ? `from:${fromEmail}`
+      : "in:inbox"
+
     const listRes = await fetch(
-      "https://gmail.googleapis.com/gmail/v1/users/me/threads?maxResults=20&q=in:inbox",
+      `https://gmail.googleapis.com/gmail/v1/users/me/threads?maxResults=20&q=${encodeURIComponent(query)}`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
     )
 
