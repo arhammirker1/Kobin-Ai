@@ -217,6 +217,7 @@ export function CrmView() {
     const { error } = await supabase.from("relationships").insert({
       user_id: user.id,
       full_name: newRelationship.full_name,
+      email: (newRelationship as any).email || null,
       company: newRelationship.company || null,
       role: newRelationship.role || null,
       relationship_type: newRelationship.relationship_type || "lead",
@@ -238,7 +239,8 @@ export function CrmView() {
         relationship_type: "lead", linkedin_profile_url: "",
         meeting_link: "", status: "active", tags: [],
         pipeline_stage: "new_lead",
-      })
+        email: "",
+      } as any)
       fetchRelationships()
     }
   }
@@ -401,44 +403,62 @@ export function CrmView() {
               <DialogHeader>
                 <DialogTitle>Add New Contact</DialogTitle>
               </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="name">Full Name *</Label>
+              <div className="space-y-4 py-2">
+                {/* Name */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest">Full name *</label>
                   <Input
-                    id="name"
                     value={newRelationship.full_name}
                     onChange={(e) => setNewRelationship({ ...newRelationship, full_name: e.target.value })}
-                    placeholder="John Doe"
+                    placeholder="Sarah Chen"
+                    className="h-9"
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="company">Company</Label>
+
+                {/* Email */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest">Email</label>
+                  <Input
+                    type="email"
+                    value={(newRelationship as any).email || ""}
+                    onChange={(e) => setNewRelationship({ ...newRelationship, email: e.target.value } as any)}
+                    placeholder="sarah@company.com"
+                    className="h-9"
+                  />
+                  <p className="text-[11px] text-muted-foreground">Used to match Gmail threads to this contact</p>
+                </div>
+
+                {/* Company + Role */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest">Company</label>
                     <Input
-                      id="company"
                       value={newRelationship.company || ""}
                       onChange={(e) => setNewRelationship({ ...newRelationship, company: e.target.value })}
-                      placeholder="Acme Inc"
+                      placeholder="Sequoia Capital"
+                      className="h-9"
                     />
                   </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="role">Role</Label>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest">Role</label>
                     <Input
-                      id="role"
                       value={newRelationship.role || ""}
                       onChange={(e) => setNewRelationship({ ...newRelationship, role: e.target.value })}
-                      placeholder="CEO"
+                      placeholder="Partner"
+                      className="h-9"
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="type">Type</Label>
+
+                {/* Type + Stage */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest">Type</label>
                     <Select
                       value={newRelationship.relationship_type}
                       onValueChange={(v: any) => setNewRelationship({ ...newRelationship, relationship_type: v })}
                     >
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {RELATIONSHIP_TYPES.map((t) => (
                           <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
@@ -446,13 +466,13 @@ export function CrmView() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="stage">Pipeline stage</Label>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest">Stage</label>
                     <Select
                       value={newRelationship.pipeline_stage}
                       onValueChange={(v: any) => setNewRelationship({ ...newRelationship, pipeline_stage: v })}
                     >
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {STAGES.map((s) => (
                           <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
@@ -461,28 +481,11 @@ export function CrmView() {
                     </Select>
                   </div>
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="linkedin">LinkedIn Profile</Label>
+
+                {/* Tags */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest">Tags</label>
                   <Input
-                    id="linkedin"
-                    value={newRelationship.linkedin_profile_url || ""}
-                    onChange={(e) => setNewRelationship({ ...newRelationship, linkedin_profile_url: e.target.value })}
-                    placeholder="https://linkedin.com/in/..."
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="meeting">Default Meeting Link</Label>
-                  <Input
-                    id="meeting"
-                    value={newRelationship.meeting_link || ""}
-                    onChange={(e) => setNewRelationship({ ...newRelationship, meeting_link: e.target.value })}
-                    placeholder="https://meet.google.com/..."
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="tags">Tags</Label>
-                  <Input
-                    id="tags"
                     value={newRelationship.tags?.join(", ") || ""}
                     onChange={(e) =>
                       setNewRelationship({
@@ -490,7 +493,8 @@ export function CrmView() {
                         tags: e.target.value.split(",").map((t) => t.trim()).filter(Boolean),
                       })
                     }
-                    placeholder="follow-up, urgent, hot-lead"
+                    placeholder="follow-up, hot-lead, vip"
+                    className="h-9"
                   />
                 </div>
               </div>
