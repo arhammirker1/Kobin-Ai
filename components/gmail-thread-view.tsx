@@ -1,0 +1,570 @@
+"use client"
+
+import { useState, useEffect, useRef } from "react"
+import { createClient } from "@/lib/supabase/client"
+import { format } from "date-fns"
+import { differenceInDays } from "date-fns"
+import { toast } from "sonner"
+import { cn } from "@/lib/utils"
+import { Loader2, X, Plus, ArrowUpRight } from "lucide-react"
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface GmailMessage {
+  id: string
+  threadId: string
+  senderEmail: string
+  senderName: string
+  subject: string
+  date: string
+  internalDate: string
+  body: string
+  isUnread: boolean
+}
+
+interface ContactContext {
+  type: "client" | "relationship"
+  id?: string
+  name: string
+  email?: string
+  company?: string
+  role?: string
+  projectName?: string
+  hasPortalAccess?: boolean
+  pipelineStage?: string
+  dealValue?: number | null
+  closeProbability?: number | null
+  stageEnteredAt?: string | null
+  lastEvent?: {
+    id: string
+    title: string
+    start_time: string
+    outcome: string | null
+    purpose: string | null
+  } | null
+  linkedinUrl?: string | null
+}
+
+interface GmailThreadViewProps {
+  threadId: string
+  senderEmail: string
+  senderName: string
+  subject: string
+  onClose: () => void
+  currentUser: { id: string; full_name: string; email?: string } | null
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const STAGE_LABELS: Record<string, string> = {
+  new_lead: "New lead",
+  contacted: "Contacted",
+  meeting_booked: "Meeting booked",
+  proposal: "Proposal sent",
+  negotiating: "Negotiating",
+  closed_won: "Closed · Won",
+  closed_lost: "Closed · Lost",
+}
+
+function avatarInitials(name: string): string {
+  const parts = name.trim().split(" ")
+  return parts.length >= 2
+    ? `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
+    : (parts[0]?.[0] || "?").toUpperCase()
+}
+
+// Strip quoted reply lines (lines starting with ">") and "On ... wrote:" blocks
+function stripQuoted(body: string): string {
+  const lines = body.split("\n")
+  const cleaned: string[] = []
+  for (const line of lines) {
+    if (line.trim().startsWith(">")) break
+    if (/^On .+ wrote:/.test(line.trim())) break
+    cleaned.push(line)
+  }
+  return cleaned.join("\n").trim()
+}
+
+// ── Contact context panel ─────────────────────────────────────────────────────
+
+function ContactPanel({
+  contact,
+  loading,
+  onCreateTask,
+  taskCreating,
+  onMoveStage,
+  onLogOutcome,
+}: {
+  contact: ContactContext | null
+  loading: boolean
+  onCreateTask: () => void
+  taskCreating: boolean
+  onMoveStage: () => void
+  onLogOutcome: () => void
+}) {
+  const daysInStage =
+    contact?.stageEnteredAt
+      ? differenceInDays(new Date(), new Date(contact.stageEnteredAt))
+      : null
+
+  return (
+    <div className="w-[220px] flex-shrink-0 border-l border-border/40 flex flex-col overflow-y-auto bg-muted/10">
+      {/* Header */}
+      <div className="px-4 pt-4 pb-3 border-b border-border/40">
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-3">
+          Contact context
+        </p>
+
+        {loading ? (
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Loader2 size={12} className="animate-spin" />
+            <span className="text-xs">Matching contact…</span>
+          </div>
+        ) : contact ? (
+          <>
+            <div className="w-9 h-9 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-semibold">
+              {avatarInitials(contact.name)}
+            </div>
+            <div className="mt-2 font-semibold text-sm text-foreground leading-tight">
+              {contact.name}
+            </div>
+            {(contact.role || contact.company) && (
+              <div className="text-[11px] text-muted-foreground mt-0.5">
+                {[contact.role, contact.company].filter(Boolean).join(" · ")}
+              </div>
+            )}
+            {contact.type === "relationship" && contact.pipelineStage && (
+              <div className="mt-2 inline-flex items-center text-[10px] px-2 py-1 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/20">
+                {STAGE_LABELS[contact.pipelineStage] || contact.pipelineStage}
+              </div>
+            )}
+            {contact.type === "client" && contact.projectName && (
+              <div className="mt-2 inline-flex items-center text-[10px] px-2 py-1 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/20">
+                {contact.projectName}
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="text-[11px] text-muted-foreground">
+            No match in your CRM
+          </p>
+        )}
+      </div>
+
+      {/* Deal snapshot — relationships only */}
+      {contact?.type === "relationship" &&
+        (contact.dealValue || contact.closeProbability || daysInStage !== null) && (
+          <div className="px-4 py-3 border-b border-border/40 space-y-2">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
+              Deal snapshot
+            </p>
+            {contact.dealValue ? (
+              <div className="flex justify-between">
+                <span className="text-[11px] text-muted-foreground">Deal value</span>
+                <span className="text-[11px] font-semibold text-foreground">
+                  ${contact.dealValue.toLocaleString()}
+                </span>
+              </div>
+            ) : null}
+            {contact.closeProbability != null && (
+              <div className="flex justify-between">
+                <span className="text-[11px] text-muted-foreground">Close probability</span>
+                <span className="text-[11px] font-semibold text-foreground">
+                  {contact.closeProbability}%
+                </span>
+              </div>
+            )}
+            {daysInStage !== null && (
+              <div className="flex justify-between">
+                <span className="text-[11px] text-muted-foreground">Days in stage</span>
+                <span
+                  className={cn(
+                    "text-[11px] font-semibold",
+                    daysInStage > 7 ? "text-amber-400" : "text-foreground"
+                  )}
+                >
+                  {daysInStage}d
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
+      {/* Last meeting note */}
+      {contact?.type === "relationship" && contact.lastEvent && (
+        <div className="px-4 py-3 border-b border-border/40">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
+            Last meeting note
+          </p>
+          <div className="bg-muted/50 rounded-lg p-2.5 border border-border/40">
+            <div className="text-[10px] text-muted-foreground mb-1">
+              {format(new Date(contact.lastEvent.start_time), "MMM d")} ·{" "}
+              {contact.lastEvent.title}
+            </div>
+            <div className="text-[11px] text-foreground leading-relaxed">
+              {contact.lastEvent.outcome ||
+                contact.lastEvent.purpose ||
+                "No notes recorded"}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Actions */}
+      {contact && (
+        <div className="px-4 py-3 space-y-2">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
+            Actions
+          </p>
+          <button
+            onClick={onCreateTask}
+            disabled={taskCreating}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-border/50 bg-background text-foreground text-xs font-medium hover:bg-muted/50 hover:border-border transition-colors"
+          >
+            {taskCreating ? (
+              <Loader2 size={11} className="animate-spin" />
+            ) : (
+              <Plus size={11} />
+            )}
+            Create follow-up task
+          </button>
+
+          {contact.type === "relationship" && (
+            <>
+              <button
+                onClick={onMoveStage}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-border/50 bg-background text-foreground text-xs font-medium hover:bg-muted/50 hover:border-border transition-colors"
+              >
+                <span className="text-[11px]">◯</span> Move to next stage
+              </button>
+              <button
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-border/50 bg-background text-foreground text-xs font-medium hover:bg-muted/50 hover:border-border transition-colors"
+              >
+                <span className="text-[11px]">⊟</span> Schedule a meeting
+              </button>
+              <button
+                onClick={onLogOutcome}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-border/50 bg-background text-foreground text-xs font-medium hover:bg-muted/50 hover:border-border transition-colors"
+              >
+                <span className="text-[11px]">≡</span> Log meeting outcome
+              </button>
+            </>
+          )}
+
+          {contact.linkedinUrl && (
+            <a
+              href={contact.linkedinUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-border/50 bg-background text-foreground text-xs font-medium hover:bg-muted/50 hover:border-border transition-colors"
+            >
+              <span className="text-[11px]">in</span> View LinkedIn
+              <ArrowUpRight size={10} className="ml-auto text-muted-foreground" />
+            </a>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
+export function GmailThreadView({
+  threadId,
+  senderEmail,
+  senderName,
+  subject,
+  onClose,
+  currentUser,
+}: GmailThreadViewProps) {
+  const supabase = createClient()
+  const [messages, setMessages] = useState<GmailMessage[]>([])
+  const [contact, setContact] = useState<ContactContext | null>(null)
+  const [loadingMessages, setLoadingMessages] = useState(true)
+  const [loadingContact, setLoadingContact] = useState(true)
+  const [replyText, setReplyText] = useState("")
+  const [sending, setSending] = useState(false)
+  const [taskCreating, setTaskCreating] = useState(false)
+  const bottomRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    loadThread()
+    loadContact()
+  }, [threadId])
+
+  useEffect(() => {
+    if (!loadingMessages) {
+      bottomRef.current?.scrollIntoView({ behavior: "instant" })
+    }
+  }, [loadingMessages])
+
+  const loadThread = async () => {
+    setLoadingMessages(true)
+    try {
+      const res = await fetch(`/api/gmail/thread/${threadId}`)
+      const data = await res.json()
+      setMessages(data.messages || [])
+    } catch {
+      toast.error("Failed to load email thread")
+    } finally {
+      setLoadingMessages(false)
+    }
+  }
+
+  const loadContact = async () => {
+    setLoadingContact(true)
+    try {
+      const params = new URLSearchParams({ email: senderEmail, name: senderName })
+      const res = await fetch(`/api/gmail/contact?${params}`)
+      const data = await res.json()
+      setContact(data.contact)
+    } finally {
+      setLoadingContact(false)
+    }
+  }
+
+  const handleReply = async () => {
+    if (!replyText.trim()) return
+    setSending(true)
+    try {
+      const lastMsg = messages[messages.length - 1]
+      const res = await fetch("/api/gmail/reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          threadId,
+          to: senderEmail,
+          subject,
+          body: replyText,
+          messageId: lastMsg?.id,
+        }),
+      })
+      if (!res.ok) throw new Error()
+      toast.success("Reply sent via Gmail")
+      setReplyText("")
+      setTimeout(loadThread, 2000)
+    } catch {
+      toast.error("Failed to send reply")
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const handleCreateTask = async () => {
+    setTaskCreating(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error()
+      const { error } = await supabase.from("tasks").insert({
+        user_id: user.id,
+        created_by: user.id,
+        title: `Follow up: ${subject}`,
+        notes: `Email from ${senderName} (${senderEmail})\n\nThread: ${subject}`,
+        bucket: "today",
+        priority: "medium",
+        status: "todo",
+        is_completed: false,
+      })
+      if (error) throw error
+      toast.success("Task created from email")
+    } catch {
+      toast.error("Failed to create task")
+    } finally {
+      setTaskCreating(false)
+    }
+  }
+
+  const handleMoveStage = async () => {
+    if (!contact?.id || contact.type !== "relationship") return
+    const stages = [
+      "new_lead", "contacted", "meeting_booked",
+      "proposal", "negotiating", "closed_won",
+    ]
+    const currentIdx = stages.indexOf(contact.pipelineStage || "new_lead")
+    const nextStage = stages[Math.min(currentIdx + 1, stages.length - 1)]
+    await supabase
+      .from("relationships")
+      .update({ pipeline_stage: nextStage, stage_entered_at: new Date().toISOString() })
+      .eq("id", contact.id)
+    toast.success(`Moved to ${STAGE_LABELS[nextStage]}`)
+    setContact((prev) => prev ? { ...prev, pipelineStage: nextStage } : prev)
+  }
+
+  const handleLogOutcome = async () => {
+    if (!contact?.id || contact.type !== "relationship") return
+    const outcome = window.prompt("Meeting outcome:")
+    if (!outcome) return
+    const { data: event } = await supabase
+      .from("events")
+      .select("id")
+      .eq("relationship_id", contact.id)
+      .order("start_time", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (event) {
+      await supabase.from("events").update({ outcome }).eq("id", event.id)
+      toast.success("Outcome logged")
+    } else {
+      toast.error("No meeting found to log outcome for")
+    }
+  }
+
+  return (
+    <div className="flex flex-1 min-w-0 min-h-0 overflow-hidden">
+      {/* Thread column */}
+      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+        {/* Header */}
+        <div className="px-5 py-3 border-b border-border/40 flex items-start gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-foreground truncate">
+                {subject}
+              </span>
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-400 border border-red-500/20 font-semibold shrink-0">
+                Gmail
+              </span>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              {senderName} · {senderEmail}
+              {contact && (
+                <span>
+                  {" "}· matched →{" "}
+                  <span className="text-foreground">{contact.name}</span>
+                </span>
+              )}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={handleCreateTask}
+              disabled={taskCreating}
+              className="h-7 px-3 text-xs rounded-md border border-border/60 bg-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors flex items-center gap-1.5"
+            >
+              {taskCreating ? (
+                <Loader2 size={11} className="animate-spin" />
+              ) : (
+                <Plus size={11} />
+              )}
+              Create task
+            </button>
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto py-4 px-5 space-y-5">
+          {loadingMessages ? (
+            <div className="flex items-center justify-center h-32">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            messages.map((msg) => {
+              const isMe =
+                currentUser?.email &&
+                msg.senderEmail.toLowerCase() === currentUser.email.toLowerCase()
+              const cleanBody = stripQuoted(msg.body)
+              const timestamp = msg.internalDate
+                ? format(new Date(parseInt(msg.internalDate)), "MMM d, h:mm a")
+                : msg.date
+
+              return (
+                <div
+                  key={msg.id}
+                  className={cn("flex gap-3", isMe && "flex-row-reverse")}
+                >
+                  <div
+                    className={cn(
+                      "w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-semibold flex-shrink-0",
+                      isMe
+                        ? "bg-blue-500/20 text-blue-400"
+                        : "bg-emerald-500/20 text-emerald-400"
+                    )}
+                  >
+                    {avatarInitials(isMe ? (currentUser?.full_name || "Me") : msg.senderName)}
+                  </div>
+                  <div
+                    className={cn(
+                      "flex flex-col max-w-[72%]",
+                      isMe && "items-end"
+                    )}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-[11px] font-medium text-foreground">
+                        {isMe ? "You" : msg.senderName}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {timestamp}
+                      </span>
+                    </div>
+                    <div
+                      className={cn(
+                        "text-sm leading-relaxed px-3.5 py-2.5 rounded-2xl whitespace-pre-wrap break-words",
+                        isMe
+                          ? "text-white rounded-br-sm"
+                          : "bg-muted text-foreground rounded-bl-sm"
+                      )}
+                      style={
+                        isMe
+                          ? {
+                              background:
+                                "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)",
+                            }
+                          : undefined
+                      }
+                    >
+                      {cleanBody || msg.body}
+                    </div>
+                  </div>
+                </div>
+              )
+            })
+          )}
+          <div ref={bottomRef} />
+        </div>
+
+        {/* Reply bar */}
+        <div className="px-5 pb-4 pt-2 border-t border-border/40">
+          <div className="flex items-end gap-2">
+            <textarea
+              value={replyText}
+              onChange={(e) => setReplyText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleReply()
+              }}
+              placeholder="Reply via Gmail… (⌘↵ to send)"
+              rows={2}
+              className="flex-1 bg-muted/40 border border-border/60 rounded-xl px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 resize-none outline-none focus:border-border transition-colors"
+            />
+            <button
+              onClick={handleReply}
+              disabled={sending || !replyText.trim()}
+              className="h-9 px-4 text-xs font-medium rounded-xl bg-foreground text-background disabled:opacity-40 hover:opacity-85 transition-opacity flex items-center gap-1.5 shrink-0"
+            >
+              {sending && <Loader2 size={11} className="animate-spin" />}
+              Send
+            </button>
+          </div>
+          <p className="text-[10px] text-muted-foreground mt-1.5">
+            Replies are sent from your connected Gmail account
+          </p>
+        </div>
+      </div>
+
+      {/* Contact context panel */}
+      <ContactPanel
+        contact={contact}
+        loading={loadingContact}
+        onCreateTask={handleCreateTask}
+        taskCreating={taskCreating}
+        onMoveStage={handleMoveStage}
+        onLogOutcome={handleLogOutcome}
+      />
+    </div>
+  )
+}
