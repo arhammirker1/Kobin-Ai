@@ -25,7 +25,11 @@ export async function GET() {
       { headers: { Authorization: `Bearer ${accessToken}` } }
     )
 
-    if (!listRes.ok) return NextResponse.json({ threads: [], connected: true })
+    if (!listRes.ok) {
+  const errText = await listRes.text()
+  console.error("[Gmail] threads fetch failed:", listRes.status, errText)
+  return NextResponse.json({ threads: [], connected: true })
+}
 
     const listData = await listRes.json()
     const threads = listData.threads || []
