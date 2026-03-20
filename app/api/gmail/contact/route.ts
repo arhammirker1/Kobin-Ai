@@ -8,93 +8,76 @@ export async function GET(request: Request) {
     if (!user) return NextResponse.json({ contact: null })
 
     const { searchParams } = new URL(request.url)
-    const email = searchParams.get("email") || ""
-    const name = searchParams.get("name") || ""
+    const email = searchParams.get("email")?.toLowerCase().trim() || ""
 
-    // 1. Try clients table by email (exact match)
-    if (email) {
-      const { data: client } = await supabase
-        .from("clients")
-        .select("id, name, email, phone, company, role, project_id, has_portal_access, can_create_tasks")
-        .eq("email", email)
-        .maybeSingle()
+    if (!email) return NextResponse.json({ contact: null })
 
-      if (client) {
-        let projectName: string | null = null
-        if (client.project_id) {
-          const { data: proj } = await supabase
-            .from("projects")
-            .select("name")
-            .eq("id", client.project_id)
-            .single()
-          projectName = proj?.name || null
-        }
-        return NextResponse.json({
-          contact: {
-            type: "client",
-            id: client.id,
-            name: client.name,
-            email: client.email,
-            company: client.company,
-            role: client.role,
-            projectName,
-            hasPortalAccess: client.has_portal_access,
-            canCreateTasks: client.can_create_tasks,
-          },
-        })
+    // 1. Exact email match against clients
+    const { data: client } = await supabase
+      .from("clients")
+      .select("id, name, email, company, role, project_id")
+      .ilike("email", email)
+      .maybeSingle()
+
+    if (client) {
+      let projectName: string | null = null
+      if (client.project_id) {
+        const { data: proj } = await supabase
+          .from("projects")
+          .select("name")
+          .eq("id", client.project_id)
+          .single()
+        projectName = proj?.name || null
       }
+      return NextResponse.json({
+        contact: {
+          type: "client",
+          id: client.id,
+          name: client.name,
+          email: client.email,
+          company: client.company,
+          role: client.role,
+          projectName,
+        },
+      })
     }
 
-    // 2. Try relationships — fuzzy match by name or email domain
-    const { data: rels } = await supabase
+    // 2. Exact email match against relationships
+    const { data: rel } = await supabase
       .from("relationships")
       .select("*")
       .eq("user_id", user.id)
-      .eq("status", "active")
+      .ilike("email", email)
+      .maybeSingle()
 
-    if (rels?.length) {
-      const firstName = name.split(" ")[0].toLowerCase()
-      const emailDomain = email.split("@")[1]?.split(".")[0] || ""
+    if (!rel) return NextResponse.json({ contact: null })
 
-      const matched = rels.find((r) => {
-        const rName = r.full_name?.toLowerCase() || ""
-        const rCompany = r.company?.toLowerCase() || ""
-        return (
-          (firstName.length > 1 && rName.includes(firstName)) ||
-          (emailDomain.length > 2 && rCompany.includes(emailDomain))
-        )
-      })
+    // Fetch last past event for this relationship
+    const { data: lastEvent } = await supabase
+      .from("events")
+      .select("id, title, start_time, outcome, purpose")
+      .eq("relationship_id", rel.id)
+      .lt("start_time", new Date().toISOString())
+      .order("start_time", { ascending: false })
+      .limit(1)
+      .maybeSingle()
 
-      if (matched) {
-        // Fetch last past event for this relationship
-        const { data: lastEvent } = await supabase
-          .from("events")
-          .select("id, title, start_time, outcome, purpose")
-          .eq("relationship_id", matched.id)
-          .lt("start_time", new Date().toISOString())
-          .order("start_time", { ascending: false })
-          .limit(1)
-          .maybeSingle()
-
-        return NextResponse.json({
-          contact: {
-            type: "relationship",
-            id: matched.id,
-            name: matched.full_name,
-            company: matched.company,
-            role: matched.role,
-            pipelineStage: matched.pipeline_stage,
-            dealValue: matched.deal_value,
-            closeProbability: matched.close_probability,
-            stageEnteredAt: matched.stage_entered_at,
-            lastEvent: lastEvent || null,
-            linkedinUrl: matched.linkedin_profile_url,
-          },
-        })
-      }
-    }
-
-    return NextResponse.json({ contact: null })
+    return NextResponse.json({
+      contact: {
+        type: "relationship",
+        id: rel.id,
+        name: rel.full_name,
+        email: rel.email,
+        company: rel.company,
+        role: rel.role,
+        pipelineStage: rel.pipeline_stage,
+        dealValue: rel.deal_value,
+        closeProbability: rel.close_probability,
+        stageEnteredAt: rel.stage_entered_at,
+        lastEvent: lastEvent || null,
+        linkedinUrl: rel.linkedin_profile_url,
+      },
+    })
   } catch {
     return NextResponse.json({ contact: null })
   }
