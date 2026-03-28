@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server"
 import { supabaseAdmin } from "@/lib/supabase/admin"
-import { groq, GROQ_MODEL } from "@/lib/ai/groq"
+import { getGroqClient, GROQ_MODEL } from "@/lib/ai/groq"
 import { buildContext } from "@/lib/ai/context"
 import { NextResponse } from "next/server"
 
@@ -48,6 +48,7 @@ ${context}
 - Today's date is already in the context. Use it for anything time-relative.`
 
     // Stream from Groq
+    const groq = getGroqClient()
     const stream = await groq.chat.completions.create({
       model: GROQ_MODEL,
       messages: [

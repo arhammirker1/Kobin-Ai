@@ -9,7 +9,7 @@ import React, {
   KeyboardEvent,
 } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { GROQ_MODEL } from "@/lib/ai/groq"
+//removed
 import { format, isToday, isYesterday, formatDistanceToNow } from "date-fns"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
@@ -645,7 +645,7 @@ function AIMessageBubble({ content, isStreaming }: { content: string; isStreamin
           <span className="text-[9px] text-muted-foreground/60">
             {new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
           </span>
-          <span className="text-[9px]" style={{ color: "#7C3AED" }}>✦ {GROQ_MODEL}</span>
+          <span className="text-[9px]" style={{ color: "#7C3AED" }}>✦ llama-3.3-70b</span>
 
           {/* Copy button — visible on hover, hidden during stream */}
           {!isStreaming && content && (
