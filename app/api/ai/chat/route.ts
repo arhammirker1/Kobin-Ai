@@ -60,11 +60,15 @@ ${context}
     })
 
     // Save message to DB first (we'll update it as stream completes)
+    // Use a fixed AI sentinel UUID so realtime handler never confuses it
+    // with the founder's own messages and skips the dedup logic
+    const AI_SENDER_ID = "00000000-0000-0000-0000-000000000000"
+
     const { data: savedMessage } = await supabaseAdmin
       .from("chat_messages")
       .insert({
         room_id,
-        sender_id: user.id,
+        sender_id: AI_SENDER_ID,
         content: "...",
         is_ai: true,
         ai_model: GROQ_MODEL,

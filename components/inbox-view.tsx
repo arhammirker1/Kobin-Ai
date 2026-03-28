@@ -1562,6 +1562,10 @@ const { data: allUnread } = await supabase
         }
         return {
           ...msg,
+          // For AI messages, inject a stable sender so AIMessageBubble renders correctly
+          sender: msg.message_type === "ai_response"
+            ? { id: "ai", full_name: "AI" }
+            : msg.sender,
           reactions: Object.entries(grouped).map(([emoji, d]) => ({
             emoji,
             count: d.count,
@@ -1700,6 +1704,11 @@ const { data: allUnread } = await supabase
         },
         async (payload) => {
   const newMsg = payload.new as ChatMessage
+  const AI_SENDER_ID = "00000000-0000-0000-0000-000000000000"
+
+  // AI response — skip realtime add entirely, handleSend manages this
+  // via the streaming flow and adds it to state directly on "done"
+  if (newMsg.message_type === "ai_response") return
 
   // Skip if this is our own message — optimistic update already added it
   if (newMsg.sender_id === currentUser.id) {
@@ -1719,7 +1728,7 @@ const { data: allUnread } = await supabase
   const enriched: ChatMessage = {
     ...newMsg,
     sender: peopleRef.current.find((p) => p.id === newMsg.sender_id) || { id: newMsg.sender_id, full_name: "Unknown" },
-    reply_to: null, // reply_to enrichment on demand is fine
+    reply_to: null,
   }
 
   setMessages((prev) => [...prev, enriched])
