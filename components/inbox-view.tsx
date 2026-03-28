@@ -1553,7 +1553,13 @@ const { data: allUnread } = await supabase
         .order("created_at", { ascending: false })
         .limit(PAGE_SIZE)
 
-      const msgs: ChatMessage[] = ((data as any[]) || []).reverse().map((msg) => {
+      const msgs: ChatMessage[] = ((data as any[]) || []).reverse()
+        .filter((msg) => {
+          // Filter out placeholder AI messages that never got updated
+          if (msg.message_type === "ai_response" && msg.content === "...") return false
+          return true
+        })
+        .map((msg) => {
         const grouped: Record<string, { count: number; user_ids: string[] }> = {}
         for (const r of msg.reactions || []) {
           if (!grouped[r.emoji]) grouped[r.emoji] = { count: 0, user_ids: [] }
@@ -1705,9 +1711,24 @@ const { data: allUnread } = await supabase
         async (payload) => {
   const newMsg = payload.new as ChatMessage
 
-  // AI response — skip realtime add entirely, handleSend manages this
-  // via the streaming flow and adds it to state directly on "done"
-  if (newMsg.message_type === "ai_response") return
+  // AI response — only add if it's the final saved version (content !== "...")
+  // The streaming bubble already shows content live; this handles persistence
+  if (newMsg.message_type === "ai_response") {
+    if (newMsg.content === "...") return // still streaming, skip placeholder
+    setMessages((prev) => {
+      // Replace any existing AI message with same id, or streaming placeholder
+      const withoutDupe = prev.filter(
+        (m) => m.id !== newMsg.id && m.message_type !== "ai_response"
+      )
+      return [...withoutDupe, {
+        ...newMsg,
+        sender: { id: "ai", full_name: "AI" },
+        reply_to: null,
+        reactions: [],
+      }]
+    })
+    return
+  }
 
   // Skip if this is our own message — optimistic update already added it
   if (newMsg.sender_id === currentUser.id) {
