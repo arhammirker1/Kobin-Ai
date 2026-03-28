@@ -9,6 +9,7 @@ import React, {
   KeyboardEvent,
 } from "react"
 import { createClient } from "@/lib/supabase/client"
+import { GROQ_MODEL } from "@/lib/ai/groq"
 import { format, isToday, isYesterday, formatDistanceToNow } from "date-fns"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
@@ -582,8 +583,22 @@ const MENTION_PALETTES = [
 ]
 
 function AIMessageBubble({ content, isStreaming }: { content: string; isStreaming?: boolean }) {
+  const [copied, setCopied] = useState(false)
+  const [hovered, setHovered] = useState(false)
+
+  const handleCopy = () => {
+    if (!content) return
+    navigator.clipboard.writeText(content)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
   return (
-    <div className="flex items-end gap-2 px-4 py-0.5">
+    <div
+      className="flex items-end gap-2 px-4 py-0.5 group"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
       {/* AI Avatar */}
       <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mb-4"
         style={{ background: "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)" }}>
@@ -625,12 +640,45 @@ function AIMessageBubble({ content, isStreaming }: { content: string; isStreamin
           )}
         </div>
 
-        {/* Timestamp placeholder */}
-        <div className="flex items-center gap-1 mt-0.5 px-1">
+        {/* Footer row — timestamp + copy button */}
+        <div className="flex items-center gap-2 mt-0.5 px-1">
           <span className="text-[9px] text-muted-foreground/60">
             {new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
           </span>
-          <span className="text-[9px]" style={{ color: "#7C3AED" }}>✦ AI</span>
+          <span className="text-[9px]" style={{ color: "#7C3AED" }}>✦ {GROQ_MODEL}</span>
+
+          {/* Copy button — visible on hover, hidden during stream */}
+          {!isStreaming && content && (
+            <button
+              onClick={handleCopy}
+              className={cn(
+                "flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-md transition-all",
+                hovered ? "opacity-100" : "opacity-0",
+                copied
+                  ? "text-emerald-400 bg-emerald-500/10"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+              )}
+            >
+              {copied ? (
+                <>
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none">
+                    <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="2.5"
+                      strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  Copied
+                </>
+              ) : (
+                <>
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none">
+                    <rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="2" />
+                    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"
+                      stroke="currentColor" strokeWidth="2" />
+                  </svg>
+                  Copy
+                </>
+              )}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -1094,6 +1142,51 @@ function MessageInput({
               {tasks.length === 0 ? "No active tasks found for this room" : "No tasks match"}
             </p>
           )}
+        </div>
+      )}
+
+      {/* @AI hint — shown when user types @ai */}
+      {text.toLowerCase().includes("@ai") && !showMentionPicker && !showTaskPicker && (
+        <div className="mb-2 bg-popover border rounded-xl overflow-hidden shadow-lg"
+          style={{ borderColor: "rgba(124, 58, 237, 0.3)" }}>
+          <div className="px-3 py-2 flex items-center gap-2.5"
+            style={{ background: "rgba(91, 91, 214, 0.06)" }}>
+            <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
+              style={{ background: "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)" }}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
+                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+                  stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold" style={{ color: "#7C3AED" }}>
+                AI · Command Center
+              </p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                Type your question after <span className="font-mono">@ai</span> and press Enter
+              </p>
+            </div>
+          </div>
+          <div className="px-3 py-2 border-t space-y-1" style={{ borderColor: "rgba(124, 58, 237, 0.15)" }}>
+            {[
+              "what tasks are overdue?",
+              "where does this project stand?",
+              "draft a client update for this week",
+              "prepare me for tomorrow's call",
+            ].map((suggestion) => (
+              <button
+                key={suggestion}
+                type="button"
+                onClick={() => {
+                  setText(`@ai ${suggestion}`)
+                  textRef.current?.focus()
+                }}
+                className="w-full text-left text-[11px] text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-muted/50 transition-colors"
+              >
+                <span style={{ color: "#7C3AED" }}>@ai</span> {suggestion}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

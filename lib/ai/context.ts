@@ -26,14 +26,18 @@ export async function buildContext(options: ContextOptions): Promise<string> {
       .eq("id", founder_id)
       .single(),
 
-    // Active tasks (scoped to project if available)
-    supabaseAdmin
-      .from("tasks")
-      .select("title, status, priority, due_date, assigned_to, is_completed, bucket")
-      .eq("user_id", founder_id)
-      .eq("is_completed", false)
-      .order("created_at", { ascending: false })
-      .limit(30),
+    // Active tasks — scoped to project if room has one, otherwise all
+    (() => {
+      const q = supabaseAdmin
+        .from("tasks")
+        .select("title, status, priority, due_date, assigned_to, is_completed, bucket, project_id")
+        .eq("user_id", founder_id)
+        .eq("is_completed", false)
+        .order("created_at", { ascending: false })
+      return project_id
+        ? q.eq("project_id", project_id).limit(20)
+        : q.limit(30)
+    })(),
 
     // Upcoming calendar events (next 7 days)
     supabaseAdmin
@@ -45,13 +49,17 @@ export async function buildContext(options: ContextOptions): Promise<string> {
       .order("start_time", { ascending: true })
       .limit(10),
 
-    // Vault items (scoped to project if available)
-    supabaseAdmin
-      .from("vault_items")
-      .select("title, description, document_type, item_type, created_at, added_by_type")
-      .eq("founder_id", founder_id)
-      .order("created_at", { ascending: false })
-      .limit(20),
+    // Vault items — scoped to project if available
+    (() => {
+      const q = supabaseAdmin
+        .from("vault_items")
+        .select("title, description, document_type, item_type, created_at, added_by_type")
+        .eq("founder_id", founder_id)
+        .order("created_at", { ascending: false })
+      return project_id
+        ? q.eq("project_id", project_id).limit(15)
+        : q.limit(20)
+    })(),
 
     // CRM contacts
     supabaseAdmin
@@ -93,7 +101,33 @@ export async function buildContext(options: ContextOptions): Promise<string> {
 
   // If room has a project, fetch project details
   let project = null
-  const resolvedProjectId = project_id || room?.project_id
+  const resolvedProjectId = project_id || room?.project_id || null
+
+  // Re-scope tasks and vault to resolved project if we got it from the room
+  // (project_id passed in options may be null even if room has one)
+  if (resolvedProjectId && !project_id) {
+    // Re-fetch tasks scoped to the resolved project
+    const [scopedTasks, scopedVault] = await Promise.all([
+      supabaseAdmin
+        .from("tasks")
+        .select("title, status, priority, due_date, assigned_to, is_completed, bucket, project_id")
+        .eq("user_id", founder_id)
+        .eq("is_completed", false)
+        .eq("project_id", resolvedProjectId)
+        .order("created_at", { ascending: false })
+        .limit(20),
+      supabaseAdmin
+        .from("vault_items")
+        .select("title, description, document_type, item_type, created_at, added_by_type")
+        .eq("founder_id", founder_id)
+        .eq("project_id", resolvedProjectId)
+        .order("created_at", { ascending: false })
+        .limit(15),
+    ])
+    if (scopedTasks.data?.length) tasks.splice(0, tasks.length, ...scopedTasks.data)
+    if (scopedVault.data?.length) vault.splice(0, vault.length, ...scopedVault.data)
+  }
+
   if (resolvedProjectId) {
     const { data } = await supabaseAdmin
       .from("projects")
