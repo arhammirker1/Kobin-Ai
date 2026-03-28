@@ -1080,9 +1080,9 @@ function MessageInput({
       setShowTaskPicker(false)
     }
 
-    // Detect @ trigger
+    // Detect @ trigger — but NOT if it's @ai (that's the AI command)
     const mentionMatch = beforeCaret.match(/@([A-Za-z]*)$/)
-    if (mentionMatch) {
+    if (mentionMatch && !beforeCaret.toLowerCase().startsWith("@ai")) {
       setMentionQuery(mentionMatch[1] || "")
       setShowMentionPicker(true)
       setMentionIndex(0)
@@ -1811,19 +1811,10 @@ const { data: allUnread } = await supabase
   // AI response — only add if it's the final saved version (content !== "...")
   // The streaming bubble already shows content live; this handles persistence
   if (newMsg.message_type === "ai_response") {
-    if (newMsg.content === "...") return // still streaming, skip placeholder
-    setMessages((prev) => {
-      // Replace any existing AI message with same id, or streaming placeholder
-      const withoutDupe = prev.filter(
-        (m) => m.id !== newMsg.id && m.message_type !== "ai_response"
-      )
-      return [...withoutDupe, {
-        ...newMsg,
-        sender: { id: "ai", full_name: "AI" },
-        reply_to: null,
-        reactions: [],
-      }]
-    })
+    // Skip the placeholder "..." that gets inserted before streaming starts
+    if (newMsg.content === "...") return
+    // The streaming flow in handleSend already adds the final message to state
+    // on "done" — so we just skip this realtime event entirely to avoid duplicates
     return
   }
 
