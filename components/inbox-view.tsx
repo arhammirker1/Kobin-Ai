@@ -1542,10 +1542,10 @@ const { data: allUnread } = await supabase
         .from("chat_messages")
         .select(`
           *,
-          sender:profiles(id, full_name),
+          sender:profiles!left(id, full_name),
           reply_to:chat_messages!reply_to_id(
             id, content, file_name,
-            sender:profiles(id, full_name)
+            sender:profiles!left(id, full_name)
           ),
           reactions:message_reactions(emoji, user_id)
         `)
@@ -1597,10 +1597,10 @@ const { data: allUnread } = await supabase
       .from("chat_messages")
       .select(`
         *,
-        sender:profiles(id, full_name),
+        sender:profiles!left(id, full_name),
         reply_to:chat_messages!reply_to_id(
           id, content, file_name,
-          sender:profiles(id, full_name)
+          sender:profiles!left(id, full_name)
         ),
         reactions:message_reactions(emoji, user_id)
       `)
@@ -1704,7 +1704,6 @@ const { data: allUnread } = await supabase
         },
         async (payload) => {
   const newMsg = payload.new as ChatMessage
-  const AI_SENDER_ID = "00000000-0000-0000-0000-000000000000"
 
   // AI response — skip realtime add entirely, handleSend manages this
   // via the streaming flow and adds it to state directly on "done"
