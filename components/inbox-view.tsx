@@ -580,6 +580,62 @@ const MENTION_PALETTES = [
   { bg: "bg-rose-500/20",   text: "text-rose-400"   },
   { bg: "bg-cyan-500/20",   text: "text-cyan-400"   },
 ]
+
+function AIMessageBubble({ content, isStreaming }: { content: string; isStreaming?: boolean }) {
+  return (
+    <div className="flex items-end gap-2 px-4 py-0.5">
+      {/* AI Avatar */}
+      <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mb-4"
+        style={{ background: "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)" }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+            stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </div>
+
+      <div className="flex flex-col max-w-[65%] items-start">
+        {/* AI label */}
+        <span className="text-[10px] font-semibold mb-0.5 px-1"
+          style={{ color: "#7C3AED" }}>
+          AI · Command Center
+        </span>
+
+        {/* Bubble */}
+        <div className="relative px-3.5 py-2.5 text-sm leading-relaxed rounded-[20px] rounded-bl-[4px] border"
+          style={{
+            background: "rgba(91, 91, 214, 0.06)",
+            borderColor: "rgba(124, 58, 237, 0.2)",
+            color: "var(--foreground)",
+          }}>
+          {content ? (
+            <p className="whitespace-pre-wrap break-words">{content}</p>
+          ) : (
+            <div className="flex items-center gap-1.5 py-0.5">
+              <span className="w-1.5 h-1.5 rounded-full animate-bounce"
+                style={{ background: "#7C3AED", animationDelay: "0ms" }} />
+              <span className="w-1.5 h-1.5 rounded-full animate-bounce"
+                style={{ background: "#7C3AED", animationDelay: "150ms" }} />
+              <span className="w-1.5 h-1.5 rounded-full animate-bounce"
+                style={{ background: "#7C3AED", animationDelay: "300ms" }} />
+            </div>
+          )}
+          {isStreaming && content && (
+            <span className="inline-block w-0.5 h-4 ml-0.5 align-middle animate-pulse"
+              style={{ background: "#7C3AED" }} />
+          )}
+        </div>
+
+        {/* Timestamp placeholder */}
+        <div className="flex items-center gap-1 mt-0.5 px-1">
+          <span className="text-[9px] text-muted-foreground/60">
+            {new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+          </span>
+          <span className="text-[9px]" style={{ color: "#7C3AED" }}>✦ AI</span>
+        </div>
+      </div>
+    </div>
+  )
+}
 function mentionPalette(name: string) {
   let h = 0
   for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h)
@@ -1223,6 +1279,10 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
   const [gmailConnected, setGmailConnected] = useState(false)
   const [loadingGmail, setLoadingGmail] = useState(false)
 
+  // AI streaming state
+  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null)
+  const [streamingContent, setStreamingContent] = useState<string>("")
+
   useEffect(() => {
     messagesRef.current = messages
   }, [messages])
@@ -1718,6 +1778,111 @@ const { data: allUnread } = await supabase
   // ── Send message ───────────────────────────────────────────────────────────
   const handleSend = useCallback(async (content: string, file?: File, taskRef?: TaskPreview) => {
     if (!activeRoomId || !currentUser) return
+
+    // ── @AI intercept ──────────────────────────────────────────────────────
+    const isAIMessage = content.trim().toLowerCase().startsWith("@ai")
+    if (isAIMessage && !file && !taskRef) {
+      const userMessage = content.trim().slice(3).trim() // strip @ai prefix
+      if (!userMessage) return
+
+      // 1. Save the user's message normally first
+      const tempUserId = `temp-user-${Date.now()}`
+      const optimisticUser: ChatMessage = {
+        id: tempUserId,
+        room_id: activeRoomId,
+        sender_id: currentUser.id,
+        content,
+        file_url: null, file_name: null, file_type: null, file_size: null,
+        reply_to_id: null, edited_at: null,
+        created_at: new Date().toISOString(),
+        message_type: null,
+        sender: { id: currentUser.id, full_name: currentUser.full_name },
+        reply_to: null,
+      }
+      setMessages((prev) => [...prev, optimisticUser])
+
+      await supabase.from("chat_messages").insert({
+        room_id: activeRoomId,
+        sender_id: currentUser.id,
+        content,
+      })
+
+      // 2. Add a streaming placeholder AI bubble
+      const streamId = `streaming-${Date.now()}`
+      setStreamingMessageId(streamId)
+      setStreamingContent("")
+
+      try {
+        // 3. Resolve project_id from active room
+        const projectId = activeRoom?.project_id || null
+
+        const res = await fetch("/api/ai/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: userMessage,
+            room_id: activeRoomId,
+            project_id: projectId,
+          }),
+        })
+
+        if (!res.ok || !res.body) {
+          throw new Error("AI request failed")
+        }
+
+        // 4. Read SSE stream
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let dbMessageId: string | null = null
+        let accumulated = ""
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          const text = decoder.decode(value)
+          const lines = text.split("\n\n").filter(Boolean)
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue
+            try {
+              const parsed = JSON.parse(line.slice(6))
+
+              if (parsed.type === "id") {
+                dbMessageId = parsed.message_id
+              } else if (parsed.type === "delta") {
+                accumulated += parsed.content
+                setStreamingContent(accumulated)
+              } else if (parsed.type === "done") {
+                // Stream finished — replace streaming bubble with real message
+                setStreamingMessageId(null)
+                setStreamingContent("")
+
+                const aiMessage: ChatMessage = {
+                  id: dbMessageId || `ai-${Date.now()}`,
+                  room_id: activeRoomId,
+                  sender_id: currentUser.id,
+                  content: parsed.content,
+                  file_url: null, file_name: null, file_type: null, file_size: null,
+                  reply_to_id: null, edited_at: null,
+                  created_at: new Date().toISOString(),
+                  message_type: "ai_response",
+                  sender: { id: "ai", full_name: "AI" },
+                  reply_to: null,
+                }
+                setMessages((prev) => [...prev, aiMessage])
+              }
+            } catch {}
+          }
+        }
+      } catch (err) {
+        setStreamingMessageId(null)
+        setStreamingContent("")
+        toast.error("AI failed to respond. Check your Groq API key.")
+      }
+
+      return
+    }
 
     // Task reference message
     if (taskRef) {
@@ -2305,6 +2470,9 @@ if (error) {
                             <div className="flex-1 h-px bg-border/40" />
                           </div>
                         )}
+                        {msg.message_type === "ai_response" ? (
+                          <AIMessageBubble content={msg.content || ""} />
+                        ) : (
                         <MessageBubble
                           msg={msg}
                           isOwn={msg.sender_id === currentUser?.id}
@@ -2318,9 +2486,18 @@ if (error) {
                           currentUserId={currentUser?.id || ""}
                           onImageClick={(src, name) => setLightbox({ src, name })}
                         />
+                        )}
                       </div>
                     )
                   })}
+                  {/* Streaming AI bubble */}
+                  {streamingMessageId && (
+                    <AIMessageBubble
+                      content={streamingContent}
+                      isStreaming={true}
+                    />
+                  )}
+
                   <div ref={messagesEndRef} />
                 </div>
               )}
