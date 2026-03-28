@@ -89,6 +89,8 @@ interface ChatMessage {
   message_type?: string | null
   invite_id?: string | null
   task_id?: string | null
+  is_ai?: boolean | null
+  ai_model?: string | null
   // Joined
   sender?: Profile
   reply_to?: ChatMessage | null
@@ -1146,7 +1148,7 @@ function MessageInput({
       )}
 
       {/* @AI hint — shown when user types @ai */}
-      {text.toLowerCase().includes("@ai") && !showMentionPicker && !showTaskPicker && (
+      {text.toLowerCase().startsWith("@ai") && !showMentionPicker && !showTaskPicker && (
         <div className="mb-2 bg-popover border rounded-xl overflow-hidden shadow-lg"
           style={{ borderColor: "rgba(124, 58, 237, 0.3)" }}>
           <div className="px-3 py-2 flex items-center gap-2.5"
@@ -1635,6 +1637,8 @@ const { data: allUnread } = await supabase
         .from("chat_messages")
         .select(`
           *,
+          is_ai,
+          ai_model,
           sender:profiles!left(id, full_name),
           reply_to:chat_messages!reply_to_id(
             id, content, file_name,
@@ -2592,7 +2596,7 @@ if (error) {
                             <div className="flex-1 h-px bg-border/40" />
                           </div>
                         )}
-                        {msg.message_type === "ai_response" ? (
+                        {msg.message_type === "ai_response" || (msg as any).is_ai === true ? (
                           <AIMessageBubble content={msg.content || ""} />
                         ) : (
                         <MessageBubble
