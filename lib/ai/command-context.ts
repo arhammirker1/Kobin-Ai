@@ -34,7 +34,7 @@ export async function buildCommandContext(founder_id: string): Promise<string> {
     // Active (incomplete) tasks — always fetched in full
     supabaseAdmin
       .from("tasks")
-      .select("id, title, status, priority, due_date, assigned_to, is_completed, bucket, project_id, notes, created_at, updated_at, deliverable_required, deliverable_vault_item_id")
+      .select("id, title, status, priority, due_date, assigned_to, is_completed, bucket, project_id, notes, created_at, deliverable_required, deliverable_vault_item_id")
       .eq("user_id", founder_id)
       .eq("is_completed", false)
       .order("created_at", { ascending: false })
@@ -43,10 +43,10 @@ export async function buildCommandContext(founder_id: string): Promise<string> {
     // Recently completed tasks — for stats
     supabaseAdmin
       .from("tasks")
-      .select("id, title, status, priority, due_date, assigned_to, is_completed, bucket, project_id, notes, created_at, updated_at, deliverable_required, deliverable_vault_item_id")
+      .select("id, title, status, priority, due_date, assigned_to, is_completed, bucket, project_id, notes, created_at, deliverable_required, deliverable_vault_item_id")
       .eq("user_id", founder_id)
       .eq("is_completed", true)
-      .order("updated_at", { ascending: false })
+      .order("created_at", { ascending: false })
       .limit(50),
 
     // ALL projects — every status
