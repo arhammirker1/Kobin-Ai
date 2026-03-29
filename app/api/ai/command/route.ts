@@ -1,15 +1,22 @@
 import { createClient } from "@/lib/supabase/server"
 import { supabaseAdmin } from "@/lib/supabase/admin"
 import { getGroqClient, GROQ_MODEL } from "@/lib/ai/groq"
-import { buildCommandContext } from "@/lib/ai/command-context"
-import { AI_TOOLS } from "@/lib/ai/tools"
+import { buildMiniContext } from "@/lib/ai/mini-context"
+import { ALL_TOOLS, READ_TOOL_NAMES } from "@/lib/ai/tools"
+import { executeReadTool } from "@/lib/ai/mcp-read-tools"
+import type { ReadToolName } from "@/lib/ai/mcp-read-tools"
 import { executeAction, executeDeleteTaskConfirmed } from "@/lib/ai/action-executor"
 import type { AIToolName } from "@/lib/ai/tools"
 import type { ActionContext } from "@/lib/ai/action-executor"
 import { NextResponse } from "next/server"
 
+// ── Token estimation helper ─────────────────────────────────────────────────
+
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4)
+}
+
 // ── Confirmed delete endpoint ───────────────────────────────────────────────
-// Separate handler for user-confirmed deletions (called from frontend button)
 
 export async function DELETE(request: Request) {
   try {
@@ -28,6 +35,69 @@ export async function DELETE(request: Request) {
   }
 }
 
+// ── SSE stream helpers ──────────────────────────────────────────────────────
+
+const SSE_HEADERS = {
+  "Content-Type": "text/event-stream",
+  "Cache-Control": "no-cache",
+  "Connection": "keep-alive",
+}
+
+function createSSEResponse(
+  content: string,
+  actionEvents: Array<Record<string, any>>
+): Response {
+  const encoder = new TextEncoder()
+  const readable = new ReadableStream({
+    start(controller) {
+      for (const event of actionEvents) {
+        controller.enqueue(
+          encoder.encode(`data: ${JSON.stringify({ type: "action_executed", ...event })}\n\n`)
+        )
+      }
+      if (content) {
+        controller.enqueue(
+          encoder.encode(`data: ${JSON.stringify({ type: "delta", content })}\n\n`)
+        )
+      }
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`))
+      controller.close()
+    },
+  })
+  return new Response(readable, { headers: SSE_HEADERS })
+}
+
+function createStreamSSEResponse(
+  stream: AsyncIterable<any>,
+  actionEvents: Array<Record<string, any>>
+): Response {
+  const encoder = new TextEncoder()
+  const readable = new ReadableStream({
+    async start(controller) {
+      try {
+        for (const event of actionEvents) {
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ type: "action_executed", ...event })}\n\n`)
+          )
+        }
+        for await (const chunk of stream) {
+          const delta = chunk.choices[0]?.delta?.content || ""
+          if (delta) {
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ type: "delta", content: delta })}\n\n`)
+            )
+          }
+        }
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`))
+        controller.close()
+      } catch (err) {
+        controller.error(err)
+      }
+    },
+  })
+  return new Response(readable, { headers: SSE_HEADERS })
+}
+
 // ── Main POST handler ───────────────────────────────────────────────────────
 
 export async function POST(request: Request) {
@@ -39,6 +109,7 @@ export async function POST(request: Request) {
     const { message, history = [] } = await request.json()
     if (!message?.trim()) return NextResponse.json({ error: "Message required" }, { status: 400 })
 
+    // Resolve founder
     let founder_id = user.id
     const { data: profile } = await supabaseAdmin
       .from("profiles")
@@ -56,232 +127,163 @@ export async function POST(request: Request) {
       if (tm?.founder_id) founder_id = tm.founder_id
     }
 
-    console.log("[CMD-ROUTE] user.id:", user.id, "resolved founder_id:", founder_id)
-    const { contextText, teamMembers, projects } = await buildCommandContext(founder_id)
+    // ── Build mini context (not the full dump) ─────────────────────────────
+    const miniContext = await buildMiniContext(founder_id)
 
-    // Build action context for the executor
+    // Mutable action context — enriched by read tools as they're called
     const actionContext: ActionContext = {
       founder_id,
       user_id: user.id,
-      team: teamMembers,
-      projects,
+      team: [],
+      projects: [],
     }
 
-    const systemPrompt = `You are the AI command interface for Command Center — an agency operating system. You have full visibility into the entire workspace and can EXECUTE ACTIONS, not just answer questions.
+    const systemPrompt = `You are the AI manager for Command Center — an agency OS. You can READ workspace data and EXECUTE actions using tools.
 
-${contextText}
+${miniContext}
 
-## Your Role — Manager Agent
-You are an AI manager. You can both ANSWER questions AND EXECUTE actions using tools.
+## How You Work
+1. Use read tools (get_tasks, get_projects, get_team_workload, get_crm_pipeline, get_calendar, get_vault_files) to look up data before answering
+2. Use action tools (create_task, update_task, delete_task, create_project, update_project) to make changes
+3. Don't guess — if you need specific data, fetch it with a read tool
+4. For task assignment, check team workload first and suggest the least busy person
+5. Match names (people, projects) against data from read tools
+6. After actions, confirm what was done with specifics
+7. Be direct. Founders are busy. No filler.`
 
-## When to Use Tools
-- User says "create a task", "add a task", "make a task" → use create_task
-- User says "update", "change", "modify", "set", "move" a task → use update_task
-- User says "delete", "remove" a task → use delete_task
-- User says "create a project", "start a project", "new project" → use create_project
-- User says "update project", "change project status" → use update_project
-
-## When to Ask for More Info (DO NOT call a tool yet)
-- If user says "create a task" but doesn't give a title → ASK for the title first
-- If you cannot determine the minimum required fields → ASK for them
-- Be smart: extract as much as you can from the user's message. Only ask for what's truly missing.
-
-## Smart Defaults & Intelligence
-- Priority defaults to "medium" if not mentioned
-- Status defaults to "todo" if not mentioned
-- Bucket is auto-determined from due_date: today → "today", this week → "this-week", has assignee → "delegated", else → "backlog"
-- When assigning tasks, CHECK THE TEAM WORKLOAD section and suggest the person with the fewest active tasks
-- Always explain your reasoning for suggestions: "I'd suggest assigning to X — they currently have the lightest workload with N active tasks"
-- When the user mentions a person or project by name, match it against the known roster/list
-
-## After Executing an Action
-- Confirm what was done with specific details in a clear, structured format
-- If you used smart defaults, mention them so the founder can override if needed
-- If a tool call fails, explain the error and suggest how to fix it
-
-## Resource Attachment — Vault Files & External Links
-When creating or updating a task:
-
-### Vault Files
-- If the task is linked to a project, CHECK the Vault section for files belonging to that project
-- If the user says "attach the design doc" or "add the brand guidelines", fuzzy-match against vault file titles and use vault_file_names
-- If multiple vault files could match, LIST them and ASK which one: "I found these files in the vault: 1) Brand Guidelines 2) Brand Assets — which one should I attach?"
-- If you notice a clearly relevant file (e.g. task is about "review wireframes" and there's a "Wireframes v2" in vault), PROACTIVELY SUGGEST it: "I see 'Wireframes v2' in the vault — want me to attach it?"
-- ONLY attach files from the task's linked project. Never cross-project.
-
-### External Links
-- If the user provides a URL, add it via external_links
-- Always provide a label. If the user gives one, use it. If not, generate a smart label from the URL:
-  - figma.com → "Figma Design"
-  - docs.google.com → "Google Doc"
-  - github.com/org/repo/issues/123 → "GitHub Issue"
-  - Unknown domains → capitalize domain name + "Link"
-- If the user says "add this link" without a URL, ASK for the URL
-
-## General Guidelines
-- Be direct, structured, and actionable. Founders are busy.
-- When listing items, use clear structure (numbered lists, bullet points).
-- Reference specific names, deadlines, and amounts where relevant.
-- Today's date: ${new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}`
-
-    console.log("[CMD-ROUTE] System prompt length:", systemPrompt.length, "chars")
-    console.log("[CMD-ROUTE] User message:", message)
-
-    const groq = getGroqClient()
-
-    // ── Step 1: Non-streamed call with tools ────────────────────────────────
-    // This checks if the LLM wants to call a tool or respond directly
-
-    const messagesForLLM = [
-      { role: "system" as const, content: systemPrompt },
-      ...history.map((m: { role: string; content: string }) => ({
+    // ── Build conversation messages ─────────────────────────────────────────
+    // Cap history to last 6 messages to prevent token bloat
+    const cappedHistory = history.slice(-6)
+    const messages: any[] = [
+      { role: "system", content: systemPrompt },
+      ...cappedHistory.map((m: { role: string; content: string }) => ({
         role: m.role as "user" | "assistant",
         content: m.content,
       })),
-      { role: "user" as const, content: message },
+      { role: "user", content: message },
     ]
 
-    const initialResponse = await groq.chat.completions.create({
-      model: GROQ_MODEL,
-      messages: messagesForLLM,
-      tools: AI_TOOLS,
-      tool_choice: "auto",
-      max_tokens: 1024,
-      temperature: 0.3,
-    })
+    const groq = getGroqClient()
+    const actionEvents: Array<Record<string, any>> = []
+    const toolsCalled: string[] = []
 
-    const initialChoice = initialResponse.choices[0]
-    const toolCalls = initialChoice?.message?.tool_calls
+    // ── Token logging ─────────────────────────────────────────────────────
+    const systemTokens = estimateTokens(systemPrompt)
+    const toolSchemaTokens = estimateTokens(JSON.stringify(ALL_TOOLS))
+    console.log(`[AI-CMD] System: ~${systemTokens} tokens | Tools schema: ~${toolSchemaTokens} tokens | History: ${cappedHistory.length} msgs`)
 
-    // ── Step 2: If tool calls exist, execute them ──────────────────────────
-    if (toolCalls && toolCalls.length > 0) {
-      console.log("[CMD-ROUTE] Tool calls detected:", toolCalls.length)
-      
+    // ── Multi-step tool loop (max 3 iterations) ─────────────────────────────
+    for (let step = 0; step < 3; step++) {
+      const inputTokens = estimateTokens(JSON.stringify(messages))
+      console.log(`[AI-CMD] Step ${step + 1} | Input: ~${inputTokens} tokens`)
+
+      const response = await groq.chat.completions.create({
+        model: GROQ_MODEL,
+        messages,
+        tools: ALL_TOOLS as any,
+        tool_choice: "auto",
+        max_tokens: 1024,
+        temperature: 0.3,
+      })
+
+      const choice = response.choices[0]
+      const toolCalls = choice?.message?.tool_calls
+
+      // No tool calls → AI wants to respond with text
+      if (!toolCalls || toolCalls.length === 0) {
+        const content = choice?.message?.content || ""
+        console.log(`[AI-CMD] Step ${step + 1} | No tools → text response (${estimateTokens(content)} tokens)`)
+        console.log(`[AI-CMD] Tools used this request: ${toolsCalled.length > 0 ? toolsCalled.join(", ") : "none"}`)
+
+        // If we already have tool results in the conversation, stream a final response
+        if (step > 0) {
+          return createSSEResponse(content, actionEvents)
+        }
+
+        // First step, no tools — stream directly
+        const directStream = await groq.chat.completions.create({
+          model: GROQ_MODEL,
+          messages,
+          stream: true,
+          max_tokens: 1024,
+          temperature: 0.5,
+        })
+        return createStreamSSEResponse(directStream, actionEvents)
+      }
+
+      // Has tool calls — execute them
+      console.log(`[AI-CMD] Step ${step + 1} | Tools: ${toolCalls.map((tc: any) => tc.function.name).join(", ")}`)
+
       const toolResults: Array<{ tool_call_id: string; role: "tool"; content: string }> = []
-      const actionEvents: Array<Record<string, any>> = []
 
       for (const toolCall of toolCalls) {
-        const toolName = toolCall.function.name as AIToolName
+        const toolName = toolCall.function.name
+        toolsCalled.push(toolName)
+
         let toolArgs: Record<string, any> = {}
-        
         try {
           toolArgs = JSON.parse(toolCall.function.arguments)
         } catch {
           toolArgs = {}
         }
 
-        console.log(`[CMD-ROUTE] Executing tool: ${toolName}`, toolArgs)
-        const result = await executeAction(toolName, toolArgs, actionContext)
-        console.log(`[CMD-ROUTE] Tool result:`, JSON.stringify(result))
+        if (READ_TOOL_NAMES.has(toolName)) {
+          // ── Read tool ─────────────────────────────────────────────────
+          const result = await executeReadTool(toolName as ReadToolName, toolArgs, founder_id)
+          console.log(`[AI-CMD] Read tool ${toolName} → ${estimateTokens(result.content)} tokens`)
 
-        toolResults.push({
-          tool_call_id: toolCall.id,
-          role: "tool",
-          content: JSON.stringify(result),
-        })
-
-        // Track action events to send to frontend
-        if (result.success) {
-          actionEvents.push({
-            tool: toolName,
-            ...result.data,
-            needs_confirmation: result.needs_confirmation,
-            confirmation_action: result.confirmation_action,
+          toolResults.push({
+            tool_call_id: toolCall.id,
+            role: "tool",
+            content: result.content,
           })
+
+          // Enrich action context from read results
+          if (result.teamData) actionContext.team = result.teamData
+          if (result.projectData) actionContext.projects = result.projectData
+        } else {
+          // ── Action tool ───────────────────────────────────────────────
+          const result = await executeAction(toolName as AIToolName, toolArgs, actionContext)
+          console.log(`[AI-CMD] Action tool ${toolName} → ${result.success ? "success" : "failed"}`)
+
+          toolResults.push({
+            tool_call_id: toolCall.id,
+            role: "tool",
+            content: JSON.stringify(result),
+          })
+
+          if (result.success) {
+            actionEvents.push({
+              tool: toolName,
+              ...result.data,
+              needs_confirmation: result.needs_confirmation,
+              confirmation_action: result.confirmation_action,
+            })
+          }
         }
       }
 
-      // ── Step 3: Stream the final response with tool results ─────────────
-      const finalStream = await groq.chat.completions.create({
-        model: GROQ_MODEL,
-        messages: [
-          ...messagesForLLM,
-          initialChoice.message, // assistant message with tool_calls
-          ...toolResults,
-        ],
-        stream: true,
-        max_tokens: 1024,
-        temperature: 0.5,
-      })
-
-      const encoder = new TextEncoder()
-      const readable = new ReadableStream({
-        async start(controller) {
-          try {
-            // Send action events first so frontend can process them
-            for (const event of actionEvents) {
-              controller.enqueue(
-                encoder.encode(`data: ${JSON.stringify({ type: "action_executed", ...event })}\n\n`)
-              )
-            }
-
-            // Then stream the LLM's narration
-            for await (const chunk of finalStream) {
-              const delta = chunk.choices[0]?.delta?.content || ""
-              if (delta) {
-                controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify({ type: "delta", content: delta })}\n\n`)
-                )
-              }
-            }
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`))
-            controller.close()
-          } catch (err) {
-            controller.error(err)
-          }
-        },
-      })
-
-      return new Response(readable, {
-        headers: {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          "Connection": "keep-alive",
-        },
-      })
+      // Append tool call exchange to conversation
+      messages.push(choice.message)
+      messages.push(...toolResults)
     }
 
-    // ── No tool calls: stream the direct text response ─────────────────────
-    // (The LLM chose to respond with text — e.g., answering a question or
-    // asking for more info before executing an action)
+    // ── Exhausted loop — stream final narration ─────────────────────────────
+    console.log(`[AI-CMD] Max steps reached, streaming final response`)
+    console.log(`[AI-CMD] Tools used: ${toolsCalled.join(", ")}`)
 
-    const directStream = await groq.chat.completions.create({
+    const finalStream = await groq.chat.completions.create({
       model: GROQ_MODEL,
-      messages: messagesForLLM,
+      messages,
       stream: true,
       max_tokens: 1024,
       temperature: 0.5,
     })
 
-    const encoder = new TextEncoder()
-    const readable = new ReadableStream({
-      async start(controller) {
-        try {
-          for await (const chunk of directStream) {
-            const delta = chunk.choices[0]?.delta?.content || ""
-            if (delta) {
-              controller.enqueue(
-                encoder.encode(`data: ${JSON.stringify({ type: "delta", content: delta })}\n\n`)
-              )
-            }
-          }
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`))
-          controller.close()
-        } catch (err) {
-          controller.error(err)
-        }
-      },
-    })
-
-    return new Response(readable, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
-      },
-    })
+    return createStreamSSEResponse(finalStream, actionEvents)
   } catch (err) {
     const message = err instanceof Error ? err.message : "Server error"
+    console.error("[AI-CMD] Error:", message)
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }

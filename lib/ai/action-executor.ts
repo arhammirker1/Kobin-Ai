@@ -88,26 +88,75 @@ function smartBucket(dueDate: string | undefined, hasAssignee: boolean): string 
   return "backlog"
 }
 
-// ── Resolve team member name → user_id ──────────────────────────────────────
+// ── Resolve team member name → user_id (auto-fetches if needed) ─────────────
 
-function resolveTeamMember(
+async function resolveTeamMember(
   name: string,
-  team: TeamMemberContext[]
-): TeamMemberContext | null {
-  if (!name || team.length === 0) return null
+  team: TeamMemberContext[],
+  founderId: string
+): Promise<TeamMemberContext | null> {
+  if (!name) return null
+
+  // Auto-fetch team data if not pre-loaded by read tools
+  if (team.length === 0) {
+    const { data: members } = await supabaseAdmin
+      .from("team_members")
+      .select("user_id, position, is_active, profile:profiles!team_members_user_id_profiles_fkey(full_name)")
+      .eq("founder_id", founderId)
+      .eq("is_active", true)
+
+    if (members) {
+      const { data: taskData } = await supabaseAdmin
+        .from("tasks")
+        .select("assigned_to")
+        .eq("user_id", founderId)
+        .eq("is_completed", false)
+
+      const counts: Record<string, number> = {}
+      for (const t of taskData || []) {
+        if (t.assigned_to) counts[t.assigned_to] = (counts[t.assigned_to] || 0) + 1
+      }
+
+      for (const m of members) {
+        team.push({
+          user_id: m.user_id,
+          full_name: (m.profile as any)?.full_name || "Unknown",
+          position: m.position || "",
+          active_task_count: counts[m.user_id] || 0,
+        })
+      }
+    }
+  }
+
+  if (team.length === 0) return null
   const names = team.map((m) => m.full_name)
   const result = fuzzyMatch(name, names)
   if (result) return team[result.index]
   return null
 }
 
-// ── Resolve project name → project_id ───────────────────────────────────────
+// ── Resolve project name → project_id (auto-fetches if needed) ──────────────
 
-function resolveProject(
+async function resolveProject(
   name: string,
-  projects: ProjectContext[]
-): ProjectContext | null {
-  if (!name || projects.length === 0) return null
+  projects: ProjectContext[],
+  founderId: string
+): Promise<ProjectContext | null> {
+  if (!name) return null
+
+  // Auto-fetch project data if not pre-loaded by read tools
+  if (projects.length === 0) {
+    const { data } = await supabaseAdmin
+      .from("projects")
+      .select("id, name, status")
+      .eq("founder_id", founderId)
+
+    if (data) {
+      projects.push(...data.map(p => ({ id: p.id, name: p.name, status: p.status })))
+    }
+  }
+
+  if (projects.length === 0) return null
   const names = projects.map((p) => p.name)
   const result = fuzzyMatch(name, names)
   if (result) return projects[result.index]
@@ -343,7 +392,7 @@ async function executeCreateTask(
   let assignedTo: string | null = null
   let assigneeName: string | null = null
   if (assigned_to_name) {
-    const member = resolveTeamMember(assigned_to_name, ctx.team)
+    const member = await resolveTeamMember(assigned_to_name, ctx.team, ctx.founder_id)
     if (member) {
       assignedTo = member.user_id
       assigneeName = member.full_name
@@ -359,7 +408,7 @@ async function executeCreateTask(
   let projectId: string | null = null
   let projectNameResolved: string | null = null
   if (project_name) {
-    const project = resolveProject(project_name, ctx.projects)
+    const project = await resolveProject(project_name, ctx.projects, ctx.founder_id)
     if (project) {
       projectId = project.id
       projectNameResolved = project.name
@@ -520,7 +569,7 @@ async function executeUpdateTask(
 
   // Resolve assignee
   if (assigned_to_name) {
-    const member = resolveTeamMember(assigned_to_name, ctx.team)
+    const member = await resolveTeamMember(assigned_to_name, ctx.team, ctx.founder_id)
     if (member) {
       updateData.assigned_to = member.user_id
       changes.push(`Assigned to → ${member.full_name}`)
@@ -535,7 +584,7 @@ async function executeUpdateTask(
   // Resolve project
   let resolvedProjectId = task.project_id
   if (project_name) {
-    const project = resolveProject(project_name, ctx.projects)
+    const project = await resolveProject(project_name, ctx.projects, ctx.founder_id)
     if (project) {
       updateData.project_id = project.id
       resolvedProjectId = project.id
