@@ -9,7 +9,8 @@ export async function buildCommandContext(founder_id: string): Promise<string> {
 
   const [
     profileRes,
-    allTasksRes,
+    activeTasksRes,
+    completedTasksRes,
     allProjectsRes,
     allEventsRes,
     upcomingEventsRes,
@@ -29,13 +30,23 @@ export async function buildCommandContext(founder_id: string): Promise<string> {
       .eq("id", founder_id)
       .single(),
 
-    // ALL tasks — active and completed — full details
+    // Active (incomplete) tasks — always fetched in full
     supabaseAdmin
       .from("tasks")
       .select("id, title, status, priority, due_date, assigned_to, is_completed, bucket, project_id, notes, created_at, updated_at, deliverable_required, deliverable_vault_item_id")
       .eq("user_id", founder_id)
+      .eq("is_completed", false)
       .order("created_at", { ascending: false })
       .limit(100),
+
+    // Recently completed tasks — for stats
+    supabaseAdmin
+      .from("tasks")
+      .select("id, title, status, priority, due_date, assigned_to, is_completed, bucket, project_id, notes, created_at, updated_at, deliverable_required, deliverable_vault_item_id")
+      .eq("user_id", founder_id)
+      .eq("is_completed", true)
+      .order("updated_at", { ascending: false })
+      .limit(50),
 
     // ALL projects — every status
     supabaseAdmin
@@ -129,7 +140,9 @@ export async function buildCommandContext(founder_id: string): Promise<string> {
   ])
 
   const profile = profileRes.data
-  const tasks = allTasksRes.data || []
+  const activeTasks = activeTasksRes.data || []
+  const completedTasks = completedTasksRes.data || []
+  const tasks = [...activeTasks, ...completedTasks]
   const projects = allProjectsRes.data || []
   const pastEvents = allEventsRes.data || []
   const upcomingEvents = upcomingEventsRes.data || []
@@ -158,9 +171,7 @@ export async function buildCommandContext(founder_id: string): Promise<string> {
   // Fetch project-name map for tasks
   const projectMap = Object.fromEntries(projects.map(p => [p.id, p.name]))
 
-  // Task stats
-  const activeTasks = tasks.filter(t => !t.is_completed)
-  const completedTasks = tasks.filter(t => t.is_completed)
+  // Task stats — activeTasks and completedTasks already separated by DB queries
   const overdueTasks = activeTasks.filter(t => t.due_date && new Date(t.due_date) < now)
   const blockedTasks = activeTasks.filter(t => t.status === "blocked")
   const todayTasks = activeTasks.filter(t => t.due_date && new Date(t.due_date) <= todayEnd)
