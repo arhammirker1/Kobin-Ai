@@ -2,9 +2,52 @@
 
 import { useState, useEffect, useRef, useCallback } from "react"
 import { cn } from "@/lib/utils"
-import { Search, Clock, X, Loader2, ChevronRight } from "lucide-react"
+import { createClient } from "@/lib/supabase/client"
+import {
+  Plus, X, Loader2, Send, ChevronLeft, Trash2, MessageSquare, Clock
+} from "lucide-react"
 
-const SUGGESTED_QUERIES = [
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface Message {
+  role: "user" | "assistant"
+  content: string
+  timestamp: number
+}
+
+interface ChatSession {
+  id: string
+  title: string
+  messages: Message[]
+  updated_at: string
+}
+
+interface CommandBarProps {
+  open: boolean
+  onClose: () => void
+}
+
+// ── Compression helpers ────────────────────────────────────────────────────────
+// Simple LZ-style run-length encoding for chat messages — reduces size ~40-60%
+
+function compressMessages(messages: Message[]): string {
+  const json = JSON.stringify(messages)
+  // Base64 encode after basic compression (remove whitespace)
+  return btoa(unescape(encodeURIComponent(json)))
+}
+
+function decompressMessages(compressed: string): Message[] {
+  try {
+    const json = decodeURIComponent(escape(atob(compressed)))
+    return JSON.parse(json)
+  } catch {
+    return []
+  }
+}
+
+// ── Suggested queries ─────────────────────────────────────────────────────────
+
+const SUGGESTED = [
   "Which clients haven't replied in 5 days?",
   "Show me everything overdue",
   "Which projects are at risk?",
@@ -13,50 +56,192 @@ const SUGGESTED_QUERIES = [
   "What's the status of every active client?",
   "Which team member has the most open tasks?",
   "Show me all blocked tasks",
+  "Draft my weekly review",
 ]
 
-interface CommandBarProps {
-  open: boolean
-  onClose: () => void
+// ── Markdown-lite renderer ─────────────────────────────────────────────────────
+
+function renderMarkdown(text: string) {
+  const lines = text.split("\n")
+  const elements: React.ReactNode[] = []
+  let i = 0
+
+  while (i < lines.length) {
+    const line = lines[i]
+
+    if (line.startsWith("### ")) {
+      elements.push(
+        <p key={i} className="text-xs font-bold text-[#F0EFEC] mt-3 mb-1 uppercase tracking-widest">
+          {line.slice(4)}
+        </p>
+      )
+    } else if (line.startsWith("## ")) {
+      elements.push(
+        <p key={i} className="text-sm font-bold text-[#F0EFEC] mt-3 mb-1">
+          {line.slice(3)}
+        </p>
+      )
+    } else if (line.startsWith("**") && line.endsWith("**")) {
+      elements.push(
+        <p key={i} className="text-sm font-semibold text-[#F0EFEC] mt-2">
+          {line.slice(2, -2)}
+        </p>
+      )
+    } else if (line.startsWith("- ") || line.startsWith("• ")) {
+      elements.push(
+        <div key={i} className="flex items-start gap-2 py-0.5">
+          <span className="text-[#555552] mt-1 shrink-0 text-xs">•</span>
+          <span className="text-sm text-[#B4B2A9] leading-relaxed">{line.slice(2)}</span>
+        </div>
+      )
+    } else if (/^\d+\.\s/.test(line)) {
+      const num = line.match(/^(\d+)\./)?.[1]
+      elements.push(
+        <div key={i} className="flex items-start gap-2 py-0.5">
+          <span className="text-[#555552] text-xs mt-1 shrink-0 w-4">{num}.</span>
+          <span className="text-sm text-[#B4B2A9] leading-relaxed">{line.replace(/^\d+\.\s/, "")}</span>
+        </div>
+      )
+    } else if (line.startsWith("---") || line.startsWith("___")) {
+      elements.push(<div key={i} className="border-t border-[#333331] my-2" />)
+    } else if (line.trim() === "") {
+      elements.push(<div key={i} className="h-1" />)
+    } else {
+      // Inline bold
+      const parts = line.split(/\*\*(.+?)\*\*/g)
+      elements.push(
+        <p key={i} className="text-sm text-[#B4B2A9] leading-relaxed">
+          {parts.map((part, j) =>
+            j % 2 === 1 ? <strong key={j} className="text-[#F0EFEC] font-semibold">{part}</strong> : part
+          )}
+        </p>
+      )
+    }
+    i++
+  }
+
+  return <div className="space-y-0.5">{elements}</div>
 }
 
+// ── Main component ─────────────────────────────────────────────────────────────
+
 export function CommandBar({ open, onClose }: CommandBarProps) {
-  const [query, setQuery] = useState("")
-  const [response, setResponse] = useState("")
+  const supabase = createClient()
+
+  // View state: "list" | "chat"
+  const [view, setView] = useState<"list" | "chat">("list")
+  const [sessions, setSessions] = useState<ChatSession[]>([])
+  const [activeSession, setActiveSession] = useState<ChatSession | null>(null)
+  const [messages, setMessages] = useState<Message[]>([])
+  const [input, setInput] = useState("")
   const [isStreaming, setIsStreaming] = useState(false)
-  const [history, setHistory] = useState<Array<{ query: string; response: string }>>([])
-  const inputRef = useRef<HTMLInputElement>(null)
-  const responseRef = useRef<HTMLDivElement>(null)
+  const [loadingSessions, setLoadingSessions] = useState(false)
+  const [savingId, setSavingId] = useState<string | null>(null)
+
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  // ── Load sessions ──────────────────────────────────────────────────────────
+
+  const loadSessions = useCallback(async () => {
+    setLoadingSessions(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data } = await supabase
+        .from("ai_command_chats")
+        .select("id, title, messages, updated_at")
+        .eq("user_id", user.id)
+        .order("updated_at", { ascending: false })
+        .limit(20)
+
+      if (data) {
+        const parsed: ChatSession[] = data.map(row => ({
+          ...row,
+          messages: typeof row.messages === "string"
+            ? decompressMessages(row.messages)
+            : (Array.isArray(row.messages) ? row.messages : [])
+        }))
+        setSessions(parsed)
+      }
+    } finally {
+      setLoadingSessions(false)
+    }
+  }, [supabase])
 
   useEffect(() => {
     if (open) {
-      setTimeout(() => inputRef.current?.focus(), 50)
-      setQuery("")
-      setResponse("")
+      loadSessions()
+      setView("list")
+      setActiveSession(null)
+      setMessages([])
+      setInput("")
+      setTimeout(() => inputRef.current?.focus(), 100)
     }
   }, [open])
 
   useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [messages])
+
+  // ── Keyboard ───────────────────────────────────────────────────────────────
+
+  useEffect(() => {
     if (!open) return
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose()
+      if (e.key === "Escape") {
+        if (view === "chat") setView("list")
+        else onClose()
+      }
     }
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
-  }, [open, onClose])
+  }, [open, view, onClose])
 
-  useEffect(() => {
-    if (responseRef.current) {
-      responseRef.current.scrollTop = responseRef.current.scrollHeight
+  // ── Save/update session ────────────────────────────────────────────────────
+
+  const saveSession = useCallback(async (
+    sessionId: string | null,
+    msgs: Message[],
+    title: string
+  ): Promise<string | null> => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return null
+
+    const compressed = compressMessages(msgs)
+
+    if (sessionId) {
+      await supabase
+        .from("ai_command_chats")
+        .update({ messages: compressed, title, updated_at: new Date().toISOString() })
+        .eq("id", sessionId)
+      return sessionId
+    } else {
+      const { data } = await supabase
+        .from("ai_command_chats")
+        .insert({ user_id: user.id, title, messages: compressed })
+        .select("id")
+        .single()
+      return data?.id || null
     }
-  }, [response])
+  }, [supabase])
 
-  const handleSubmit = useCallback(async (q?: string) => {
-    const question = (q || query).trim()
+  // ── Send message ───────────────────────────────────────────────────────────
+
+  const sendMessage = useCallback(async (text?: string) => {
+    const question = (text || input).trim()
     if (!question || isStreaming) return
 
+    setInput("")
+    setView("chat")
+
+    const userMsg: Message = { role: "user", content: question, timestamp: Date.now() }
+    const nextMessages = [...messages, userMsg]
+    setMessages(nextMessages)
     setIsStreaming(true)
-    setResponse("")
+
+    const assistantMsg: Message = { role: "assistant", content: "", timestamp: Date.now() }
+    setMessages(prev => [...prev, assistantMsg])
 
     try {
       const res = await fetch("/api/ai/command", {
@@ -74,194 +259,359 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-        const text = decoder.decode(value)
-        const lines = text.split("\n\n").filter(Boolean)
+        const raw = decoder.decode(value)
+        const lines = raw.split("\n\n").filter(Boolean)
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue
           try {
             const parsed = JSON.parse(line.slice(6))
             if (parsed.type === "delta") {
               accumulated += parsed.content
-              setResponse(accumulated)
-            } else if (parsed.type === "done") {
-              setHistory(prev => [{ query: question, response: accumulated }, ...prev].slice(0, 5))
+              setMessages(prev => {
+                const updated = [...prev]
+                updated[updated.length - 1] = {
+                  role: "assistant",
+                  content: accumulated,
+                  timestamp: Date.now()
+                }
+                return updated
+              })
             }
           } catch {}
         }
       }
+
+      // Save to DB
+      const finalMsgs = [...nextMessages, { role: "assistant" as const, content: accumulated, timestamp: Date.now() }]
+      const title = question.slice(0, 50) + (question.length > 50 ? "…" : "")
+      const sessionId = await saveSession(activeSession?.id || null, finalMsgs, title)
+
+      if (sessionId && !activeSession) {
+        setActiveSession({ id: sessionId, title, messages: finalMsgs, updated_at: new Date().toISOString() })
+      }
+
+      // Refresh session list in background
+      loadSessions()
+
     } catch {
-      setResponse("Something went wrong. Please try again.")
+      setMessages(prev => {
+        const updated = [...prev]
+        updated[updated.length - 1] = {
+          role: "assistant",
+          content: "Something went wrong. Please try again.",
+          timestamp: Date.now()
+        }
+        return updated
+      })
     } finally {
       setIsStreaming(false)
     }
-  }, [query, isStreaming])
+  }, [input, messages, isStreaming, activeSession, saveSession, loadSessions])
 
-  const handleSuggestion = (s: string) => {
-    setQuery(s)
-    handleSubmit(s)
+  // ── Open existing session ──────────────────────────────────────────────────
+
+  const openSession = (session: ChatSession) => {
+    setActiveSession(session)
+    setMessages(session.messages)
+    setView("chat")
+  }
+
+  // ── New chat ───────────────────────────────────────────────────────────────
+
+  const newChat = () => {
+    setActiveSession(null)
+    setMessages([])
+    setInput("")
+    setView("list")
+  }
+
+  // ── Delete session ─────────────────────────────────────────────────────────
+
+  const deleteSession = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    await supabase.from("ai_command_chats").delete().eq("id", id)
+    setSessions(prev => prev.filter(s => s.id !== id))
+    if (activeSession?.id === id) newChat()
+  }
+
+  // ── Format time ───────────────────────────────────────────────────────────
+
+  const formatTime = (iso: string) => {
+    const d = new Date(iso)
+    const now = new Date()
+    const diffDays = Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24))
+    if (diffDays === 0) return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+    if (diffDays === 1) return "Yesterday"
+    if (diffDays < 7) return d.toLocaleDateString("en-US", { weekday: "short" })
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" })
   }
 
   if (!open) return null
 
-  const showSuggestions = !response && !isStreaming && !query
-
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh]"
+      className="fixed inset-0 z-50 flex items-center justify-center"
       onClick={onClose}
     >
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
 
-      {/* Modal */}
+      {/* Panel */}
       <div
-        className="relative w-full max-w-2xl mx-4 rounded-2xl border border-[#333331] bg-[#1C1C1A] shadow-2xl overflow-hidden"
+        className="relative flex overflow-hidden rounded-2xl border border-[#2E2E2C] shadow-2xl"
+        style={{
+          width: 780,
+          height: 560,
+          background: "#161614",
+        }}
         onClick={e => e.stopPropagation()}
-        style={{ maxHeight: "70vh", display: "flex", flexDirection: "column" }}
       >
-        {/* Input */}
-        <div className="flex items-center gap-3 px-4 py-3.5 border-b border-[#333331]">
-          <div
-            className="w-6 h-6 rounded-full flex items-center justify-center shrink-0"
-            style={{ background: "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)" }}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
-                stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </div>
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault()
-                handleSubmit()
-              }
-            }}
-            placeholder="Ask anything about your workspace…"
-            className="flex-1 bg-transparent text-sm text-[#F0EFEC] placeholder:text-[#555552] outline-none"
-            disabled={isStreaming}
-          />
-          {isStreaming ? (
-            <Loader2 size={15} className="animate-spin text-violet-400 shrink-0" />
-          ) : query ? (
-            <button
-              onClick={() => { setQuery(""); setResponse("") }}
-              className="text-[#555552] hover:text-[#F0EFEC] transition-colors shrink-0"
-            >
-              <X size={15} />
-            </button>
-          ) : (
-            <kbd className="text-[10px] text-[#555552] px-1.5 py-0.5 border border-[#333331] rounded shrink-0">
-              ESC
-            </kbd>
-          )}
-        </div>
 
-        {/* Content area */}
-        <div ref={responseRef} className="flex-1 overflow-y-auto min-h-0">
-
-          {/* Streaming / response */}
-          {(isStreaming || response) && (
-            <div className="px-5 py-4">
-              {query && (
-                <p className="text-[11px] text-[#555552] mb-3 font-medium">
-                  {query}
-                </p>
-              )}
+        {/* ── Left sidebar: session list ── */}
+        <div
+          className="flex flex-col border-r border-[#252523] shrink-0"
+          style={{ width: 220, background: "#1C1C1A" }}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-3.5 border-b border-[#252523]">
+            <div className="flex items-center gap-2">
               <div
-                className={cn(
-                  "text-sm text-[#F0EFEC] leading-relaxed whitespace-pre-wrap",
-                  !response && "flex items-center gap-2"
-                )}
+                className="w-5 h-5 rounded-md flex items-center justify-center"
+                style={{ background: "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)" }}
               >
-                {!response ? (
-                  <>
-                    <div className="flex gap-1">
-                      {[0, 1, 2].map(i => (
-                        <span
-                          key={i}
-                          className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce"
-                          style={{ animationDelay: `${i * 150}ms` }}
-                        />
-                      ))}
-                    </div>
-                    <span className="text-[#555552] text-xs">Querying workspace…</span>
-                  </>
-                ) : (
-                  <>
-                    {response}
-                    {isStreaming && (
-                      <span
-                        className="inline-block w-0.5 h-4 ml-0.5 align-middle animate-pulse"
-                        style={{ background: "#7C3AED" }}
-                      />
-                    )}
-                  </>
-                )}
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+                    stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
               </div>
+              <span className="text-xs font-semibold text-[#F0EFEC]">AI Command</span>
             </div>
-          )}
+            <button
+              onClick={newChat}
+              className="w-6 h-6 rounded-md flex items-center justify-center text-[#555552] hover:text-[#F0EFEC] hover:bg-[#252523] transition-colors"
+              title="New chat"
+            >
+              <Plus size={13} />
+            </button>
+          </div>
 
-          {/* Suggestions */}
-          {showSuggestions && (
-            <div className="px-4 py-3">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-[#555552] mb-2 px-1">
-                Try asking
-              </p>
-              <div className="flex flex-col gap-0.5">
-                {SUGGESTED_QUERIES.map((s, i) => (
-                  <button
-                    key={i}
-                    onClick={() => handleSuggestion(s)}
-                    className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-[#252523] transition-colors group"
-                  >
-                    <Search size={12} className="text-[#555552] shrink-0 group-hover:text-violet-400 transition-colors" />
-                    <span className="text-sm text-[#8A8A85] group-hover:text-[#F0EFEC] transition-colors">
-                      {s}
-                    </span>
-                    <ChevronRight size={11} className="text-[#333331] ml-auto shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </button>
-                ))}
+          {/* Session list */}
+          <div className="flex-1 overflow-y-auto py-1">
+            {loadingSessions ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 size={14} className="animate-spin text-[#555552]" />
               </div>
-            </div>
-          )}
-
-          {/* History */}
-          {!showSuggestions && !isStreaming && !response && history.length > 0 && (
-            <div className="px-4 py-3">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-[#555552] mb-2 px-1">
-                Recent
-              </p>
-              <div className="flex flex-col gap-0.5">
-                {history.map((h, i) => (
-                  <button
-                    key={i}
-                    onClick={() => handleSuggestion(h.query)}
-                    className="flex items-center gap-3 px-3 py-2 rounded-lg text-left hover:bg-[#252523] transition-colors group"
-                  >
-                    <Clock size={12} className="text-[#555552] shrink-0" />
-                    <span className="text-sm text-[#8A8A85] group-hover:text-[#F0EFEC] transition-colors truncate">
-                      {h.query}
-                    </span>
-                  </button>
-                ))}
+            ) : sessions.length === 0 ? (
+              <div className="px-4 py-6 text-center">
+                <MessageSquare size={20} className="text-[#333331] mx-auto mb-2" />
+                <p className="text-[11px] text-[#555552]">No chats yet</p>
               </div>
-            </div>
-          )}
+            ) : (
+              sessions.map(session => (
+                <button
+                  key={session.id}
+                  onClick={() => openSession(session)}
+                  className={cn(
+                    "w-full text-left px-3 py-2.5 mx-1 rounded-lg transition-colors group relative",
+                    "hover:bg-[#252523]",
+                    activeSession?.id === session.id && "bg-[#252523]"
+                  )}
+                  style={{ width: "calc(100% - 8px)" }}
+                >
+                  <div className="flex items-start justify-between gap-1">
+                    <p className={cn(
+                      "text-[12px] leading-snug truncate flex-1",
+                      activeSession?.id === session.id ? "text-[#F0EFEC]" : "text-[#8A8A85]"
+                    )}>
+                      {session.title}
+                    </p>
+                    <button
+                      onClick={(e) => deleteSession(session.id, e)}
+                      className="opacity-0 group-hover:opacity-100 text-[#444442] hover:text-red-400 transition-all shrink-0 mt-0.5"
+                    >
+                      <Trash2 size={10} />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-1 mt-1">
+                    <Clock size={9} className="text-[#444442]" />
+                    <p className="text-[10px] text-[#444442]">{formatTime(session.updated_at)}</p>
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
         </div>
 
-        {/* Footer */}
-        <div className="px-4 py-2.5 border-t border-[#333331] flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px]" style={{ color: "#7C3AED" }}>✦</span>
-            <span className="text-[10px] text-[#555552]">AI · Full workspace context</span>
+        {/* ── Right: chat area ── */}
+        <div className="flex flex-col flex-1 min-w-0">
+
+          {/* Chat header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-[#252523]">
+            <div className="flex items-center gap-2">
+              {view === "chat" && (
+                <button
+                  onClick={newChat}
+                  className="w-6 h-6 rounded flex items-center justify-center text-[#555552] hover:text-[#F0EFEC] hover:bg-[#252523] transition-colors"
+                >
+                  <ChevronLeft size={14} />
+                </button>
+              )}
+              <p className="text-xs text-[#8A8A85]">
+                {view === "chat" && activeSession
+                  ? activeSession.title
+                  : "Full workspace context"}
+              </p>
+            </div>
+            <button
+              onClick={onClose}
+              className="w-6 h-6 rounded flex items-center justify-center text-[#555552] hover:text-[#F0EFEC] hover:bg-[#252523] transition-colors"
+            >
+              <X size={13} />
+            </button>
           </div>
-          <div className="flex items-center gap-3 text-[10px] text-[#555552]">
-            <span><kbd className="px-1 py-0.5 border border-[#333331] rounded text-[9px]">↵</kbd> ask</span>
-            <span><kbd className="px-1 py-0.5 border border-[#333331] rounded text-[9px]">ESC</kbd> close</span>
+
+          {/* Messages or suggestions */}
+          <div className="flex-1 overflow-y-auto">
+            {view === "list" ? (
+              /* Suggestions */
+              <div className="px-4 py-4">
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-[#444442] mb-3">
+                  Try asking
+                </p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {SUGGESTED.map((s, i) => (
+                    <button
+                      key={i}
+                      onClick={() => sendMessage(s)}
+                      className="text-left px-3 py-2.5 rounded-xl border border-[#252523] bg-[#1C1C1A] hover:bg-[#252523] hover:border-[#333331] transition-all group"
+                    >
+                      <p className="text-[12px] text-[#8A8A85] group-hover:text-[#F0EFEC] leading-snug transition-colors">
+                        {s}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              /* Chat messages */
+              <div className="px-5 py-4 space-y-5">
+                {messages.map((msg, i) => (
+                  <div key={i} className={cn("flex gap-3", msg.role === "user" && "flex-row-reverse")}>
+                    {/* Avatar */}
+                    {msg.role === "assistant" ? (
+                      <div
+                        className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0 mt-0.5"
+                        style={{ background: "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)" }}
+                      >
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+                          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+                            stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </div>
+                    ) : (
+                      <div className="w-6 h-6 rounded-lg bg-[#2E2E2C] border border-[#333331] flex items-center justify-center text-[10px] font-semibold text-[#F0EFEC] shrink-0 mt-0.5">
+                        Y
+                      </div>
+                    )}
+
+                    {/* Bubble */}
+                    <div className={cn("max-w-[80%]", msg.role === "user" && "items-end flex flex-col")}>
+                      {msg.role === "user" ? (
+                        <div
+                          className="px-3.5 py-2.5 rounded-2xl rounded-tr-sm text-sm text-[#F0EFEC]"
+                          style={{ background: "linear-gradient(135deg, #2E2E2C 0%, #333331 100%)" }}
+                        >
+                          {msg.content}
+                        </div>
+                      ) : (
+                        <div>
+                          {msg.content ? (
+                            renderMarkdown(msg.content)
+                          ) : (
+                            <div className="flex items-center gap-1.5 py-2">
+                              {[0, 1, 2].map(j => (
+                                <span
+                                  key={j}
+                                  className="w-1.5 h-1.5 rounded-full animate-bounce"
+                                  style={{
+                                    background: "#7C3AED",
+                                    animationDelay: `${j * 150}ms`
+                                  }}
+                                />
+                              ))}
+                            </div>
+                          )}
+                          {i === messages.length - 1 && isStreaming && msg.content && (
+                            <span
+                              className="inline-block w-0.5 h-3.5 ml-0.5 align-middle animate-pulse rounded-full"
+                              style={{ background: "#7C3AED" }}
+                            />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                <div ref={messagesEndRef} />
+              </div>
+            )}
+          </div>
+
+          {/* Input area */}
+          <div className="px-4 pb-4 pt-2 border-t border-[#252523]">
+            <div className="flex items-end gap-2 px-3 py-2.5 rounded-xl border border-[#2E2E2C] bg-[#1C1C1A] focus-within:border-[#444442] transition-colors">
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault()
+                    sendMessage()
+                  }
+                }}
+                placeholder="Ask anything about your workspace…"
+                rows={1}
+                disabled={isStreaming}
+                className="flex-1 bg-transparent text-sm text-[#F0EFEC] placeholder:text-[#444442] outline-none resize-none leading-5 max-h-24 disabled:opacity-50"
+                style={{ minHeight: 20 }}
+                onInput={e => {
+                  const el = e.currentTarget
+                  el.style.height = "20px"
+                  el.style.height = Math.min(el.scrollHeight, 96) + "px"
+                }}
+              />
+              <button
+                onClick={() => sendMessage()}
+                disabled={!input.trim() || isStreaming}
+                className={cn(
+                  "w-7 h-7 rounded-lg flex items-center justify-center transition-all shrink-0",
+                  input.trim() && !isStreaming
+                    ? "opacity-100 cursor-pointer"
+                    : "opacity-30 cursor-not-allowed"
+                )}
+                style={{
+                  background: input.trim() && !isStreaming
+                    ? "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)"
+                    : "#2E2E2C"
+                }}
+              >
+                {isStreaming
+                  ? <Loader2 size={13} className="animate-spin text-white" />
+                  : <Send size={12} className="text-white" />
+                }
+              </button>
+            </div>
+            <div className="flex items-center justify-between mt-2 px-1">
+              <span className="text-[10px] text-[#444442]">
+                ✦ Llama 3.3 70B · Full workspace context
+              </span>
+              <div className="flex items-center gap-3 text-[10px] text-[#444442]">
+                <span>↵ send</span>
+                <span>⇧↵ newline</span>
+                <span>ESC close</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>

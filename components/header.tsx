@@ -1,12 +1,13 @@
 "use client"
 
+
 import { Search, Plus, Timer, LogOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState } from "react"
 import { SidebarTrigger } from "@/components/ui/sidebar"
-import { CommandBar } from "@/components/command-bar"
 
 export function Header() {
   const router = useRouter()
@@ -14,7 +15,7 @@ export function Header() {
   const [userName, setUserName] = useState<string>("")
   const [commandBarOpen, setCommandBarOpen] = useState(false)
 
-  const openCommandBar = useCallback(() => setCommandBarOpen(true), [])
+  
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -63,16 +64,18 @@ export function Header() {
     <header className="h-16 border-b flex items-center justify-between px-4 md:px-8 bg-background/80 backdrop-blur-md sticky top-0 z-10">
       <div className="flex items-center gap-3 md:gap-4">
         <SidebarTrigger className="md:hidden" />
-        <button
-          onClick={openCommandBar}
-          className="relative flex items-center gap-2.5 w-full max-w-md h-9 pl-9 pr-3 rounded-md bg-muted/50 border border-transparent hover:border-border/50 transition-colors text-sm text-muted-foreground cursor-pointer"
-        >
-          <Search className="absolute left-2.5 h-4 w-4 text-muted-foreground" />
-          <span className="flex-1 text-left">Ask AI anything…</span>
-          <div className="flex items-center gap-1 shrink-0">
-            <kbd className="text-[10px] px-1.5 py-0.5 border border-border/60 rounded bg-background/50">⌘K</kbd>
-          </div>
-        </button>
+        <div className="relative w-full max-w-md">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Quick search... (⌘K)"
+            className="pl-9 bg-muted/50 border-none focus-visible:ring-1"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                console.log("[v0] Global search triggered:", e.currentTarget.value)
+              }
+            }}
+          />
+        </div>
       </div>
 
       <div className="flex items-center gap-2 md:gap-3">
@@ -90,7 +93,7 @@ export function Header() {
           <LogOut size={18} />
         </Button>
       </div>
-    <CommandBar open={commandBarOpen} onClose={() => setCommandBarOpen(false)} />
+    
     </header>
   )
 }
