@@ -178,19 +178,45 @@ If you need vault files: call get_vault_files → get the exact titles → pass 
     const toolSchemaTokens = estimateTokens(JSON.stringify(ALL_TOOLS))
     console.log(`[AI-CMD] System: ~${systemTokens} tokens | Tools schema: ~${toolSchemaTokens} tokens | History: ${cappedHistory.length} msgs`)
 
-    // ── Multi-step tool loop (max 3 iterations) ─────────────────────────────
-    for (let step = 0; step < 3; step++) {
+    // ── Multi-step tool loop (max 4 iterations) ─────────────────────────────
+    // Extra iteration to accommodate: read → defer → action → response
+    for (let step = 0; step < 4; step++) {
       const inputTokens = estimateTokens(JSON.stringify(messages))
       console.log(`[AI-CMD] Step ${step + 1} | Input: ~${inputTokens} tokens`)
 
-      const response = await groq.chat.completions.create({
-        model: GROQ_MODEL,
-        messages,
-        tools: ALL_TOOLS as any,
-        tool_choice: "auto",
-        max_tokens: 1024,
-        temperature: 0.3,
-      })
+      // Try ALL_TOOLS first. If Groq returns a 400 schema validation error
+      // (model tried to batch reads+actions with template placeholders),
+      // retry with read-only tools to force proper sequencing.
+
+      let response: any
+      try {
+        response = await groq.chat.completions.create({
+          model: GROQ_MODEL,
+          messages,
+          tools: ALL_TOOLS as any,
+          tool_choice: "auto",
+          max_tokens: 1024,
+          temperature: 0.3,
+        })
+      } catch (apiError: any) {
+        // Groq returns 400 when the model tries to batch read+action tools
+        // with template placeholders (e.g. vault_file_names: "${vault_files}")
+        const errorMessage = apiError?.message || apiError?.error?.message || ""
+        if (apiError?.status === 400 && errorMessage.includes("tool_use_failed")) {
+          console.log(`[AI-CMD] Step ${step + 1} | Groq schema error — retrying with read-only tools`)
+          // Retry with only read tools to force read-first behavior
+          response = await groq.chat.completions.create({
+            model: GROQ_MODEL,
+            messages,
+            tools: [...ALL_TOOLS].filter((t: any) => READ_TOOL_NAMES.has(t.function.name)) as any,
+            tool_choice: "auto",
+            max_tokens: 1024,
+            temperature: 0.3,
+          })
+        } else {
+          throw apiError // Re-throw non-schema errors
+        }
+      }
 
       const choice = response.choices[0]
       const toolCalls = choice?.message?.tool_calls
@@ -215,6 +241,15 @@ If you need vault files: call get_vault_files → get the exact titles → pass 
           temperature: 0.5,
         })
         return createStreamSSEResponse(directStream, actionEvents)
+      }
+
+      // ── Detect mixed read+action batches and defer actions ─────────────
+      const hasReadCalls = toolCalls.some((tc: any) => READ_TOOL_NAMES.has(tc.function.name))
+      const hasActionCalls = toolCalls.some((tc: any) => !READ_TOOL_NAMES.has(tc.function.name))
+      const isMixedBatch = hasReadCalls && hasActionCalls
+
+      if (isMixedBatch) {
+        console.log(`[AI-CMD] Step ${step + 1} | Mixed batch detected — deferring action tools to next step`)
       }
 
       // Has tool calls — execute them
@@ -248,6 +283,22 @@ If you need vault files: call get_vault_files → get the exact titles → pass 
           if (result.teamData) actionContext.team = result.teamData
           if (result.projectData) actionContext.projects = result.projectData
         } else {
+          // ── Defer action tools in mixed batches ────────────────────
+          // If the model tried to call read + action tools in the same step,
+          // skip action tools so the model re-calls them with actual data
+          if (isMixedBatch) {
+            console.log(`[AI-CMD] Deferred ${toolName} — waiting for read results first`)
+            toolResults.push({
+              tool_call_id: toolCall.id,
+              role: "tool",
+              content: JSON.stringify({
+                success: false,
+                message: `Deferred: read tool results aren't available yet. Call ${toolName} again in the next step with the actual data from read tool results.`,
+              }),
+            })
+            continue
+          }
+
           // ── Deduplication guard for create actions ─────────────────
           if (toolName === "create_task" || toolName === "create_project") {
             if (createActionsExecuted.has(toolName)) {

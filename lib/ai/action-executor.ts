@@ -382,7 +382,24 @@ async function executeCreateTask(
   args: Record<string, any>,
   ctx: ActionContext
 ): Promise<ActionResult> {
-  const { title, notes, priority, status, due_date, assigned_to_name, project_name, bucket, deliverable_required, deliverable_description, vault_file_names, external_links } = args
+  let { title, notes, priority, status, due_date, assigned_to_name, project_name, bucket, deliverable_required, deliverable_description, vault_file_names, external_links } = args
+
+  // Coerce vault_file_names: model sometimes passes string instead of array
+  if (vault_file_names && !Array.isArray(vault_file_names)) {
+    if (typeof vault_file_names === "string" && vault_file_names.startsWith("$")) {
+      // Template placeholder like "${vault_files}" — ignore it
+      vault_file_names = []
+    } else if (typeof vault_file_names === "string") {
+      vault_file_names = [vault_file_names]
+    } else {
+      vault_file_names = []
+    }
+  }
+
+  // Coerce external_links similarly
+  if (external_links && !Array.isArray(external_links)) {
+    external_links = []
+  }
 
   if (!title?.trim()) {
     return { success: false, message: "Task title is required." }
