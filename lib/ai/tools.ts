@@ -13,7 +13,14 @@ If the user mentions a project name, match it against the known projects in cont
 If the user mentions a team member by name, match it against the known team members in context.
 For due_date, infer from natural language: "tomorrow", "next Friday", "end of week", etc. Use ISO date format.
 For bucket, use smart defaults: if due_date is today → "today", this week → "this-week", has assignee but no specific date → "delegated", no date → "backlog".
-Default priority is "medium" and default status is "todo" if not specified.`,
+Default priority is "medium" and default status is "todo" if not specified.
+
+## Resource Attachment Rules
+- When the task is linked to a project, CHECK the Vault section in context for files that belong to that project.
+- If the user says "attach the X" or "add the Y file", fuzzy-match against vault file titles for that project. If multiple files match, LIST the candidates and ASK the user which one they want.
+- If you think a vault file is clearly relevant to the task (e.g. user says "design task" and there's a "Brand Guidelines" file), SUGGEST attaching it: "I see 'Brand Guidelines' in the vault — want me to attach it?"
+- For external links: if the user provides a URL, include it in external_links. If they don't give a label, generate a smart label from the URL (e.g. "https://figma.com/file/abc" → "Figma Design File", "https://docs.google.com/..." → "Google Doc").
+- ONLY attach vault files that belong to the task's linked project. Do NOT attach files from other projects.`,
       parameters: {
         type: "object",
         properties: {
@@ -66,6 +73,31 @@ Default priority is "medium" and default status is "todo" if not specified.`,
             description:
               "What the assignee should submit as a deliverable. Only relevant if deliverable_required is true.",
           },
+          vault_file_names: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Vault file titles (or partial titles) to attach to this task. The files must belong to the linked project's vault. Each name will be fuzzy-matched against available vault files.",
+          },
+          external_links: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                url: {
+                  type: "string",
+                  description: "The URL of the external link",
+                },
+                label: {
+                  type: "string",
+                  description: "A human-readable label for the link. If the user doesn't provide one, generate a smart label from the URL domain/path (e.g. 'Figma Design', 'Google Doc', 'GitHub Issue').",
+                },
+              },
+              required: ["url", "label"],
+            },
+            description:
+              "External links to attach as resources. Always include a label — generate one from the URL if the user doesn't provide it.",
+          },
         },
         required: ["title"],
       },
@@ -79,7 +111,8 @@ Default priority is "medium" and default status is "todo" if not specified.`,
       description: `Update an existing task. You must identify the task either by its exact title or a close match. Search the active tasks list in context.
 Only include the fields that the user wants to change — don't overwrite fields they didn't mention.
 If the user wants to reassign, resolve the person's name from the team roster.
-If the user wants to change the project, resolve the project name from context.`,
+If the user wants to change the project, resolve the project name from context.
+For resource attachment: same rules as create_task — vault files must belong to the task's linked project, and external links should always have labels.`,
       parameters: {
         type: "object",
         properties: {
@@ -122,6 +155,24 @@ If the user wants to change the project, resolve the project name from context.`
             type: "string",
             enum: ["today", "this-week", "delegated", "backlog"],
             description: "New bucket",
+          },
+          vault_file_names: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Vault file titles to attach. Must belong to the task's linked project.",
+          },
+          external_links: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                url: { type: "string", description: "The URL" },
+                label: { type: "string", description: "Label for the link. Auto-generate from URL if user didn't provide one." },
+              },
+              required: ["url", "label"],
+            },
+            description: "External links to add as resources.",
           },
         },
         required: ["task_title"],

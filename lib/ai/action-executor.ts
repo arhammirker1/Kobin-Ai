@@ -114,6 +114,136 @@ function resolveProject(
   return null
 }
 
+// ── Resolve vault files by fuzzy title match ────────────────────────────────
+
+interface VaultAttachment {
+  vault_item_id: string
+  title: string
+  drive_file_url: string | null
+  link_url: string | null
+}
+
+async function resolveVaultFiles(
+  fileNames: string[],
+  projectId: string,
+  founderId: string
+): Promise<{ matched: VaultAttachment[]; unmatched: string[] }> {
+  if (!fileNames || fileNames.length === 0 || !projectId) {
+    return { matched: [], unmatched: fileNames || [] }
+  }
+
+  // Get all vault folders for the project
+  const { data: folders } = await supabaseAdmin
+    .from("vault_folders")
+    .select("id")
+    .eq("project_id", projectId)
+    .eq("founder_id", founderId)
+
+  if (!folders || folders.length === 0) {
+    return { matched: [], unmatched: fileNames }
+  }
+
+  const folderIds = folders.map((f) => f.id)
+
+  // Get all vault items in those folders
+  const { data: items } = await supabaseAdmin
+    .from("vault_items")
+    .select("id, title, item_type, drive_file_url, link_url")
+    .in("folder_id", folderIds)
+    .in("item_type", ["file", "link"])
+    .eq("founder_id", founderId)
+
+  if (!items || items.length === 0) {
+    return { matched: [], unmatched: fileNames }
+  }
+
+  const matched: VaultAttachment[] = []
+  const unmatched: string[] = []
+  const itemTitles = items.map((i) => i.title)
+
+  for (const name of fileNames) {
+    const result = fuzzyMatch(name, itemTitles)
+    if (result) {
+      const item = items[result.index]
+      // Avoid duplicates
+      if (!matched.some((m) => m.vault_item_id === item.id)) {
+        matched.push({
+          vault_item_id: item.id,
+          title: item.title,
+          drive_file_url: item.drive_file_url || null,
+          link_url: item.link_url || null,
+        })
+      }
+    } else {
+      unmatched.push(name)
+    }
+  }
+
+  return { matched, unmatched }
+}
+
+// ── Generate smart label from URL ───────────────────────────────────────────
+
+function generateLinkLabel(url: string, providedLabel?: string): string {
+  if (providedLabel?.trim()) return providedLabel.trim()
+
+  try {
+    const parsed = new URL(url)
+    const domain = parsed.hostname.replace(/^www\./, "")
+
+    // Known domain mappings
+    const domainLabels: Record<string, string> = {
+      "figma.com": "Figma Design",
+      "docs.google.com": "Google Doc",
+      "sheets.google.com": "Google Sheet",
+      "slides.google.com": "Google Slides",
+      "drive.google.com": "Google Drive File",
+      "github.com": "GitHub",
+      "gitlab.com": "GitLab",
+      "notion.so": "Notion Page",
+      "notion.site": "Notion Page",
+      "trello.com": "Trello Board",
+      "miro.com": "Miro Board",
+      "canva.com": "Canva Design",
+      "slack.com": "Slack",
+      "linear.app": "Linear Issue",
+      "jira.atlassian.net": "Jira Issue",
+      "asana.com": "Asana Task",
+      "airtable.com": "Airtable",
+      "loom.com": "Loom Video",
+      "youtube.com": "YouTube Video",
+      "youtu.be": "YouTube Video",
+      "dropbox.com": "Dropbox File",
+      "medium.com": "Medium Article",
+      "stackoverflow.com": "Stack Overflow",
+      "vercel.app": "Vercel Deployment",
+      "netlify.app": "Netlify Deployment",
+    }
+
+    // Check exact domain match
+    for (const [key, label] of Object.entries(domainLabels)) {
+      if (domain === key || domain.endsWith(`.${key}`)) {
+        // Refine GitHub labels
+        if (key === "github.com") {
+          const path = parsed.pathname
+          if (path.includes("/issues/")) return "GitHub Issue"
+          if (path.includes("/pull/")) return "GitHub PR"
+          if (path.includes("/wiki")) return "GitHub Wiki"
+          if (path.split("/").filter(Boolean).length === 2) return "GitHub Repo"
+          return "GitHub Link"
+        }
+        return label
+      }
+    }
+
+    // Fallback: capitalize domain name
+    const domainName = domain.split(".")[0]
+    return domainName.charAt(0).toUpperCase() + domainName.slice(1) + " Link"
+  } catch {
+    return "External Link"
+  }
+}
+
 // ── Find task by title ──────────────────────────────────────────────────────
 
 async function findTaskByTitle(
@@ -203,7 +333,7 @@ async function executeCreateTask(
   args: Record<string, any>,
   ctx: ActionContext
 ): Promise<ActionResult> {
-  const { title, notes, priority, status, due_date, assigned_to_name, project_name, bucket, deliverable_required, deliverable_description } = args
+  const { title, notes, priority, status, due_date, assigned_to_name, project_name, bucket, deliverable_required, deliverable_description, vault_file_names, external_links } = args
 
   if (!title?.trim()) {
     return { success: false, message: "Task title is required." }
@@ -241,6 +371,29 @@ async function executeCreateTask(
     }
   }
 
+  // Resolve vault file attachments
+  let vaultAttachments: VaultAttachment[] | null = null
+  let unmatchedFiles: string[] = []
+  if (vault_file_names && vault_file_names.length > 0 && projectId) {
+    const result = await resolveVaultFiles(vault_file_names, projectId, ctx.founder_id)
+    vaultAttachments = result.matched.length > 0 ? result.matched : null
+    unmatchedFiles = result.unmatched
+  } else if (vault_file_names && vault_file_names.length > 0 && !projectId) {
+    return {
+      success: false,
+      message: `Cannot attach vault files without a linked project. Please specify a project first, then I can attach files from its vault.`,
+    }
+  }
+
+  // Process external links with auto-labeling
+  let resources: Array<{ url: string; title: string }> | null = null
+  if (external_links && external_links.length > 0) {
+    resources = external_links.map((link: { url: string; label?: string }) => ({
+      url: link.url,
+      title: generateLinkLabel(link.url, link.label),
+    }))
+  }
+
   // Determine bucket
   const resolvedBucket = bucket || smartBucket(due_date, !!assignedTo)
 
@@ -258,9 +411,9 @@ async function executeCreateTask(
     is_completed: false,
     deliverable_required: deliverable_required || false,
     deliverable_description: deliverable_description || null,
-    resources: null,
+    resources: resources,
     linked: null,
-    vault_attachments: null,
+    vault_attachments: vaultAttachments,
   }
 
   const { data, error } = await supabaseAdmin
@@ -282,10 +435,22 @@ async function executeCreateTask(
   if (projectNameResolved) details.push(`Project: ${projectNameResolved}`)
   details.push(`Priority: ${(priority || "medium").charAt(0).toUpperCase() + (priority || "medium").slice(1)}`)
   details.push(`Bucket: ${resolvedBucket}`)
+  if (vaultAttachments && vaultAttachments.length > 0) {
+    details.push(`Vault files: ${vaultAttachments.map(v => v.title).join(", ")}`)
+  }
+  if (resources && resources.length > 0) {
+    details.push(`Links: ${resources.map(r => r.title).join(", ")}`)
+  }
+
+  // Build message with unmatched file warnings
+  let message = `Task created successfully.`
+  if (unmatchedFiles.length > 0) {
+    message += ` Note: Could not find vault files matching: ${unmatchedFiles.map(f => `"${f}"`).join(", ")}.`
+  }
 
   return {
     success: true,
-    message: `Task created successfully.`,
+    message,
     data: {
       task_id: data.id,
       title: data.title,
@@ -294,6 +459,9 @@ async function executeCreateTask(
       project: projectNameResolved,
       priority: priority || "medium",
       bucket: resolvedBucket,
+      vault_files_attached: vaultAttachments?.length || 0,
+      links_attached: resources?.length || 0,
+      unmatched_files: unmatchedFiles,
       summary: details.join(" | "),
     },
   }
@@ -305,7 +473,7 @@ async function executeUpdateTask(
   args: Record<string, any>,
   ctx: ActionContext
 ): Promise<ActionResult> {
-  const { task_title, new_title, notes, priority, status, due_date, assigned_to_name, project_name, bucket } = args
+  const { task_title, new_title, notes, priority, status, due_date, assigned_to_name, project_name, bucket, vault_file_names, external_links } = args
 
   if (!task_title?.trim()) {
     return { success: false, message: "Need a task title to find the task to update." }
@@ -365,10 +533,12 @@ async function executeUpdateTask(
   }
 
   // Resolve project
+  let resolvedProjectId = task.project_id
   if (project_name) {
     const project = resolveProject(project_name, ctx.projects)
     if (project) {
       updateData.project_id = project.id
+      resolvedProjectId = project.id
       changes.push(`Project → ${project.name}`)
     } else {
       return {
@@ -376,6 +546,49 @@ async function executeUpdateTask(
         message: `Could not find project "${project_name}". Available: ${ctx.projects.map((p) => p.name).join(", ") || "none"}.`,
       }
     }
+  }
+
+  // Resolve vault file attachments — merge with existing
+  let unmatchedFiles: string[] = []
+  if (vault_file_names && vault_file_names.length > 0) {
+    if (!resolvedProjectId) {
+      return {
+        success: false,
+        message: `Cannot attach vault files — this task isn't linked to a project. Link a project first.`,
+      }
+    }
+    const result = await resolveVaultFiles(vault_file_names, resolvedProjectId, ctx.founder_id)
+    unmatchedFiles = result.unmatched
+
+    if (result.matched.length > 0) {
+      // Merge with existing vault_attachments
+      const existing: VaultAttachment[] = task.vault_attachments || []
+      const merged = [...existing]
+      for (const newFile of result.matched) {
+        if (!merged.some((m) => m.vault_item_id === newFile.vault_item_id)) {
+          merged.push(newFile)
+        }
+      }
+      updateData.vault_attachments = merged
+      changes.push(`Vault files added: ${result.matched.map(v => v.title).join(", ")}`)
+    }
+  }
+
+  // Process external links — merge with existing
+  if (external_links && external_links.length > 0) {
+    const newResources = external_links.map((link: { url: string; label?: string }) => ({
+      url: link.url,
+      title: generateLinkLabel(link.url, link.label),
+    }))
+    const existing: Array<{ url: string; title?: string }> = task.resources || []
+    const merged = [...existing]
+    for (const nr of newResources) {
+      if (!merged.some((m) => m.url === nr.url)) {
+        merged.push(nr)
+      }
+    }
+    updateData.resources = merged
+    changes.push(`Links added: ${newResources.map((r: { title: string }) => r.title).join(", ")}`)
   }
 
   if (Object.keys(updateData).length === 0) {
@@ -392,13 +605,20 @@ async function executeUpdateTask(
     return { success: false, message: `Failed to update task: ${error.message}` }
   }
 
+  // Build message with unmatched file warnings
+  let message = `Task "${task.title}" updated.`
+  if (unmatchedFiles.length > 0) {
+    message += ` Note: Could not find vault files matching: ${unmatchedFiles.map(f => `"${f}"`).join(", ")}.`
+  }
+
   return {
     success: true,
-    message: `Task "${task.title}" updated.`,
+    message,
     data: {
       task_id: task.id,
       original_title: task.title,
       changes,
+      unmatched_files: unmatchedFiles,
     },
   }
 }

@@ -363,6 +363,7 @@ export async function buildCommandContext(founder_id: string): Promise<CommandCo
   // ── Vault ─────────────────────────────────────────────────────────────────
   if (vaultItems.length > 0) {
     lines.push(`\n## Vault (${vaultItems.length} items)`)
+    lines.push(`Note: These files can be attached to tasks using vault_file_names. Only attach files from the task's linked project.`)
     // Group by project
     const itemsByProject: Record<string, typeof vaultItems> = {}
     vaultItems.forEach(item => {
@@ -373,7 +374,8 @@ export async function buildCommandContext(founder_id: string): Promise<CommandCo
     Object.entries(itemsByProject).forEach(([proj, items]) => {
       lines.push(`\n  Project: ${proj}`)
       items.forEach(v => {
-        lines.push(`  - [${v.document_type}] ${v.title}${v.description ? `: ${v.description.slice(0, 60)}` : ""} | ${v.item_type} | by ${v.added_by_type}`)
+        const typeIcon = v.item_type === "file" ? "📄" : "🔗"
+        lines.push(`  - ${typeIcon} "${v.title}" | ${v.document_type} | ${v.item_type}${v.description ? ` | ${v.description.slice(0, 60)}` : ""}`)
       })
     })
   }
