@@ -10,7 +10,7 @@ export const ACTION_TOOLS = [
     type: "function" as const,
     function: {
       name: "create_task",
-      description: `Create a task. Requires title. Match names against team/project data from read tools. Infer due_date from natural language (ISO format). Auto-bucket: today/this-week/delegated/backlog. vault_file_names must belong to linked project.`,
+      description: `Create a task in ONE call with ALL details. Requires title. BEFORE calling this, use read tools to resolve: team member names (get_team_workload), project names (get_projects), and vault file titles (get_vault_files). Pass vault_file_names as exact titles from get_vault_files results. Infer due_date from natural language (ISO format). Auto-bucket: today/this-week/delegated/backlog. NEVER call this twice for the same task.`,
       parameters: {
         type: "object",
         properties: {

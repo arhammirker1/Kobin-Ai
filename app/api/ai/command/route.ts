@@ -143,13 +143,18 @@ export async function POST(request: Request) {
 ${miniContext}
 
 ## How You Work
-1. Use read tools (get_tasks, get_projects, get_team_workload, get_crm_pipeline, get_calendar, get_vault_files) to look up data before answering
-2. Use action tools (create_task, update_task, delete_task, create_project, update_project) to make changes
-3. Don't guess — if you need specific data, fetch it with a read tool
-4. For task assignment, check team workload first and suggest the least busy person
-5. Match names (people, projects) against data from read tools
-6. After actions, confirm what was done with specifics
-7. Be direct. Founders are busy. No filler.`
+1. ALWAYS gather ALL needed data with read tools BEFORE executing any action tool
+2. If the request mentions vault files, projects, or team members — call the relevant read tools FIRST in step 1
+3. Then call the action tool ONCE with ALL parameters (title, assignee, project, vault files, deliverables, links) in a single call
+4. NEVER call create_task or create_project more than once for the same request
+5. For task assignment, check team workload first via get_team_workload
+6. Match names (people, projects, vault files) against data from read tools
+7. After actions, confirm what was done with specifics
+8. Be direct. Founders are busy. No filler.
+
+## Critical: Single-Action Rule
+Each user request = at most ONE create_task / ONE create_project call. Gather everything first with read tools, then act once.
+If you need vault files: call get_vault_files → get the exact titles → pass them in vault_file_names when you call create_task.`
 
     // ── Build conversation messages ─────────────────────────────────────────
     // Cap history to last 6 messages to prevent token bloat
@@ -166,6 +171,7 @@ ${miniContext}
     const groq = getGroqClient()
     const actionEvents: Array<Record<string, any>> = []
     const toolsCalled: string[] = []
+    const createActionsExecuted = new Set<string>() // Dedup guard for create_task/create_project
 
     // ── Token logging ─────────────────────────────────────────────────────
     const systemTokens = estimateTokens(systemPrompt)
@@ -242,6 +248,23 @@ ${miniContext}
           if (result.teamData) actionContext.team = result.teamData
           if (result.projectData) actionContext.projects = result.projectData
         } else {
+          // ── Deduplication guard for create actions ─────────────────
+          if (toolName === "create_task" || toolName === "create_project") {
+            if (createActionsExecuted.has(toolName)) {
+              console.log(`[AI-CMD] BLOCKED duplicate ${toolName} call`)
+              toolResults.push({
+                tool_call_id: toolCall.id,
+                role: "tool",
+                content: JSON.stringify({
+                  success: false,
+                  message: `${toolName} was already executed in this request. The task/project already exists. Use update_task or update_project to modify it.`,
+                }),
+              })
+              continue
+            }
+            createActionsExecuted.add(toolName)
+          }
+
           // ── Action tool ───────────────────────────────────────────────
           const result = await executeAction(toolName as AIToolName, toolArgs, actionContext)
           console.log(`[AI-CMD] Action tool ${toolName} → ${result.success ? "success" : "failed"}`)
