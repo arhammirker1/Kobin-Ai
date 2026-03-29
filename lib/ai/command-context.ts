@@ -1,7 +1,14 @@
 import { supabaseAdmin } from "@/lib/supabase/admin"
 import { getGroqClient } from "@/lib/ai/groq"
+import type { TeamMemberContext, ProjectContext } from "@/lib/ai/action-executor"
 
-export async function buildCommandContext(founder_id: string): Promise<string> {
+export interface CommandContextResult {
+  contextText: string
+  teamMembers: TeamMemberContext[]
+  projects: ProjectContext[]
+}
+
+export async function buildCommandContext(founder_id: string): Promise<CommandContextResult> {
   console.log("[CMD-CTX] buildCommandContext called with founder_id:", founder_id)
   const now = new Date()
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
@@ -208,6 +215,26 @@ export async function buildCommandContext(founder_id: string): Promise<string> {
   lines.push(`Today: ${now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}`)
   lines.push(`Time: ${now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`)
 
+  // ── Build structured team data with workload ─────────────────────────────
+  const teamMemberContexts: TeamMemberContext[] = team
+    .filter((m: any) => m.is_active)
+    .map((m: any) => {
+      const taskCount = activeTasks.filter(t => t.assigned_to === m.user_id).length
+      return {
+        user_id: m.user_id,
+        full_name: m.profile?.full_name || "Unknown",
+        position: m.position || "",
+        active_task_count: taskCount,
+      }
+    })
+
+  // ── Build structured project data ─────────────────────────────────────────
+  const projectContexts: ProjectContext[] = projects.map(p => ({
+    id: p.id,
+    name: p.name,
+    status: p.status,
+  }))
+
   // ── Team ──────────────────────────────────────────────────────────────────
   lines.push(`\n## Team (${team.length} members)`)
   if (team.length === 0) {
@@ -217,6 +244,17 @@ export async function buildCommandContext(founder_id: string): Promise<string> {
       const status = m.is_active ? "active" : "inactive"
       lines.push(`- ${m.profile?.full_name} | ${m.position} | ${status} | email: ${m.profile?.email}`)
     })
+  }
+
+  // ── Team Workload (for assignment suggestions) ────────────────────────────
+  if (teamMemberContexts.length > 0) {
+    lines.push(`\n## Team Workload (active task counts)`)
+    const sorted = [...teamMemberContexts].sort((a, b) => a.active_task_count - b.active_task_count)
+    sorted.forEach(m => {
+      const load = m.active_task_count === 0 ? "FREE" : m.active_task_count <= 3 ? "LIGHT" : m.active_task_count <= 6 ? "MODERATE" : "HEAVY"
+      lines.push(`- ${m.full_name} (${m.position}): ${m.active_task_count} active tasks [${load}]`)
+    })
+    lines.push(`Suggestion: When assigning tasks, prefer team members with LIGHT or FREE workload.`)
   }
 
   // ── Projects ──────────────────────────────────────────────────────────────
@@ -386,5 +424,9 @@ export async function buildCommandContext(founder_id: string): Promise<string> {
   console.log(finalContext)
   console.log("[CMD-CTX] === FULL CONTEXT END ===")
   console.log("[CMD-CTX] Context length:", finalContext.length, "chars")
-  return finalContext
+  return {
+    contextText: finalContext,
+    teamMembers: teamMemberContexts,
+    projects: projectContexts,
+  }
 }

@@ -4,7 +4,8 @@ import { useState, useEffect, useRef, useCallback } from "react"
 import { cn } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/client"
 import {
-  Plus, X, Loader2, Send, ChevronLeft, Trash2, MessageSquare, Clock
+  Plus, X, Loader2, Send, ChevronLeft, Trash2, MessageSquare, Clock,
+  CheckCircle2, AlertTriangle
 } from "lucide-react"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -13,6 +14,30 @@ interface Message {
   role: "user" | "assistant"
   content: string
   timestamp: number
+  actionEvents?: ActionEvent[]
+}
+
+interface ActionEvent {
+  tool: string
+  task_id?: string
+  project_id?: string
+  title?: string
+  name?: string
+  summary?: string
+  needs_confirmation?: boolean
+  confirmation_action?: {
+    tool: string
+    args: Record<string, any>
+    resolved_id: string
+    description: string
+  }
+  [key: string]: any
+}
+
+interface PendingConfirmation {
+  description: string
+  task_id: string
+  loading: boolean
 }
 
 interface ChatSession {
@@ -48,14 +73,14 @@ function decompressMessages(compressed: string): Message[] {
 // ── Suggested queries ─────────────────────────────────────────────────────────
 
 const SUGGESTED = [
-  "Which clients haven't replied in 5 days?",
+  "Create a task for the next sprint",
   "Show me everything overdue",
   "Which projects are at risk?",
-  "What do I have today?",
+  "Assign the API integration task to someone free",
   "Who needs a follow-up?",
   "What's the status of every active client?",
-  "Which team member has the most open tasks?",
-  "Show me all blocked tasks",
+  "Which team member has the lightest workload?",
+  "Create a new project for the website redesign",
   "Draft my weekly review",
 ]
 
@@ -137,6 +162,7 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
   const [isStreaming, setIsStreaming] = useState(false)
   const [loadingSessions, setLoadingSessions] = useState(false)
   const [savingId, setSavingId] = useState<string | null>(null)
+  const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null)
 
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -226,6 +252,47 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
     }
   }, [supabase])
 
+  // ── Confirm delete handler ──────────────────────────────────────────────────
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!pendingConfirmation) return
+    setPendingConfirmation(prev => prev ? { ...prev, loading: true } : null)
+
+    try {
+      const res = await fetch("/api/ai/command", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ task_id: pendingConfirmation.task_id }),
+      })
+      const result = await res.json()
+
+      if (result.success) {
+        // Append confirmation message
+        setMessages(prev => [...prev, {
+          role: "assistant",
+          content: "✅ Task deleted successfully.",
+          timestamp: Date.now(),
+        }])
+        // Notify other components
+        window.dispatchEvent(new Event("tasks-updated"))
+      } else {
+        setMessages(prev => [...prev, {
+          role: "assistant",
+          content: `❌ Failed to delete: ${result.message}`,
+          timestamp: Date.now(),
+        }])
+      }
+    } catch {
+      setMessages(prev => [...prev, {
+        role: "assistant",
+        content: "❌ Something went wrong while deleting.",
+        timestamp: Date.now(),
+      }])
+    } finally {
+      setPendingConfirmation(null)
+    }
+  }, [pendingConfirmation])
+
   // ── Send message ───────────────────────────────────────────────────────────
 
   const sendMessage = useCallback(async (text?: string) => {
@@ -234,6 +301,7 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
 
     setInput("")
     setView("chat")
+    setPendingConfirmation(null)
 
     const userMsg: Message = { role: "user", content: question, timestamp: Date.now() }
     const nextMessages = [...messages, userMsg]
@@ -258,6 +326,7 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let accumulated = ""
+      const collectedActions: ActionEvent[] = []
 
       while (true) {
         const { done, value } = await reader.read()
@@ -275,14 +344,47 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
                 updated[updated.length - 1] = {
                   role: "assistant",
                   content: accumulated,
-                  timestamp: Date.now()
+                  timestamp: Date.now(),
+                  actionEvents: collectedActions.length > 0 ? [...collectedActions] : undefined,
                 }
                 return updated
               })
+            } else if (parsed.type === "action_executed") {
+              const { type, ...actionData } = parsed
+              collectedActions.push(actionData as ActionEvent)
+
+              // Dispatch custom events for SWR invalidation
+              if (actionData.tool?.includes("task")) {
+                window.dispatchEvent(new Event("tasks-updated"))
+              }
+              if (actionData.tool?.includes("project")) {
+                window.dispatchEvent(new Event("projects-updated"))
+              }
+
+              // Handle delete confirmation
+              if (actionData.needs_confirmation && actionData.confirmation_action) {
+                setPendingConfirmation({
+                  description: actionData.confirmation_action.description,
+                  task_id: actionData.confirmation_action.resolved_id,
+                  loading: false,
+                })
+              }
             }
           } catch {}
         }
       }
+
+      // Attach collected actions to final message
+      setMessages(prev => {
+        const updated = [...prev]
+        updated[updated.length - 1] = {
+          role: "assistant",
+          content: accumulated,
+          timestamp: Date.now(),
+          actionEvents: collectedActions.length > 0 ? collectedActions : undefined,
+        }
+        return updated
+      })
 
       // Save to DB
       const finalMsgs = [...nextMessages, { role: "assistant" as const, content: accumulated, timestamp: Date.now() }]
@@ -528,6 +630,49 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
                         </div>
                       ) : (
                         <div>
+                          {/* Action event cards */}
+                          {msg.actionEvents && msg.actionEvents.length > 0 && (
+                            <div className="flex flex-col gap-2 mb-3">
+                              {msg.actionEvents.map((action, ai) => (
+                                <div key={ai}>
+                                  {action.needs_confirmation ? (
+                                    /* Delete confirmation card */
+                                    <div className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl border border-amber-500/30 bg-amber-500/5">
+                                      <AlertTriangle size={14} className="text-amber-400 shrink-0 mt-0.5" />
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-xs font-medium text-amber-300">
+                                          Confirm deletion
+                                        </p>
+                                        <p className="text-[11px] text-[#8A8A85] mt-0.5">
+                                          {action.confirmation_action?.description}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    /* Success action card */
+                                    <div className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/5">
+                                      <CheckCircle2 size={14} className="text-emerald-400 shrink-0 mt-0.5" />
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-xs font-medium text-emerald-300">
+                                          {action.tool === "create_task" && "Task created"}
+                                          {action.tool === "update_task" && "Task updated"}
+                                          {action.tool === "create_project" && "Project created"}
+                                          {action.tool === "update_project" && "Project updated"}
+                                        </p>
+                                        {action.summary && (
+                                          <p className="text-[11px] text-[#8A8A85] mt-0.5 truncate">{action.summary}</p>
+                                        )}
+                                        {action.changes && action.changes.length > 0 && (
+                                          <p className="text-[11px] text-[#8A8A85] mt-0.5 truncate">{action.changes.join(" · ")}</p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
                           {msg.content ? (
                             renderMarkdown(msg.content)
                           ) : (
@@ -555,6 +700,32 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
                     </div>
                   </div>
                 ))}
+
+                {/* Pending delete confirmation buttons */}
+                {pendingConfirmation && !isStreaming && (
+                  <div className="flex items-center gap-2 ml-9">
+                    <button
+                      onClick={handleConfirmDelete}
+                      disabled={pendingConfirmation.loading}
+                      className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                    >
+                      {pendingConfirmation.loading ? (
+                        <Loader2 size={11} className="animate-spin" />
+                      ) : (
+                        <Trash2 size={11} />
+                      )}
+                      Confirm Delete
+                    </button>
+                    <button
+                      onClick={() => setPendingConfirmation(null)}
+                      disabled={pendingConfirmation.loading}
+                      className="px-3 py-1.5 rounded-lg text-xs text-[#8A8A85] border border-[#333331] hover:bg-[#252523] transition-colors disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+
                 <div ref={messagesEndRef} />
               </div>
             )}
@@ -607,7 +778,7 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
             </div>
             <div className="flex items-center justify-between mt-2 px-1">
               <span className="text-[10px] text-[#444442]">
-                ✦ Llama 3.3 70B · Full workspace context
+                ✦ Llama 3.3 70B · Ask questions or take actions
               </span>
               <div className="flex items-center gap-3 text-[10px] text-[#444442]">
                 <span>↵ send</span>

@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -881,6 +881,15 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
     },
     { revalidateOnFocus: true }
   )
+
+  // Listen for AI-triggered task updates (from command bar actions)
+  useEffect(() => {
+    const handleTasksUpdated = () => {
+      mutateTasks()
+    }
+    window.addEventListener("tasks-updated", handleTasksUpdated)
+    return () => window.removeEventListener("tasks-updated", handleTasksUpdated)
+  }, [mutateTasks])
 
   const { data: allTasksForStats } = useSWR("all-tasks-analytics", async () => {
     const { data: { user } } = await supabase.auth.getUser()
