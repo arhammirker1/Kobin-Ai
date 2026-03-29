@@ -33,7 +33,7 @@ export async function buildCommandContext(founder_id: string): Promise<string> {
     supabaseAdmin
       .from("tasks")
       .select("id, title, status, priority, due_date, assigned_to, is_completed, bucket, project_id, notes, created_at, updated_at, deliverable_required, deliverable_vault_item_id")
-      .or(`user_id.eq.${founder_id},created_by.eq.${founder_id}`)
+      .eq("user_id", founder_id)
       .order("created_at", { ascending: false })
       .limit(100),
 
@@ -76,6 +76,7 @@ export async function buildCommandContext(founder_id: string): Promise<string> {
     supabaseAdmin
       .from("clients")
       .select("id, name, email, company, role, status, project_id, has_portal_access, can_create_tasks, notes, tags, created_at")
+      .eq("founder_id", founder_id)
       .neq("status", "archived")
       .order("created_at", { ascending: false })
       .limit(30),
@@ -113,9 +114,7 @@ export async function buildCommandContext(founder_id: string): Promise<string> {
       .from("chat_messages")
       .select("content, created_at, sender_id, room_id, message_type")
       .not("content", "is", null)
-      .not("message_type", "eq", "event_invite")
-      .not("message_type", "eq", "task_ref")
-      .not("message_type", "eq", "ai_response")
+      .or("message_type.is.null,message_type.not.in.(event_invite,task_ref,ai_response)")
       .gte("created_at", sevenDaysAgo.toISOString())
       .order("created_at", { ascending: false })
       .limit(50),
