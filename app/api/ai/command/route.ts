@@ -30,6 +30,7 @@ if (!message?.trim()) return NextResponse.json({ error: "Message required" }, { 
       if (tm?.founder_id) founder_id = tm.founder_id
     }
 
+    console.log("[CMD-ROUTE] user.id:", user.id, "resolved founder_id:", founder_id)
     const context = await buildCommandContext(founder_id)
 
     const systemPrompt = `You are the AI command interface for Command Center — an agency operating system. You have full visibility into the entire workspace across all projects, clients, tasks, and relationships.
@@ -42,6 +43,9 @@ ${context}
 - When listing items, use clear structure (numbered lists, bullet points).
 - Reference specific names, deadlines, and amounts where relevant.
 - Today's date: ${new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}`
+
+    console.log("[CMD-ROUTE] System prompt length:", systemPrompt.length, "chars")
+    console.log("[CMD-ROUTE] User message:", message)
 
     const groq = getGroqClient()
     const stream = await groq.chat.completions.create({

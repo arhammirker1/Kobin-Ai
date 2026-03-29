@@ -2,6 +2,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin"
 import { getGroqClient } from "@/lib/ai/groq"
 
 export async function buildCommandContext(founder_id: string): Promise<string> {
+  console.log("[CMD-CTX] buildCommandContext called with founder_id:", founder_id)
   const now = new Date()
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
   const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
@@ -139,6 +140,15 @@ export async function buildCommandContext(founder_id: string): Promise<string> {
       .limit(10),
   ])
 
+  // ── DEBUG: Raw query results ──
+  console.log("[CMD-CTX] activeTasksRes error:", activeTasksRes.error)
+  console.log("[CMD-CTX] activeTasksRes.data count:", activeTasksRes.data?.length ?? "null")
+  console.log("[CMD-CTX] activeTasksRes.data:", JSON.stringify(activeTasksRes.data, null, 2))
+  console.log("[CMD-CTX] completedTasksRes error:", completedTasksRes.error)
+  console.log("[CMD-CTX] completedTasksRes.data count:", completedTasksRes.data?.length ?? "null")
+  console.log("[CMD-CTX] allProjectsRes error:", allProjectsRes.error)
+  console.log("[CMD-CTX] allProjectsRes.data count:", allProjectsRes.data?.length ?? "null")
+
   const profile = profileRes.data
   const activeTasks = activeTasksRes.data || []
   const completedTasks = completedTasksRes.data || []
@@ -154,6 +164,8 @@ export async function buildCommandContext(founder_id: string): Promise<string> {
   const rooms = allRoomsRes.data || []
   const recentMessages = (recentMessagesRes.data || []).reverse()
   const linkedinPosts = linkedinPostsRes.data || []
+
+  console.log("[CMD-CTX] Task counts — active:", activeTasks.length, "completed:", completedTasks.length)
 
   // Fetch task-to-assignee name mapping
   const assigneeIds = [...new Set(tasks.map(t => t.assigned_to).filter(Boolean))] as string[]
@@ -369,5 +381,10 @@ export async function buildCommandContext(founder_id: string): Promise<string> {
     }
   }
 
-  return lines.join("\n")
+  const finalContext = lines.join("\n")
+  console.log("[CMD-CTX] === FULL CONTEXT START ===")
+  console.log(finalContext)
+  console.log("[CMD-CTX] === FULL CONTEXT END ===")
+  console.log("[CMD-CTX] Context length:", finalContext.length, "chars")
+  return finalContext
 }
