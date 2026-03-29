@@ -247,7 +247,10 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
       const res = await fetch("/api/ai/command", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: question }),
+        body: JSON.stringify({
+          message: question,
+          history: messages.map((m) => ({ role: m.role, content: m.content })),
+        }),
       })
 
       if (!res.ok || !res.body) throw new Error("Request failed")

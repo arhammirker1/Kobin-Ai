@@ -9,8 +9,8 @@ export async function POST(request: Request) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    const { message } = await request.json()
-    if (!message?.trim()) return NextResponse.json({ error: "Message required" }, { status: 400 })
+    const { message, history = [] } = await request.json()
+if (!message?.trim()) return NextResponse.json({ error: "Message required" }, { status: 400 })
 
     let founder_id = user.id
     const { data: profile } = await supabaseAdmin
@@ -47,9 +47,13 @@ ${context}
     const stream = await groq.chat.completions.create({
       model: GROQ_MODEL,
       messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: message },
-      ],
+      { role: "system", content: systemPrompt },
+      ...history.map((m: { role: string; content: string }) => ({
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      })),
+      { role: "user", content: message },
+    ],
       stream: true,
       max_tokens: 1024,
       temperature: 0.5,
