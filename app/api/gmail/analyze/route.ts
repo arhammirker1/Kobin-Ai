@@ -139,6 +139,7 @@ export async function POST(request: Request) {
         sentiment: analysis.sentiment,
         signals: analysis.signals,
         reasoning: analysis.reasoning,
+        thread_subject: subject || null,
       })
     }
 

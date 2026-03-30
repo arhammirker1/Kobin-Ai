@@ -797,11 +797,11 @@ async function execSearchContacts(
   const { name } = args
   if (!name) return { content: "No name provided to search." }
 
-  // Fuzzy search contacts by name
+  // Fuzzy search contacts by name — include lead scoring + ghosting columns
   const { data: contacts, error } = await supabaseAdmin
     .from("relationships")
     .select(
-      "id, full_name, email, company, role, relationship_type, pipeline_stage, deal_value, close_probability, stage_entered_at, expected_close_date, pipeline_notes, linkedin_profile_url, tags, status, created_at, updated_at"
+      "id, full_name, email, company, role, relationship_type, pipeline_stage, deal_value, close_probability, stage_entered_at, expected_close_date, pipeline_notes, linkedin_profile_url, tags, status, created_at, updated_at, lead_score, lead_status, is_ghosting, ghosting_days, last_inbound_at, last_outbound_at"
     )
     .eq("user_id", founderId)
     .ilike("full_name", `%${name}%`)
@@ -849,6 +849,21 @@ async function execSearchContacts(
     if (c.pipeline_notes) lines.push(`Notes: ${c.pipeline_notes}`)
     if (c.tags && c.tags.length > 0) lines.push(`Tags: ${c.tags.join(", ")}`)
     lines.push(`Added: ${shortDate(c.created_at)} | Last updated: ${shortDate(c.updated_at)}`)
+
+    // ── Lead Score & Ghosting ─────────────────────────────────────────
+    const scoreLabel = (c.lead_status || "cold").toUpperCase()
+    lines.push(`\nLead score: ${c.lead_score || 0}/100 (${scoreLabel})`)
+    if (c.is_ghosting) {
+      lines.push(`⚠ GHOSTING: No reply for ${c.ghosting_days || 0} days`)
+    }
+    if (c.last_inbound_at) {
+      const lastIn = new Date(c.last_inbound_at)
+      const daysAgo = Math.floor((now.getTime() - lastIn.getTime()) / (1000 * 60 * 60 * 24))
+      lines.push(`Last inbound email: ${shortDate(c.last_inbound_at)} (${daysAgo}d ago)`)
+    }
+    if (c.last_outbound_at) {
+      lines.push(`Last outbound email: ${shortDate(c.last_outbound_at)}`)
+    }
 
     // ── Upcoming & recent meetings ────────────────────────────────────
     const [upcomingRes, pastRes] = await Promise.all([
@@ -898,23 +913,91 @@ async function execSearchContacts(
       }
     }
 
-    // ── Recent Gmail threads ──────────────────────────────────────────
-    const { data: threads } = await supabaseAdmin
-      .from("gmail_threads")
-      .select("subject, snippet, sender_email, sender_name, last_message_at, message_count, is_unread")
+    // ── Email conversation history (from email_analyses) ──────────────
+    const { data: emailAnalyses } = await supabaseAdmin
+      .from("email_analyses")
+      .select(
+        "gmail_thread_id, gmail_message_id, intent, intent_confidence, sentiment, signals, direction, analyzed_at, thread_subject"
+      )
       .eq("user_id", founderId)
-      .eq("relationship_id", c.id)
-      .order("last_message_at", { ascending: false })
-      .limit(5)
+      .eq("contact_id", c.id)
+      .not("gmail_message_id", "like", "__thread_meta_%")
+      .order("analyzed_at", { ascending: false })
+      .limit(30)
 
-    if (threads && threads.length > 0) {
-      lines.push(`\nRecent emails (${threads.length}):`)
-      for (const t of threads) {
-        const date = t.last_message_at ? shortDate(t.last_message_at) : ""
-        const unread = t.is_unread ? " [UNREAD]" : ""
-        lines.push(`- ${date}: "${t.subject}" (${t.message_count} msgs)${unread}`)
-        if (t.snippet) lines.push(`  ${t.snippet.slice(0, 100)}`)
+    if (emailAnalyses && emailAnalyses.length > 0) {
+      // Group by thread
+      const threadMap: Record<string, {
+        subject: string | null
+        messages: typeof emailAnalyses
+        lastDate: string
+      }> = {}
+
+      for (const a of emailAnalyses) {
+        const tid = a.gmail_thread_id
+        if (!threadMap[tid]) {
+          threadMap[tid] = {
+            subject: a.thread_subject || null,
+            messages: [],
+            lastDate: a.analyzed_at,
+          }
+        }
+        threadMap[tid].messages.push(a)
+        // Keep the subject from whichever row has it
+        if (a.thread_subject && !threadMap[tid].subject) {
+          threadMap[tid].subject = a.thread_subject
+        }
       }
+
+      const threadEntries = Object.entries(threadMap)
+        .sort(([, a], [, b]) => new Date(b.lastDate).getTime() - new Date(a.lastDate).getTime())
+
+      lines.push(`\nEmail conversations (${threadEntries.length} threads, ${emailAnalyses.length} analyzed messages):`)
+
+      for (const [, thread] of threadEntries.slice(0, 5)) {
+        const inbound = thread.messages.filter((m) => m.direction === "inbound")
+        const outbound = thread.messages.filter((m) => m.direction === "outbound")
+        const totalMsgs = thread.messages.length
+
+        // Determine dominant intent from inbound messages
+        let dominantIntent = "neutral"
+        let highestConf = 0
+        for (const m of inbound) {
+          if (m.intent !== "neutral" && m.intent_confidence > highestConf) {
+            dominantIntent = m.intent
+            highestConf = m.intent_confidence
+          }
+        }
+
+        // Overall sentiment from inbound
+        const sentimentCounts: Record<string, number> = { positive: 0, neutral: 0, negative: 0 }
+        for (const m of inbound) {
+          sentimentCounts[m.sentiment] = (sentimentCounts[m.sentiment] || 0) + 1
+        }
+        const overallSentiment = Object.entries(sentimentCounts)
+          .sort(([, a], [, b]) => b - a)[0]?.[0] || "neutral"
+
+        // Collect all signals
+        const allSignals = [...new Set(inbound.flatMap((m) => m.signals || []))]
+
+        // Days since last activity
+        const lastActivity = new Date(thread.lastDate)
+        const daysAgo = Math.floor((now.getTime() - lastActivity.getTime()) / (1000 * 60 * 60 * 24))
+        const dateLabel = shortDate(thread.lastDate)
+
+        const subjectLabel = thread.subject
+          ? `"${thread.subject}"`
+          : "(no subject)"
+
+        lines.push(
+          `- ${subjectLabel} | ${totalMsgs} msgs (${inbound.length}↓ ${outbound.length}↑) | Last: ${dateLabel} (${daysAgo}d ago) | Intent: ${dominantIntent.replace(/_/g, " ")} | Sentiment: ${overallSentiment}`
+        )
+        if (allSignals.length > 0) {
+          lines.push(`  Signals: ${allSignals.slice(0, 4).join(", ")}`)
+        }
+      }
+    } else {
+      lines.push("\nNo analyzed email conversations")
     }
 
     lines.push("") // spacer between contacts
@@ -922,3 +1005,4 @@ async function execSearchContacts(
 
   return { content: lines.join("\n") }
 }
+
