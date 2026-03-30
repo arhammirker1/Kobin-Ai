@@ -1373,6 +1373,7 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
   const [activeGmailThread, setActiveGmailThread] = useState<GmailThread | null>(null)
   const [gmailConnected, setGmailConnected] = useState(false)
   const [loadingGmail, setLoadingGmail] = useState(false)
+  const [gmailFilter, setGmailFilter] = useState<"crm" | "all">("crm")
 
   // AI streaming state
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null)
@@ -1411,10 +1412,50 @@ const filteredRooms = useMemo(() => {
   const realtimeRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
   const messagesRef = useRef<ChatMessage[]>([])
   // ── Boot ────────────────────────────────────────────────────────────────────
-  const loadGmailThreads = useCallback(async () => {
+  const loadGmailThreads = useCallback(async (filter: "crm" | "all" = "crm") => {
     setLoadingGmail(true)
     try {
-      const res = await fetch("/api/gmail/threads")
+      let url = "/api/gmail/threads"
+
+      if (filter === "crm") {
+        // Fetch all CRM contact emails (relationships + clients) from Supabase
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user) {
+          const [{ data: rels }, { data: clients }] = await Promise.all([
+            supabase
+              .from("relationships")
+              .select("email")
+              .eq("user_id", user.id)
+              .not("email", "is", null),
+            supabase
+              .from("clients")
+              .select("email")
+              .eq("founder_id", user.id)
+              .not("email", "is", null),
+          ])
+
+          const emails = [
+            ...(rels || []).map((r: any) => r.email as string),
+            ...(clients || []).map((c: any) => c.email as string),
+          ]
+            .filter(Boolean)
+            .map((e) => e.toLowerCase().trim())
+
+          const unique = [...new Set(emails)]
+
+          if (unique.length === 0) {
+            // No CRM contacts with emails — show empty state
+            setGmailConnected(true)
+            setGmailThreads([])
+            return
+          }
+
+          url = `/api/gmail/threads?emails=${encodeURIComponent(unique.join(","))}`
+        }
+      }
+      // filter === "all" just uses the base URL (in:inbox)
+
+      const res = await fetch(url)
       const data = await res.json()
       setGmailConnected(data.connected || false)
       setGmailThreads(data.threads || [])
@@ -1423,7 +1464,7 @@ const filteredRooms = useMemo(() => {
     } finally {
       setLoadingGmail(false)
     }
-  }, [])
+  }, [supabase])
 
   useEffect(() => {
     const init = async () => {
@@ -1437,10 +1478,16 @@ const filteredRooms = useMemo(() => {
         .single()
 
       if (profile) setCurrentUser(profile as Profile)
-      await Promise.all([loadRooms(user.id), loadPeople(user.id), loadGmailThreads()])
+      // Load chat rooms + people in parallel; Gmail loads via its own effect
+      await Promise.all([loadRooms(user.id), loadPeople(user.id)])
     }
     init()
   }, [supabase])
+
+  // Reload Gmail threads whenever the filter changes (including initial mount)
+  useEffect(() => {
+    loadGmailThreads(gmailFilter)
+  }, [gmailFilter, loadGmailThreads])
 
   // ── Load rooms ─────────────────────────────────────────────────────────────
   const loadRooms = useCallback(async (userId: string) => {
@@ -2422,12 +2469,42 @@ if (error) {
                 </svg>
                 Gmail
               </span>
-              {gmailConnected && gmailThreads.filter(t => t.unread).length > 0 && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/20">
-                  {gmailThreads.filter(t => t.unread).length}
-                </span>
-              )}
+              <div className="flex items-center gap-1">
+                {gmailConnected && gmailThreads.filter(t => t.unread).length > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/20">
+                    {gmailThreads.filter(t => t.unread).length}
+                  </span>
+                )}
+              </div>
             </div>
+
+            {/* Filter toggle — CRM Contacts (default) vs All inbox */}
+            {gmailConnected && (
+              <div className="flex items-center gap-1 px-2 mb-2">
+                <button
+                  onClick={() => setGmailFilter("crm")}
+                  className={cn(
+                    "flex-1 py-1 rounded text-[10px] font-semibold transition-colors",
+                    gmailFilter === "crm"
+                      ? "bg-primary/15 text-primary border border-primary/25"
+                      : "text-muted-foreground hover:bg-muted/50 border border-transparent"
+                  )}
+                >
+                  CRM
+                </button>
+                <button
+                  onClick={() => setGmailFilter("all")}
+                  className={cn(
+                    "flex-1 py-1 rounded text-[10px] font-semibold transition-colors",
+                    gmailFilter === "all"
+                      ? "bg-muted text-foreground border border-border"
+                      : "text-muted-foreground hover:bg-muted/50 border border-transparent"
+                  )}
+                >
+                  All
+                </button>
+              </div>
+            )}
 
             {!gmailConnected ? (
               <div className="px-2 py-2 text-[11px] text-muted-foreground">
@@ -2438,7 +2515,11 @@ if (error) {
             ) : loadingGmail ? (
               <div className="px-2 py-1.5 text-[11px] text-muted-foreground">Loading…</div>
             ) : gmailThreads.length === 0 ? (
-              <div className="px-2 py-1.5 text-[11px] text-muted-foreground">No inbox threads</div>
+              <div className="px-2 py-2 text-[11px] text-muted-foreground leading-relaxed">
+                {gmailFilter === "crm"
+                  ? "No emails from CRM contacts yet"
+                  : "No inbox threads"}
+              </div>
             ) : (
               gmailThreads.map((thread) => (
                 <button
