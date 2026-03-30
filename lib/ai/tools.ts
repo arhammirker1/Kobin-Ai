@@ -58,15 +58,8 @@ export const ACTION_TOOLS = [
           },
           external_links: {
             type: "array",
-            items: {
-              type: "object",
-              properties: {
-                url: { type: "string" },
-                label: { type: "string", description: "Auto-generated from URL if not provided" },
-              },
-              required: ["url", "label"],
-            },
-            description: "External links to attach. Field name is external_links, NOT links.",
+            items: { type: "string" },
+            description: "External links as plain URL strings e.g. ['https://figma.com/file/xyz']. Field name is external_links, NOT links.",
           },
         },
         required: ["title"],

@@ -246,9 +246,9 @@ Example:
           temperature: 0.3,
         })
       } catch (apiError: any) {
-        // Groq returns 400 when the model outputs malformed tool args
-        // (e.g. string "true" for boolean, or template placeholders)
         const errorMessage = apiError?.message || apiError?.error?.message || ""
+        console.error(`[AI-CMD] Step ${step + 1} | API error status=${apiError?.status} message=${errorMessage}`)
+        console.error(`[AI-CMD] Full error:`, JSON.stringify(apiError?.error || apiError, null, 2))
         if (apiError?.status === 400 && errorMessage.includes("tool_use_failed")) {
           console.log(`[AI-CMD] Step ${step + 1} | Groq schema error — retrying with read-only tools`)
           try {
@@ -261,8 +261,9 @@ Example:
               temperature: 0.3,
             })
           } catch (retryError: any) {
-            // Read-only retry also failed — fall back to no tools
-            console.log(`[AI-CMD] Step ${step + 1} | Read-only retry also failed — falling back to plain response`)
+            const retryMessage = retryError?.message || retryError?.error?.message || ""
+            console.error(`[AI-CMD] Step ${step + 1} | Read-only retry failed status=${retryError?.status} message=${retryMessage}`)
+            console.error(`[AI-CMD] Read-only retry full error:`, JSON.stringify(retryError?.error || retryError, null, 2))
             response = await groq.chat.completions.create({
               model: GROQ_MODEL,
               messages,
@@ -271,7 +272,7 @@ Example:
             })
           }
         } else {
-          throw apiError // Re-throw non-schema errors
+          throw apiError
         }
       }
 

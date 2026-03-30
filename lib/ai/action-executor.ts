@@ -453,13 +453,14 @@ async function executeCreateTask(
     }
   }
 
-  // Process external links with auto-labeling
+  // Process external links with auto-labeling — accept both string[] and object[]
   let resources: Array<{ url: string; title: string }> | null = null
   if (external_links && external_links.length > 0) {
-    resources = external_links.map((link: { url: string; label?: string }) => ({
-      url: link.url,
-      title: generateLinkLabel(link.url, link.label),
-    }))
+    resources = external_links.map((link: string | { url: string; label?: string }) => {
+      const url = typeof link === "string" ? link : link.url
+      const label = typeof link === "string" ? undefined : link.label
+      return { url, title: generateLinkLabel(url, label) }
+    })
   }
 
   // Determine bucket
@@ -644,10 +645,11 @@ async function executeUpdateTask(
 
   // Process external links — merge with existing
   if (external_links && external_links.length > 0) {
-    const newResources = external_links.map((link: { url: string; label?: string }) => ({
-      url: link.url,
-      title: generateLinkLabel(link.url, link.label),
-    }))
+    const newResources = external_links.map((link: string | { url: string; label?: string }) => {
+      const url = typeof link === "string" ? link : link.url
+      const label = typeof link === "string" ? undefined : link.label
+      return { url, title: generateLinkLabel(url, label) }
+    })
     const existing: Array<{ url: string; title?: string }> = task.resources || []
     const merged = [...existing]
     for (const nr of newResources) {
