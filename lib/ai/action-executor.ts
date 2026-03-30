@@ -478,7 +478,7 @@ async function executeCreateTask(
     project_id: projectId,
     bucket: resolvedBucket,
     is_completed: false,
-    deliverable_required: deliverable_required || false,
+    deliverable_required: deliverable_required === true || deliverable_required === "true",
     deliverable_description: deliverable_description || null,
     resources: resources,
     linked: null,

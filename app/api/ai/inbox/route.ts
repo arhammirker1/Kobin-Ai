@@ -206,13 +206,17 @@ Use the conversation history. If a task was mentioned recently, that is the task
       } catch (apiError: any) {
         const errorMessage = apiError?.message || apiError?.error?.message || ""
         if (apiError?.status === 400 && errorMessage.includes("tool_use_failed")) {
-          console.log(`[AI-INBOX] Step ${step + 1} | Schema error — retrying with read-only tools`)
+          console.log(`[AI-INBOX] Step ${step + 1} | Schema error — retrying with NO tools`)
           try {
             response = await groq.chat.completions.create({
               model: GROQ_MODEL,
-              messages,
-              tools: [...ALL_TOOLS].filter((t: any) => READ_TOOL_NAMES.has(t.function.name)) as any,
-              tool_choice: "auto",
+              messages: [
+                ...messages,
+                {
+                  role: "user" as const,
+                  content: "The previous tool call had invalid parameters. Please respond in plain text without calling any tools.",
+                }
+              ],
               max_tokens: 1024,
               temperature: 0.4,
             })

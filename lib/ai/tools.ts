@@ -44,8 +44,9 @@ export const ACTION_TOOLS = [
             description: "Auto-determined if not set",
           },
           deliverable_required: {
-            type: "boolean",
-            description: "Require deliverable upload on completion",
+            type: "string",
+            enum: ["true", "false"],
+            description: "Whether a deliverable upload is required on completion. Pass 'true' or 'false' as a string.",
           },
           deliverable_description: {
             type: "string",
