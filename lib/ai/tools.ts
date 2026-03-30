@@ -10,33 +10,33 @@ export const ACTION_TOOLS = [
     type: "function" as const,
     function: {
       name: "create_task",
-      description: `Create a task in ONE call with ALL details. Requires title. BEFORE calling this, use read tools to resolve: team member names (get_team_workload), project names (get_projects), and vault file titles (get_vault_files). STRICT FIELD NAMES: use assigned_to_name (NOT assignee), project_name (NOT project), vault_file_names (NOT vault_files), external_links (NOT links). Pass vault_file_names as exact titles from get_vault_files results. Infer due_date from natural language (ISO format). Auto-bucket: today/this-week/delegated/backlog. NEVER call this twice for the same task.`,
+      description: `Create a task in ONE call with ALL details. Requires title. BEFORE calling this, use read tools to resolve: team member names (get_team_workload), project names (get_projects), and vault file titles (get_vault_files). ALL parameter values must be plain strings or arrays — NEVER pass objects or nested structures. STRICT FIELD NAMES: use assigned_to_name (NOT assignee), project_name (NOT project), vault_file_names (NOT vault_files), external_links (NOT links). Pass vault_file_names as exact titles from get_vault_files results. Infer due_date from natural language (ISO format). Auto-bucket: today/this-week/delegated/backlog. NEVER call this twice for the same task.`,
       parameters: {
         type: "object",
         properties: {
-          title: { type: "string", description: "Task title" },
-          notes: { type: "string", description: "Additional context" },
+          title: { type: "string", description: "Task title as a plain string e.g. 'Fix login bug'" },
+          notes: { type: "string", description: "Additional context as a plain string" },
           priority: {
             type: "string",
             enum: ["low", "medium", "high", "urgent"],
-            description: "Default: medium",
+            description: "A single string value from the enum e.g. 'medium'",
           },
           status: {
             type: "string",
             enum: ["todo", "in-progress", "blocked", "completed"],
-            description: "Default: todo",
+            description: "A single string value from the enum e.g. 'todo'",
           },
           due_date: {
             type: "string",
-            description: "Due date in ISO 8601 (YYYY-MM-DDTHH:mm:ss)",
+            description: "Due date as plain ISO 8601 string e.g. '2026-04-01T09:00:00'",
           },
           assigned_to_name: {
             type: "string",
-            description: "Team member name to assign to",
+            description: "Team member full name as a plain string e.g. 'John Smith'",
           },
           project_name: {
             type: "string",
-            description: "Project name to link to",
+            description: "Project name as a plain string e.g. 'Website Redesign'",
           },
           bucket: {
             type: "string",
