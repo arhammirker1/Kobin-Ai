@@ -451,6 +451,81 @@ function PipelineCard({
   )
 }
 
+// ─── Collapsible card list ────────────────────────────────────────────────────
+
+const COLLAPSED_LIMIT = 5
+
+interface ColumnCardListProps {
+  contacts: PipelineContact[]
+  stageConfig: StageConfig
+  allStages: StageConfig[]
+  onMoveStage: (id: string, stage: PipelineStage) => Promise<void>
+  onEditDeal: (contact: PipelineContact) => void
+  onDragStart: (e: React.DragEvent, id: string) => void
+  isDragOver: boolean
+}
+
+function ColumnCardList({
+  contacts,
+  stageConfig,
+  allStages,
+  onMoveStage,
+  onEditDeal,
+  onDragStart,
+  isDragOver,
+}: ColumnCardListProps) {
+  const [expanded, setExpanded] = useState(false)
+
+  const needsCollapse = contacts.length > COLLAPSED_LIMIT
+  const visibleContacts = expanded ? contacts : contacts.slice(0, COLLAPSED_LIMIT)
+  const hiddenCount = contacts.length - COLLAPSED_LIMIT
+
+  return (
+    <div className="flex-1 flex flex-col gap-2 p-2 min-h-[120px]">
+      {visibleContacts.map((contact) => (
+        <PipelineCard
+          key={contact.id}
+          contact={contact}
+          stageConfig={stageConfig}
+          allStages={allStages}
+          onMoveStage={onMoveStage}
+          onEditDeal={onEditDeal}
+          onDragStart={onDragStart}
+        />
+      ))}
+
+      {/* Collapse / expand toggle */}
+      {needsCollapse && !expanded && (
+        <button
+          onClick={() => setExpanded(true)}
+          className="flex items-center justify-center gap-1 py-2 px-3 rounded-lg border border-dashed border-border/60 text-[11px] font-medium text-muted-foreground hover:text-primary hover:border-primary/40 hover:bg-primary/5 transition-all"
+        >
+          <Plus size={11} />
+          Show {hiddenCount} more
+        </button>
+      )}
+      {needsCollapse && expanded && (
+        <button
+          onClick={() => setExpanded(false)}
+          className="flex items-center justify-center gap-1 py-2 px-3 rounded-lg border border-dashed border-border/60 text-[11px] font-medium text-muted-foreground hover:text-primary hover:border-primary/40 hover:bg-primary/5 transition-all"
+        >
+          <X size={11} />
+          Show less
+        </button>
+      )}
+
+      {contacts.length === 0 && (
+        <div className={cn(
+          "flex-1 flex items-center justify-center text-[11px] text-muted-foreground/50 italic rounded-lg border-2 border-dashed min-h-[80px]",
+          isDragOver ? "border-primary/40 text-primary/50" : "border-border/40",
+        )}>
+          {isDragOver ? "Drop here" : "Empty"}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Column ───────────────────────────────────────────────────────────────────
 
 interface ColumnProps {
@@ -526,27 +601,15 @@ function PipelineColumn({
       </div>
 
       {/* Drop zone + cards */}
-      <div className="flex-1 flex flex-col gap-2 p-2 min-h-[120px]">
-        {contacts.map((contact) => (
-          <PipelineCard
-            key={contact.id}
-            contact={contact}
-            stageConfig={stage}
-            allStages={STAGES}
-            onMoveStage={onMoveStage}
-            onEditDeal={onEditDeal}
-            onDragStart={onDragStart}
-          />
-        ))}
-        {contacts.length === 0 && (
-          <div className={cn(
-            "flex-1 flex items-center justify-center text-[11px] text-muted-foreground/50 italic rounded-lg border-2 border-dashed min-h-[80px]",
-            isDragOver ? "border-primary/40 text-primary/50" : "border-border/40",
-          )}>
-            {isDragOver ? "Drop here" : "Empty"}
-          </div>
-        )}
-      </div>
+      <ColumnCardList
+        contacts={contacts}
+        stageConfig={stage}
+        allStages={STAGES}
+        onMoveStage={onMoveStage}
+        onEditDeal={onEditDeal}
+        onDragStart={onDragStart}
+        isDragOver={isDragOver}
+      />
     </div>
   )
 }

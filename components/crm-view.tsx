@@ -7,7 +7,8 @@ import { Input, Textarea } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Search, Plus, Video, CalendarIcon, FileText, Linkedin, LayoutList, Kanban } from "lucide-react"
+import { Search, Plus, Video, CalendarIcon, FileText, Linkedin, LayoutList, Kanban, Upload, ChevronLeft, ChevronRight, History } from "lucide-react"
+import { LeadsImportDialog } from "@/components/leads-import-dialog"
 import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { toast } from "sonner"
@@ -54,6 +55,16 @@ type CalendarEvent = {
 
 type ViewMode = "list" | "pipeline"
 
+type ImportHistoryItem = {
+  id: string
+  file_name: string
+  rows_imported: number
+  rows_skipped: number
+  created_at: string
+}
+
+const ITEMS_PER_PAGE = 12
+
 export function CrmView() {
   const [relationships, setRelationships] = useState<Relationship[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -64,10 +75,13 @@ export function CrmView() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isMeetingDialogOpen, setIsMeetingDialogOpen] = useState(false)
   const [isOutcomeDialogOpen, setIsOutcomeDialogOpen] = useState(false)
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
   const [selectedRelationship, setSelectedRelationship] = useState<Relationship | null>(null)
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null)
   const [upcomingMeetings, setUpcomingMeetings] = useState<Record<string, CalendarEvent | null>>({})
   const [outcomeText, setOutcomeText] = useState("")
+  const [currentPage, setCurrentPage] = useState(1)
+  const [importHistory, setImportHistory] = useState<ImportHistoryItem[]>([])
 
   const [newRelationship, setNewRelationship] = useState<Partial<Relationship>>({
     full_name: "",
@@ -94,7 +108,13 @@ export function CrmView() {
 
   useEffect(() => {
     fetchRelationships()
+    fetchImportHistory()
   }, [])
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchQuery, selectedType])
 
   const fetchRelationships = async () => {
     setIsLoading(true)
@@ -346,6 +366,27 @@ export function CrmView() {
     }
   }
 
+  // ─── Import history ──────────────────────────────────────────────────────────
+
+  const fetchImportHistory = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
+    const { data } = await supabase
+      .from("crm_import_history")
+      .select("id, file_name, rows_imported, rows_skipped, created_at")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(10)
+
+    if (data) setImportHistory(data)
+  }
+
+  const handleImportComplete = () => {
+    fetchRelationships()
+    fetchImportHistory()
+  }
+
   // ─── Filtered list ────────────────────────────────────────────────────────────
 
   const filteredRelationships = relationships.filter((r) => {
@@ -355,6 +396,14 @@ export function CrmView() {
     const matchesType = !selectedType || r.relationship_type === selectedType
     return matchesSearch && matchesType
   })
+
+  // ─── Pagination ─────────────────────────────────────────────────────────────
+
+  const totalPages = Math.max(1, Math.ceil(filteredRelationships.length / ITEMS_PER_PAGE))
+  const paginatedRelationships = filteredRelationships.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE,
+  )
 
   // ─── Render ───────────────────────────────────────────────────────────────────
 
@@ -390,6 +439,15 @@ export function CrmView() {
               List
             </Button>
           </div>
+
+          <Button
+            variant="outline"
+            className="gap-2 shadow-sm font-bold"
+            onClick={() => setIsImportDialogOpen(true)}
+          >
+            <Upload size={16} />
+            <span className="hidden md:inline">Import</span>
+          </Button>
 
           <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
             <DialogTrigger asChild>
@@ -543,8 +601,9 @@ export function CrmView() {
 
       {/* ─── LIST VIEW ─────────────────────────────────────────────────────────── */}
       {viewMode === "list" && (
+        <>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredRelationships.map((rel) => {
+          {paginatedRelationships.map((rel) => {
             const nextMeeting = upcomingMeetings[rel.id]
             const hasUpcomingMeeting = nextMeeting && new Date(nextMeeting.start_time) > new Date()
             const meetingPassed = nextMeeting && new Date(nextMeeting.start_time) < new Date()
@@ -676,6 +735,36 @@ export function CrmView() {
             )
           })}
         </div>
+
+        {/* Pagination controls */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center gap-3 pt-4">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1 text-xs"
+              disabled={currentPage <= 1}
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            >
+              <ChevronLeft size={13} />
+              Previous
+            </Button>
+            <span className="text-xs text-muted-foreground font-medium tabular-nums">
+              Page {currentPage} of {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1 text-xs"
+              disabled={currentPage >= totalPages}
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+            >
+              Next
+              <ChevronRight size={13} />
+            </Button>
+          </div>
+        )}
+        </>
       )}
 
       {/* ─── Shared dialogs ────────────────────────────────────────────────────── */}
@@ -834,6 +923,48 @@ export function CrmView() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Import leads dialog */}
+      <LeadsImportDialog
+        open={isImportDialogOpen}
+        onOpenChange={setIsImportDialogOpen}
+        onImportComplete={handleImportComplete}
+      />
+
+      {/* Import history */}
+      {importHistory.length > 0 && (
+        <div className="mt-6 p-4 rounded-xl border bg-muted/10">
+          <div className="flex items-center gap-2 mb-3">
+            <History size={14} className="text-muted-foreground" />
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              Recent Imports
+            </h3>
+          </div>
+          <div className="space-y-1.5">
+            {importHistory.map((item) => (
+              <div
+                key={item.id}
+                className="flex items-center justify-between py-1.5 px-2.5 rounded-lg hover:bg-muted/30 transition-colors"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <FileText size={12} className="text-muted-foreground shrink-0" />
+                  <span className="text-xs font-medium truncate">
+                    {item.file_name}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[10px] text-muted-foreground">
+                    {item.rows_imported} added{item.rows_skipped > 0 ? ` · ${item.rows_skipped} skipped` : ""}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground/60">
+                    {format(parseISO(item.created_at), "MMM d, h:mm a")}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
