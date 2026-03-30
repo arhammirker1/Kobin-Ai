@@ -10,7 +10,7 @@ export const ACTION_TOOLS = [
     type: "function" as const,
     function: {
       name: "create_task",
-      description: `Create a task in ONE call with ALL details. Requires title. BEFORE calling this, use read tools to resolve: team member names (get_team_workload), project names (get_projects), and vault file titles (get_vault_files). Pass vault_file_names as exact titles from get_vault_files results. Infer due_date from natural language (ISO format). Auto-bucket: today/this-week/delegated/backlog. NEVER call this twice for the same task.`,
+      description: `Create a task in ONE call with ALL details. Requires title. BEFORE calling this, use read tools to resolve: team member names (get_team_workload), project names (get_projects), and vault file titles (get_vault_files). STRICT FIELD NAMES: use assigned_to_name (NOT assignee), project_name (NOT project), vault_file_names (NOT vault_files), external_links (NOT links). Pass vault_file_names as exact titles from get_vault_files results. Infer due_date from natural language (ISO format). Auto-bucket: today/this-week/delegated/backlog. NEVER call this twice for the same task.`,
       parameters: {
         type: "object",
         properties: {
@@ -54,7 +54,7 @@ export const ACTION_TOOLS = [
           vault_file_names: {
             type: "array",
             items: { type: "string" },
-            description: "Vault file titles to attach (must belong to linked project)",
+            description: "Vault file titles to attach (must belong to linked project). Field name is vault_file_names, NOT vault_files.",
           },
           external_links: {
             type: "array",
@@ -66,7 +66,7 @@ export const ACTION_TOOLS = [
               },
               required: ["url", "label"],
             },
-            description: "External links to attach",
+            description: "External links to attach. Field name is external_links, NOT links.",
           },
         },
         required: ["title"],
