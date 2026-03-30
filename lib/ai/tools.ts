@@ -190,4 +190,5 @@ export const READ_TOOL_NAMES = new Set<string>([
   "get_crm_pipeline",
   "get_calendar",
   "get_vault_files",
+  "search_contacts",
 ])

@@ -164,6 +164,24 @@ export const READ_TOOLS = [
       },
     },
   },
+  {
+    type: "function" as const,
+    function: {
+      name: "search_contacts",
+      description:
+        "Look up a specific contact/lead/investor by name. Returns full profile, pipeline stage, deal details, upcoming meetings, and recent email threads. Use this when the user asks about a specific person.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            description: "Contact name to search for (fuzzy match)",
+          },
+        },
+        required: ["name"],
+      },
+    },
+  },
 ] as const
 
 export type ReadToolName =
@@ -174,6 +192,7 @@ export type ReadToolName =
   | "get_crm_pipeline"
   | "get_calendar"
   | "get_vault_files"
+  | "search_contacts"
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -207,6 +226,8 @@ export async function executeReadTool(
       return execCalendar(args, founderId)
     case "get_vault_files":
       return execVault(args, founderId)
+    case "search_contacts":
+      return execSearchContacts(args, founderId)
     default:
       return { content: `Unknown read tool: ${toolName}` }
   }
@@ -764,6 +785,139 @@ async function execVault(
     if (v.description) line += ` | ${v.description.slice(0, 50)}`
     if (!projectId && v.project_id && pMap[v.project_id]) line += ` | →${pMap[v.project_id]}`
     lines.push(line)
+  }
+
+  return { content: lines.join("\n") }
+}
+
+async function execSearchContacts(
+  args: Record<string, any>,
+  founderId: string
+): Promise<ReadToolResult> {
+  const { name } = args
+  if (!name) return { content: "No name provided to search." }
+
+  // Fuzzy search contacts by name
+  const { data: contacts, error } = await supabaseAdmin
+    .from("relationships")
+    .select(
+      "id, full_name, email, company, role, relationship_type, pipeline_stage, deal_value, close_probability, stage_entered_at, expected_close_date, pipeline_notes, linkedin_profile_url, tags, status, created_at, updated_at"
+    )
+    .eq("user_id", founderId)
+    .ilike("full_name", `%${name}%`)
+    .limit(5)
+
+  if (error) return { content: `Error: ${error.message}` }
+  if (!contacts || contacts.length === 0) {
+    return { content: `No contact found matching "${name}".` }
+  }
+
+  const now = new Date()
+  const lines: string[] = []
+
+  for (const c of contacts) {
+    // ── Contact profile ───────────────────────────────────────────────
+    lines.push(`## ${c.full_name}`)
+    const details: string[] = []
+    if (c.email) details.push(`Email: ${c.email}`)
+    if (c.company) details.push(`Company: ${c.company}`)
+    if (c.role) details.push(`Role: ${c.role}`)
+    details.push(`Type: ${c.relationship_type}`)
+    details.push(`Status: ${c.status}`)
+    if (c.linkedin_profile_url) details.push(`LinkedIn: ${c.linkedin_profile_url}`)
+    lines.push(details.join(" | "))
+
+    // ── Pipeline info ─────────────────────────────────────────────────
+    const stageName = c.pipeline_stage.replace(/_/g, " ")
+    const daysInStage = c.stage_entered_at
+      ? Math.floor((now.getTime() - new Date(c.stage_entered_at).getTime()) / (1000 * 60 * 60 * 24))
+      : 0
+    lines.push(`Pipeline: ${stageName.toUpperCase()} (${daysInStage} days in stage)`)
+
+    if (c.deal_value) {
+      const weighted = c.close_probability != null
+        ? ` | Weighted: $${Math.round((c.deal_value * c.close_probability) / 100).toLocaleString()}`
+        : ""
+      lines.push(
+        `Deal: $${c.deal_value.toLocaleString()} | ${c.close_probability ?? 0}% probability${weighted}`
+      )
+    } else {
+      lines.push("Deal: No value set")
+    }
+
+    if (c.expected_close_date) lines.push(`Expected close: ${c.expected_close_date}`)
+    if (c.pipeline_notes) lines.push(`Notes: ${c.pipeline_notes}`)
+    if (c.tags && c.tags.length > 0) lines.push(`Tags: ${c.tags.join(", ")}`)
+    lines.push(`Added: ${shortDate(c.created_at)} | Last updated: ${shortDate(c.updated_at)}`)
+
+    // ── Upcoming & recent meetings ────────────────────────────────────
+    const [upcomingRes, pastRes] = await Promise.all([
+      supabaseAdmin
+        .from("events")
+        .select("title, start_time, end_time, purpose, meeting_link")
+        .eq("user_id", founderId)
+        .eq("relationship_id", c.id)
+        .gte("start_time", now.toISOString())
+        .order("start_time", { ascending: true })
+        .limit(3),
+      supabaseAdmin
+        .from("events")
+        .select("title, start_time, purpose, outcome")
+        .eq("user_id", founderId)
+        .eq("relationship_id", c.id)
+        .lt("start_time", now.toISOString())
+        .order("start_time", { ascending: false })
+        .limit(5),
+    ])
+
+    if (upcomingRes.data && upcomingRes.data.length > 0) {
+      lines.push(`\nUpcoming meetings (${upcomingRes.data.length}):`)
+      for (const e of upcomingRes.data) {
+        const date = new Date(e.start_time).toLocaleString("en-US", {
+          weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+        })
+        let line = `- ${date}: ${e.title}`
+        if (e.purpose) line += ` — ${e.purpose}`
+        if (e.meeting_link) line += ` [has link]`
+        lines.push(line)
+      }
+    } else {
+      lines.push("\nNo upcoming meetings scheduled")
+    }
+
+    if (pastRes.data && pastRes.data.length > 0) {
+      lines.push(`\nRecent past meetings (${pastRes.data.length}):`)
+      for (const e of pastRes.data) {
+        const date = new Date(e.start_time).toLocaleString("en-US", {
+          month: "short", day: "numeric",
+        })
+        let line = `- ${date}: ${e.title}`
+        if (e.outcome) line += ` → Outcome: ${e.outcome.slice(0, 100)}`
+        else if (e.purpose) line += ` — ${e.purpose}`
+        lines.push(line)
+      }
+    }
+
+    // ── Recent Gmail threads ──────────────────────────────────────────
+    const { data: threads } = await supabaseAdmin
+      .from("gmail_threads")
+      .select("subject, snippet, sender_email, sender_name, last_message_at, message_count, is_unread")
+      .eq("user_id", founderId)
+      .eq("relationship_id", c.id)
+      .order("last_message_at", { ascending: false })
+      .limit(5)
+
+    if (threads && threads.length > 0) {
+      lines.push(`\nRecent emails (${threads.length}):`)
+      for (const t of threads) {
+        const date = t.last_message_at ? shortDate(t.last_message_at) : ""
+        const unread = t.is_unread ? " [UNREAD]" : ""
+        lines.push(`- ${date}: "${t.subject}" (${t.message_count} msgs)${unread}`)
+        if (t.snippet) lines.push(`  ${t.snippet.slice(0, 100)}`)
+      }
+    }
+
+    lines.push("") // spacer between contacts
   }
 
   return { content: lines.join("\n") }
