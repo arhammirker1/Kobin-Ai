@@ -34,7 +34,6 @@ import {
   X,
   Plus,
   Mail,
-  Ghost,
 } from "lucide-react"
 import { toast } from "sonner"
 import { formatDistanceToNow, differenceInDays } from "date-fns"
@@ -154,10 +153,6 @@ export interface PipelineContact {
   linkedin_profile_url: string | null
   tags: string[]
   updated_at: string
-  lead_score: number | null
-  lead_status: string | null
-  is_ghosting: boolean | null
-  ghosting_days: number | null
 }
 
 interface EditDealDialogProps {
@@ -364,27 +359,6 @@ function PipelineCard({
           {isStale && (
             <span className="text-[9px] font-medium text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1 py-0.5 rounded-full">
               {daysInStage}d
-            </span>
-          )}
-
-          {/* AI Lead score badge */}
-          {contact.lead_score != null && contact.lead_score > 0 && (
-            <span className={cn(
-              "text-[9px] font-bold px-1 py-0.5 rounded-full flex items-center gap-0.5",
-              contact.lead_status === "hot" && "bg-emerald-500/10 text-emerald-500",
-              contact.lead_status === "warm" && "bg-amber-500/10 text-amber-500",
-              contact.lead_status === "cold" && "bg-zinc-500/10 text-zinc-400",
-            )}>
-              <TrendingUp size={8} />
-              {contact.lead_score}
-            </span>
-          )}
-
-          {/* Ghosting indicator */}
-          {contact.is_ghosting && (
-            <span className="text-[9px] font-medium text-amber-500 bg-amber-500/10 px-1 py-0.5 rounded-full flex items-center gap-0.5" title={`No reply for ${contact.ghosting_days} days`}>
-              <Ghost size={8} />
-              {contact.ghosting_days}d
             </span>
           )}
 

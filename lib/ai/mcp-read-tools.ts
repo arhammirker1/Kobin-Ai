@@ -182,15 +182,6 @@ export const READ_TOOLS = [
       },
     },
   },
-  {
-    type: "function" as const,
-    function: {
-      name: "get_follow_up_needed",
-      description:
-        "Scan workspace for items needing follow-up: overdue tasks, stale CRM deals (14+ days in stage), contacts who are ghosting, and upcoming meetings needing prep. Returns a prioritized action list.",
-      parameters: { type: "object", properties: {}, required: [] },
-    },
-  },
 ] as const
 
 export type ReadToolName =
@@ -202,7 +193,6 @@ export type ReadToolName =
   | "get_calendar"
   | "get_vault_files"
   | "search_contacts"
-  | "get_follow_up_needed"
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -238,8 +228,6 @@ export async function executeReadTool(
       return execVault(args, founderId)
     case "search_contacts":
       return execSearchContacts(args, founderId)
-    case "get_follow_up_needed":
-      return execFollowUpNeeded(founderId)
     default:
       return { content: `Unknown read tool: ${toolName}` }
   }
@@ -809,11 +797,11 @@ async function execSearchContacts(
   const { name } = args
   if (!name) return { content: "No name provided to search." }
 
-  // Fuzzy search contacts by name — include lead scoring + ghosting columns
+  // Fuzzy search contacts by name
   const { data: contacts, error } = await supabaseAdmin
     .from("relationships")
     .select(
-      "id, full_name, email, company, role, relationship_type, pipeline_stage, deal_value, close_probability, stage_entered_at, expected_close_date, pipeline_notes, linkedin_profile_url, tags, status, created_at, updated_at, lead_score, lead_status, is_ghosting, ghosting_days, last_inbound_at, last_outbound_at"
+      "id, full_name, email, company, role, relationship_type, pipeline_stage, deal_value, close_probability, stage_entered_at, expected_close_date, pipeline_notes, linkedin_profile_url, tags, status, created_at, updated_at"
     )
     .eq("user_id", founderId)
     .ilike("full_name", `%${name}%`)
@@ -861,21 +849,6 @@ async function execSearchContacts(
     if (c.pipeline_notes) lines.push(`Notes: ${c.pipeline_notes}`)
     if (c.tags && c.tags.length > 0) lines.push(`Tags: ${c.tags.join(", ")}`)
     lines.push(`Added: ${shortDate(c.created_at)} | Last updated: ${shortDate(c.updated_at)}`)
-
-    // ── Lead Score & Ghosting ─────────────────────────────────────────
-    const scoreLabel = (c.lead_status || "cold").toUpperCase()
-    lines.push(`\nLead score: ${c.lead_score || 0}/100 (${scoreLabel})`)
-    if (c.is_ghosting) {
-      lines.push(`⚠ GHOSTING: No reply for ${c.ghosting_days || 0} days`)
-    }
-    if (c.last_inbound_at) {
-      const lastIn = new Date(c.last_inbound_at)
-      const daysAgo = Math.floor((now.getTime() - lastIn.getTime()) / (1000 * 60 * 60 * 24))
-      lines.push(`Last inbound email: ${shortDate(c.last_inbound_at)} (${daysAgo}d ago)`)
-    }
-    if (c.last_outbound_at) {
-      lines.push(`Last outbound email: ${shortDate(c.last_outbound_at)}`)
-    }
 
     // ── Upcoming & recent meetings ────────────────────────────────────
     const [upcomingRes, pastRes] = await Promise.all([
@@ -925,205 +898,26 @@ async function execSearchContacts(
       }
     }
 
-    // ── Email conversation history (from email_analyses) ──────────────
-    const { data: emailAnalyses } = await supabaseAdmin
-      .from("email_analyses")
-      .select(
-        "gmail_thread_id, gmail_message_id, intent, intent_confidence, sentiment, signals, direction, analyzed_at, thread_subject"
-      )
+    // ── Recent Gmail threads ──────────────────────────────────────────
+    const { data: threads } = await supabaseAdmin
+      .from("gmail_threads")
+      .select("subject, snippet, sender_email, sender_name, last_message_at, message_count, is_unread")
       .eq("user_id", founderId)
-      .eq("contact_id", c.id)
-      .not("gmail_message_id", "like", "__thread_meta_%")
-      .order("analyzed_at", { ascending: false })
-      .limit(30)
+      .eq("relationship_id", c.id)
+      .order("last_message_at", { ascending: false })
+      .limit(5)
 
-    if (emailAnalyses && emailAnalyses.length > 0) {
-      // Group by thread
-      const threadMap: Record<string, {
-        subject: string | null
-        messages: typeof emailAnalyses
-        lastDate: string
-      }> = {}
-
-      for (const a of emailAnalyses) {
-        const tid = a.gmail_thread_id
-        if (!threadMap[tid]) {
-          threadMap[tid] = {
-            subject: a.thread_subject || null,
-            messages: [],
-            lastDate: a.analyzed_at,
-          }
-        }
-        threadMap[tid].messages.push(a)
-        // Keep the subject from whichever row has it
-        if (a.thread_subject && !threadMap[tid].subject) {
-          threadMap[tid].subject = a.thread_subject
-        }
+    if (threads && threads.length > 0) {
+      lines.push(`\nRecent emails (${threads.length}):`)
+      for (const t of threads) {
+        const date = t.last_message_at ? shortDate(t.last_message_at) : ""
+        const unread = t.is_unread ? " [UNREAD]" : ""
+        lines.push(`- ${date}: "${t.subject}" (${t.message_count} msgs)${unread}`)
+        if (t.snippet) lines.push(`  ${t.snippet.slice(0, 100)}`)
       }
-
-      const threadEntries = Object.entries(threadMap)
-        .sort(([, a], [, b]) => new Date(b.lastDate).getTime() - new Date(a.lastDate).getTime())
-
-      lines.push(`\nEmail conversations (${threadEntries.length} threads, ${emailAnalyses.length} analyzed messages):`)
-
-      for (const [, thread] of threadEntries.slice(0, 5)) {
-        const inbound = thread.messages.filter((m) => m.direction === "inbound")
-        const outbound = thread.messages.filter((m) => m.direction === "outbound")
-        const totalMsgs = thread.messages.length
-
-        // Determine dominant intent from inbound messages
-        let dominantIntent = "neutral"
-        let highestConf = 0
-        for (const m of inbound) {
-          if (m.intent !== "neutral" && m.intent_confidence > highestConf) {
-            dominantIntent = m.intent
-            highestConf = m.intent_confidence
-          }
-        }
-
-        // Overall sentiment from inbound
-        const sentimentCounts: Record<string, number> = { positive: 0, neutral: 0, negative: 0 }
-        for (const m of inbound) {
-          sentimentCounts[m.sentiment] = (sentimentCounts[m.sentiment] || 0) + 1
-        }
-        const overallSentiment = Object.entries(sentimentCounts)
-          .sort(([, a], [, b]) => b - a)[0]?.[0] || "neutral"
-
-        // Collect all signals
-        const allSignals = [...new Set(inbound.flatMap((m) => m.signals || []))]
-
-        // Days since last activity
-        const lastActivity = new Date(thread.lastDate)
-        const daysAgo = Math.floor((now.getTime() - lastActivity.getTime()) / (1000 * 60 * 60 * 24))
-        const dateLabel = shortDate(thread.lastDate)
-
-        const subjectLabel = thread.subject
-          ? `"${thread.subject}"`
-          : "(no subject)"
-
-        lines.push(
-          `- ${subjectLabel} | ${totalMsgs} msgs (${inbound.length}↓ ${outbound.length}↑) | Last: ${dateLabel} (${daysAgo}d ago) | Intent: ${dominantIntent.replace(/_/g, " ")} | Sentiment: ${overallSentiment}`
-        )
-        if (allSignals.length > 0) {
-          lines.push(`  Signals: ${allSignals.slice(0, 4).join(", ")}`)
-        }
-      }
-    } else {
-      lines.push("\nNo analyzed email conversations")
     }
 
     lines.push("") // spacer between contacts
-  }
-
-  return { content: lines.join("\n") }
-}
-
-// ── Follow-up Scanner ───────────────────────────────────────────────────────
-
-async function execFollowUpNeeded(founderId: string): Promise<ReadToolResult> {
-  const now = new Date()
-  const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
-  const tomorrowEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 23, 59, 59)
-
-  const [overdueRes, staleDealsRes, ghostingRes, upcomingMeetingsRes] = await Promise.all([
-    // Overdue tasks
-    supabaseAdmin
-      .from("tasks")
-      .select("id, title, priority, due_date, assigned_to, project_id")
-      .eq("user_id", founderId)
-      .eq("is_completed", false)
-      .not("due_date", "is", null)
-      .lt("due_date", now.toISOString())
-      .order("due_date", { ascending: true })
-      .limit(15),
-
-    // Stale CRM deals (14+ days in current stage)
-    supabaseAdmin
-      .from("relationships")
-      .select("id, full_name, company, pipeline_stage, deal_value, stage_entered_at, lead_score")
-      .eq("user_id", founderId)
-      .eq("status", "active")
-      .not("pipeline_stage", "in", '("closed_won","closed_lost")')
-      .not("stage_entered_at", "is", null)
-      .lt("stage_entered_at", fourteenDaysAgo.toISOString())
-      .order("deal_value", { ascending: false })
-      .limit(10),
-
-    // Ghosting contacts
-    supabaseAdmin
-      .from("relationships")
-      .select("id, full_name, company, email, ghosting_days, last_outbound_at, pipeline_stage, deal_value")
-      .eq("user_id", founderId)
-      .eq("status", "active")
-      .eq("is_ghosting", true)
-      .order("ghosting_days", { ascending: false })
-      .limit(10),
-
-    // Upcoming meetings (next 24h) — may need prep
-    supabaseAdmin
-      .from("events")
-      .select("id, title, start_time, purpose, relationship_id")
-      .eq("user_id", founderId)
-      .gte("start_time", now.toISOString())
-      .lte("start_time", tomorrowEnd.toISOString())
-      .order("start_time", { ascending: true })
-      .limit(5),
-  ])
-
-  const lines: string[] = ["## Follow-Up Needed"]
-  let totalItems = 0
-
-  // Overdue tasks
-  const overdue = overdueRes.data || []
-  if (overdue.length > 0) {
-    totalItems += overdue.length
-    lines.push(`\n### 🔴 Overdue Tasks (${overdue.length})`)
-    for (const t of overdue) {
-      const daysOverdue = Math.floor((now.getTime() - new Date(t.due_date).getTime()) / (1000 * 60 * 60 * 24))
-      lines.push(`- [${t.priority?.charAt(0).toUpperCase() || 'M'}] ${t.title} — ${daysOverdue}d overdue`)
-    }
-  }
-
-  // Stale deals
-  const staleDeals = staleDealsRes.data || []
-  if (staleDeals.length > 0) {
-    totalItems += staleDeals.length
-    lines.push(`\n### 🟡 Stale Deals (${staleDeals.length})`)
-    for (const d of staleDeals) {
-      const days = Math.floor((now.getTime() - new Date(d.stage_entered_at).getTime()) / (1000 * 60 * 60 * 24))
-      const val = d.deal_value ? ` | $${d.deal_value.toLocaleString()}` : ""
-      lines.push(`- ${d.full_name}${d.company ? ` (${d.company})` : ""} — ${d.pipeline_stage.replace(/_/g, " ")} for ${days}d${val}`)
-    }
-  }
-
-  // Ghosting contacts
-  const ghosting = ghostingRes.data || []
-  if (ghosting.length > 0) {
-    totalItems += ghosting.length
-    lines.push(`\n### 👻 Ghosting Contacts (${ghosting.length})`)
-    for (const g of ghosting) {
-      const val = g.deal_value ? ` | $${g.deal_value.toLocaleString()}` : ""
-      lines.push(`- ${g.full_name}${g.company ? ` (${g.company})` : ""} — no reply for ${g.ghosting_days}d${val}`)
-    }
-  }
-
-  // Upcoming meetings needing prep
-  const meetings = upcomingMeetingsRes.data || []
-  if (meetings.length > 0) {
-    totalItems += meetings.length
-    lines.push(`\n### 📅 Upcoming Meetings — Prep Needed (${meetings.length})`)
-    for (const m of meetings) {
-      const time = new Date(m.start_time).toLocaleString("en-US", {
-        hour: "numeric", minute: "2-digit", weekday: "short",
-      })
-      lines.push(`- ${time}: ${m.title}${m.purpose ? ` — ${m.purpose}` : ""}`)
-    }
-  }
-
-  if (totalItems === 0) {
-    lines.push("\nAll clear! No overdue tasks, stale deals, or ghosting contacts.")
-  } else {
-    lines.unshift(`${totalItems} items need your attention:`)
   }
 
   return { content: lines.join("\n") }

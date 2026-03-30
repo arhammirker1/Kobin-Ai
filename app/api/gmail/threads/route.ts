@@ -22,27 +22,9 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url)
     const fromEmail = searchParams.get("from") || ""
-    const emailsParam = searchParams.get("emails") || ""
-
-    let query: string
-    if (fromEmail) {
-      // Single-email lookup (used by contact threads panel)
-      query = `from:${fromEmail}`
-    } else if (emailsParam) {
-      // CRM contacts filter — build OR query for Gmail
-      const emails = emailsParam
-        .split(",")
-        .map((e) => e.trim())
-        .filter(Boolean)
-      if (emails.length === 0) {
-        return NextResponse.json({ threads: [], connected: true })
-      }
-      query = emails.length === 1
-        ? `from:${emails[0]}`
-        : `from:(${emails.join(" OR ")})`
-    } else {
-      query = "in:inbox"
-    }
+    const query = fromEmail
+      ? `from:${fromEmail}`
+      : "in:inbox"
 
     const listRes = await fetch(
       `https://gmail.googleapis.com/gmail/v1/users/me/threads?maxResults=20&q=${encodeURIComponent(query)}`,
@@ -72,41 +54,19 @@ export async function GET(request: Request) {
         const firstMsg = messages[0]
         const lastMsg = messages[messages.length - 1]
 
-        // Find the "other person" in this thread — NOT the current user.
-        // This prevents the sender from flipping to the user's own email
-        // when they reply, which would break CRM contact matching.
-        const userEmail = integration.google_email?.toLowerCase() || ""
-
         const getHeader = (msg: any, name: string) =>
           msg?.payload?.headers?.find((h: any) => h.name === name)?.value || ""
 
-        // Look through all messages to find the first non-self sender
-        let contactEmail = ""
-        let contactName = ""
-        for (const msg of messages) {
-          const from = getHeader(msg, "From")
-          const match = from.match(/<(.+?)>/)
-          const email = match ? match[1] : from.trim()
-          if (email.toLowerCase() !== userEmail) {
-            contactEmail = email
-            contactName = from.replace(/<.+?>/, "").trim().replace(/"/g, "") || email
-            break
-          }
-        }
-
-        // Fallback: if all messages are from the user (rare), use the last message
-        if (!contactEmail) {
-          const fromHeader = getHeader(lastMsg, "From")
-          const emailMatch = fromHeader.match(/<(.+?)>/)
-          contactEmail = emailMatch ? emailMatch[1] : fromHeader
-          contactName = fromHeader.replace(/<.+?>/, "").trim().replace(/"/g, "") || contactEmail
-        }
+        const fromHeader = getHeader(lastMsg, "From")
+        const emailMatch = fromHeader.match(/<(.+?)>/)
+        const senderEmail = emailMatch ? emailMatch[1] : fromHeader
+        const senderName = fromHeader.replace(/<.+?>/, "").trim().replace(/"/g, "") || senderEmail
 
         return {
           id: t.id,
           subject: getHeader(firstMsg, "Subject") || "(no subject)",
-          senderEmail: contactEmail,
-          senderName: contactName,
+          senderEmail,
+          senderName,
           date: getHeader(lastMsg, "Date"),
           messageCount: messages.length,
           snippet: lastMsg?.snippet || "",

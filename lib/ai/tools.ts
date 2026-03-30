@@ -10,33 +10,33 @@ export const ACTION_TOOLS = [
     type: "function" as const,
     function: {
       name: "create_task",
-      description: `Create a task in ONE call with ALL details. Requires title. BEFORE calling this, use read tools to resolve: team member names (get_team_workload), project names (get_projects), and vault file titles (get_vault_files). ALL parameter values must be plain strings or arrays — NEVER pass objects or nested structures. STRICT FIELD NAMES: use assigned_to_name (NOT assignee), project_name (NOT project), vault_file_names (NOT vault_files), external_links (NOT links). Pass vault_file_names as exact titles from get_vault_files results. Infer due_date from natural language (ISO format). Auto-bucket: today/this-week/delegated/backlog. NEVER call this twice for the same task.`,
+      description: `Create a task in ONE call with ALL details. Requires title. BEFORE calling this, use read tools to resolve: team member names (get_team_workload), project names (get_projects), and vault file titles (get_vault_files). Pass vault_file_names as exact titles from get_vault_files results. Infer due_date from natural language (ISO format). Auto-bucket: today/this-week/delegated/backlog. NEVER call this twice for the same task.`,
       parameters: {
         type: "object",
         properties: {
-          title: { type: "string", description: "Task title as a plain string e.g. 'Fix login bug'" },
-          notes: { type: "string", description: "Additional context as a plain string" },
+          title: { type: "string", description: "Task title" },
+          notes: { type: "string", description: "Additional context" },
           priority: {
             type: "string",
             enum: ["low", "medium", "high", "urgent"],
-            description: "A single string value from the enum e.g. 'medium'",
+            description: "Default: medium",
           },
           status: {
             type: "string",
             enum: ["todo", "in-progress", "blocked", "completed"],
-            description: "A single string value from the enum e.g. 'todo'",
+            description: "Default: todo",
           },
           due_date: {
             type: "string",
-            description: "Due date as plain ISO 8601 string e.g. '2026-04-01T09:00:00'",
+            description: "Due date in ISO 8601 (YYYY-MM-DDTHH:mm:ss)",
           },
           assigned_to_name: {
             type: "string",
-            description: "Team member full name as a plain string e.g. 'John Smith'",
+            description: "Team member name to assign to",
           },
           project_name: {
             type: "string",
-            description: "Project name as a plain string e.g. 'Website Redesign'",
+            description: "Project name to link to",
           },
           bucket: {
             type: "string",
@@ -44,9 +44,8 @@ export const ACTION_TOOLS = [
             description: "Auto-determined if not set",
           },
           deliverable_required: {
-            type: "string",
-            enum: ["true", "false"],
-            description: "Whether a deliverable upload is required on completion. Pass 'true' or 'false' as a string.",
+            type: "boolean",
+            description: "Require deliverable upload on completion",
           },
           deliverable_description: {
             type: "string",
@@ -55,12 +54,19 @@ export const ACTION_TOOLS = [
           vault_file_names: {
             type: "array",
             items: { type: "string" },
-            description: "Vault file titles to attach (must belong to linked project). Field name is vault_file_names, NOT vault_files.",
+            description: "Vault file titles to attach (must belong to linked project)",
           },
           external_links: {
             type: "array",
-            items: { type: "string" },
-            description: "External links as plain URL strings e.g. ['https://figma.com/file/xyz']. Field name is external_links, NOT links.",
+            items: {
+              type: "object",
+              properties: {
+                url: { type: "string" },
+                label: { type: "string", description: "Auto-generated from URL if not provided" },
+              },
+              required: ["url", "label"],
+            },
+            description: "External links to attach",
           },
         },
         required: ["title"],
@@ -159,29 +165,6 @@ export const ACTION_TOOLS = [
       },
     },
   },
-  {
-    type: "function" as const,
-    function: {
-      name: "draft_email_reply",
-      description: `Draft an email reply to a CRM contact. Looks up their latest email thread and generates a contextual reply. Returns the draft text — user can review and send. ALWAYS use search_contacts first to verify the contact exists and has email threads.`,
-      parameters: {
-        type: "object",
-        properties: {
-          contact_name: { type: "string", description: "Contact name to reply to" },
-          tone: {
-            type: "string",
-            enum: ["professional", "friendly", "urgent", "follow_up"],
-            description: "Tone of the reply. Default: professional",
-          },
-          context: {
-            type: "string",
-            description: "Additional context or instructions for the reply (e.g. 'schedule a meeting', 'decline politely')",
-          },
-        },
-        required: ["contact_name"],
-      },
-    },
-  },
 ] as const
 
 // ── Combined tools ──────────────────────────────────────────────────────────
@@ -196,7 +179,6 @@ export type AIToolName =
   | "delete_task"
   | "create_project"
   | "update_project"
-  | "draft_email_reply"
 
 export type AnyToolName = ReadToolName | AIToolName
 
@@ -209,5 +191,4 @@ export const READ_TOOL_NAMES = new Set<string>([
   "get_calendar",
   "get_vault_files",
   "search_contacts",
-  "get_follow_up_needed",
 ])

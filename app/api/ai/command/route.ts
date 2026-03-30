@@ -138,70 +138,30 @@ export async function POST(request: Request) {
       projects: [],
     }
 
-    const systemPrompt = `You are the AI chief of staff for Command Center — an agency OS. You have full read and write access to the founder's workspace. You are sharp, decisive, and never dumb.
+    const systemPrompt = `You are the AI manager for Command Center — an agency OS. You can READ workspace data and EXECUTE actions using tools.
 
 ${miniContext}
 
-## CRITICAL: create_task vs update_task — READ THIS FIRST
-This is the most important decision you make on every request:
-
-**Use update_task when:**
-- The user refers to a task that already exists (e.g. "the API integration task", "that task", "this task")
-- The user says "assign", "move", "change", "set deadline", "make it due", "add to bucket", "mark as"
-- ANY modification to an existing task — assignee, due date, status, bucket, priority, notes
-
-**Use create_task when:**
-- The user explicitly says "create", "add a new task", "make a task"
-- The task clearly does not exist yet
-
-**NEVER create a task if the user is talking about an existing one. When in doubt → update_task.**
-
-## Conversation Memory — USE IT
-The conversation history shows what was just discussed. If the previous message mentioned a task, that is the task the user is referring to now. Do NOT forget context between messages.
-
-Example:
-- User: "Assign the API integration task to someone free" → you assigned it
-- User: "i want this task to be completed today" → THIS SAME TASK. Use update_task with due_date=today + bucket=today
-- User: "add this in today's bucket deadline is 2nd april" → STILL THE SAME TASK. Use update_task with bucket=today + due_date=2026-04-02
-
 ## How You Work
-1. Check conversation history first — what task/entity is being discussed?
-2. Decide: create_task OR update_task (see rules above)
-3. Use read tools ONLY if you need data you don't have (team names, project names, vault files)
-4. Execute the action ONCE with ALL the parameters needed
-5. Confirm what changed, be specific
+1. ALWAYS gather ALL needed data with read tools BEFORE executing any action tool
+2. If the request mentions vault files, projects, or team members — call the relevant read tools FIRST in step 1
+3. Then call the action tool ONCE with ALL parameters (title, assignee, project, vault files, deliverables, links) in a single call
+4. NEVER call create_task or create_project more than once for the same request
+5. For task assignment, check team workload first via get_team_workload
+6. Match names (people, projects, vault files) against data from read tools
+7. After actions, confirm what was done with specifics
+8. Be direct. Founders are busy. No filler.
 
-## Bucket Rules
-- bucket="today" → task appears in Today view
-- bucket="this-week" → task appears in This Week view  
-- bucket="delegated" → task is assigned to someone else
-- bucket="backlog" → no urgency
-- If user says "today's bucket" or "do today" → bucket=today
-- due_date and bucket are SEPARATE fields — always set both when mentioned
+## Critical: Single-Action Rule
+Each user request = at most ONE create_task / ONE create_project call. Gather everything first with read tools, then act once.
+If you need vault files: call get_vault_files → get the exact titles → pass them in vault_file_names when you call create_task.
 
-## Tool Selection
-- Existing task mentioned → get_tasks first to confirm it exists, then update_task
-- New task → create_task (after getting team/project data if needed)
-- Specific person mentioned → search_contacts or get_team_workload
-- "who's free" / "lightest workload" → get_team_workload
-- Broad overview → get_workspace_overview
-- NEVER use get_crm_pipeline for a specific person
-
-## update_task Parameters — ALL PLAIN STRINGS
-- task_title: the title to search for (fuzzy match) e.g. "API integration"
-- assigned_to_name: person's name as plain string e.g. "Ahmed"
-- due_date: ISO string e.g. "2026-04-02T23:59:00"
-- bucket: one of "today", "this-week", "delegated", "backlog"
-- status: one of "todo", "in-progress", "blocked", "completed"
-- priority: one of "low", "medium", "high", "urgent"
-
-## Output Rules — NEVER BREAK
-- ALL parameter values must be plain strings — NEVER objects or nested structures
-- NEVER show reasoning, steps, or planning process
-- NEVER mention tool names to the user
-- NEVER hallucinate data
-- NEVER re-assign or re-create something already done in this conversation
-- Be direct. One crisp confirmation sentence after acting. No filler.`
+## Output Rules — NEVER BREAK THESE
+- NEVER show your internal reasoning, thinking steps, or planning process (no "Step 1", "Step 2", etc.)
+- NEVER reference tool names in your response to the user (no "get_crm_pipeline", "get_tasks", etc.)
+- NEVER fabricate or hallucinate data. If you don't have info, say so honestly and briefly.
+- NEVER narrate what you "would do" — either do it with tools, or give the answer directly.
+- Your response must read like a polished final answer from a sharp executive assistant.`
 
     // ── Build conversation messages ─────────────────────────────────────────
     // Cap history to last 6 messages to prevent token bloat
@@ -246,9 +206,9 @@ Example:
           temperature: 0.3,
         })
       } catch (apiError: any) {
+        // Groq returns 400 when the model outputs malformed tool args
+        // (e.g. string "true" for boolean, or template placeholders)
         const errorMessage = apiError?.message || apiError?.error?.message || ""
-        console.error(`[AI-CMD] Step ${step + 1} | API error status=${apiError?.status} message=${errorMessage}`)
-        console.error(`[AI-CMD] Full error:`, JSON.stringify(apiError?.error || apiError, null, 2))
         if (apiError?.status === 400 && errorMessage.includes("tool_use_failed")) {
           console.log(`[AI-CMD] Step ${step + 1} | Groq schema error — retrying with read-only tools`)
           try {
@@ -261,9 +221,8 @@ Example:
               temperature: 0.3,
             })
           } catch (retryError: any) {
-            const retryMessage = retryError?.message || retryError?.error?.message || ""
-            console.error(`[AI-CMD] Step ${step + 1} | Read-only retry failed status=${retryError?.status} message=${retryMessage}`)
-            console.error(`[AI-CMD] Read-only retry full error:`, JSON.stringify(retryError?.error || retryError, null, 2))
+            // Read-only retry also failed — fall back to no tools
+            console.log(`[AI-CMD] Step ${step + 1} | Read-only retry also failed — falling back to plain response`)
             response = await groq.chat.completions.create({
               model: GROQ_MODEL,
               messages,
@@ -272,7 +231,7 @@ Example:
             })
           }
         } else {
-          throw apiError
+          throw apiError // Re-throw non-schema errors
         }
       }
 

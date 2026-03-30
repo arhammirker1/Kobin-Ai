@@ -1,4 +1,4 @@
-export const GROQ_MODEL = "llama-3.3-70b-versatile"
+export const GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 // Groq client is instantiated lazily server-side only
 // Never import this function in client components
