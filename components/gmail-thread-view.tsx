@@ -6,7 +6,7 @@ import { format } from "date-fns"
 import { differenceInDays } from "date-fns"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
-import { Loader2, X, Plus, ArrowUpRight } from "lucide-react"
+import { Loader2, X, Plus, ArrowUpRight, Sparkles, TrendingUp, AlertTriangle, Ghost } from "lucide-react"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -86,6 +86,121 @@ function stripQuoted(body: string): string {
   return cleaned.join("\n").trim()
 }
 
+// ── AI Insight Badge ──────────────────────────────────────────────────────────
+
+const INTENT_STYLES: Record<string, { bg: string; text: string; label: string }> = {
+  interested:      { bg: "bg-emerald-500/15", text: "text-emerald-400", label: "Interested" },
+  meeting_intent:  { bg: "bg-blue-500/15",    text: "text-blue-400",    label: "Meeting intent" },
+  pricing_inquiry: { bg: "bg-violet-500/15",  text: "text-violet-400",  label: "Pricing inquiry" },
+  request_info:    { bg: "bg-cyan-500/15",    text: "text-cyan-400",    label: "Info request" },
+  objection:       { bg: "bg-amber-500/15",   text: "text-amber-400",   label: "Objection" },
+  not_interested:  { bg: "bg-red-500/15",     text: "text-red-400",     label: "Not interested" },
+  neutral:         { bg: "bg-zinc-500/10",    text: "text-zinc-400",    label: "Neutral" },
+  spam:            { bg: "bg-zinc-500/10",    text: "text-zinc-500",    label: "Spam" },
+}
+
+const SENTIMENT_STYLES: Record<string, { dot: string; label: string }> = {
+  positive: { dot: "bg-emerald-400", label: "Positive" },
+  neutral:  { dot: "bg-zinc-400",    label: "Neutral" },
+  negative: { dot: "bg-red-400",     label: "Negative" },
+}
+
+const LEAD_STATUS_STYLES: Record<string, { bg: string; text: string; border: string }> = {
+  hot:  { bg: "bg-emerald-500/15", text: "text-emerald-400", border: "border-emerald-500/20" },
+  warm: { bg: "bg-amber-500/15",   text: "text-amber-400",   border: "border-amber-500/20" },
+  cold: { bg: "bg-zinc-500/10",    text: "text-zinc-400",    border: "border-zinc-500/15" },
+}
+
+interface MessageAnalysis {
+  intent: string
+  intent_confidence: number
+  sentiment: string
+  signals: string[]
+  reasoning: string
+  direction: string
+}
+
+interface ThreadSummary {
+  dominant_intent: string
+  overall_sentiment: string
+  all_signals: string[]
+  message_count: number
+  summary: string
+}
+
+interface ContactScore {
+  score: { score: number; status: string }
+  ghosting: { is_ghosting: boolean; ghosting_days: number; suggestion: string | null }
+}
+
+function AIInsightBadge({ analysis }: { analysis: MessageAnalysis }) {
+  const intent = INTENT_STYLES[analysis.intent] || INTENT_STYLES.neutral
+  const sentiment = SENTIMENT_STYLES[analysis.sentiment] || SENTIMENT_STYLES.neutral
+
+  return (
+    <div className="flex items-center gap-1.5 mt-1">
+      <span className={cn(
+        "text-[9px] font-semibold px-1.5 py-0.5 rounded-full border",
+        intent.bg, intent.text, `border-current/20`
+      )}>
+        {intent.label}
+      </span>
+      <span className="flex items-center gap-1 text-[9px] text-muted-foreground">
+        <span className={cn("w-1.5 h-1.5 rounded-full", sentiment.dot)} />
+        {sentiment.label}
+      </span>
+      {analysis.intent_confidence > 0 && (
+        <span className="text-[9px] text-muted-foreground/50">
+          {analysis.intent_confidence}%
+        </span>
+      )}
+    </div>
+  )
+}
+
+function ThreadSummaryCard({ summary }: { summary: ThreadSummary }) {
+  const intent = INTENT_STYLES[summary.dominant_intent] || INTENT_STYLES.neutral
+  const sentiment = SENTIMENT_STYLES[summary.overall_sentiment] || SENTIMENT_STYLES.neutral
+
+  return (
+    <div className="mx-5 mb-4 p-3 rounded-xl border border-border/60 bg-gradient-to-r from-violet-500/5 to-blue-500/5">
+      <div className="flex items-center gap-2 mb-2">
+        <Sparkles size={12} className="text-violet-400" />
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-violet-400">
+          AI Thread Summary
+        </span>
+      </div>
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className={cn(
+          "text-[10px] font-semibold px-2 py-0.5 rounded-full border",
+          intent.bg, intent.text, `border-current/20`
+        )}>
+          {intent.label}
+        </span>
+        <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+          <span className={cn("w-1.5 h-1.5 rounded-full", sentiment.dot)} />
+          {sentiment.label} sentiment
+        </span>
+        <span className="text-[10px] text-muted-foreground/50">
+          · {summary.message_count} msgs analyzed
+        </span>
+      </div>
+      {summary.all_signals.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-1.5">
+          {summary.all_signals.slice(0, 5).map((signal, i) => (
+            <span
+              key={i}
+              className="text-[9px] px-1.5 py-0.5 rounded bg-muted/80 text-muted-foreground border border-border/40"
+            >
+              {signal}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Contact context panel ─────────────────────────────────────────────────────
 
 function ContactPanel({
@@ -98,6 +213,7 @@ function ContactPanel({
   contactThreads,
   activeThreadId,
   onThreadSelect,
+  contactScore,
 }: {
   contact: ContactContext | null
   loading: boolean
@@ -108,6 +224,7 @@ function ContactPanel({
   contactThreads: Array<{ id: string; subject: string; snippet: string; date: string; unread: boolean }>
   activeThreadId: string
   onThreadSelect: (thread: { id: string; subject: string; senderEmail: string; senderName: string }) => void
+  contactScore: ContactScore | null
 }) {
   const [threadsOpen, setThreadsOpen] = useState(false)
   const daysInStage =
@@ -158,6 +275,51 @@ function ContactPanel({
           </p>
         )}
       </div>
+
+      {/* Lead score + ghosting — from AI analysis */}
+      {contact && contactScore && (
+        <div className="px-4 py-3 border-b border-border/40 space-y-2">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
+            AI Intelligence
+          </p>
+          {/* Lead score */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <TrendingUp size={11} className="text-violet-400" />
+              <span className="text-[11px] text-muted-foreground">Lead score</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-bold text-foreground">
+                {contactScore.score.score}
+              </span>
+              <span className={cn(
+                "text-[9px] font-semibold px-1.5 py-0.5 rounded-full border",
+                LEAD_STATUS_STYLES[contactScore.score.status]?.bg,
+                LEAD_STATUS_STYLES[contactScore.score.status]?.text,
+                LEAD_STATUS_STYLES[contactScore.score.status]?.border,
+              )}>
+                {contactScore.score.status?.toUpperCase()}
+              </span>
+            </div>
+          </div>
+          {/* Ghosting */}
+          {contactScore.ghosting.is_ghosting && (
+            <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-2">
+              <div className="flex items-center gap-1.5 mb-1">
+                <Ghost size={11} className="text-amber-400" />
+                <span className="text-[10px] font-semibold text-amber-400">
+                  Ghosting · {contactScore.ghosting.ghosting_days}d no reply
+                </span>
+              </div>
+              {contactScore.ghosting.suggestion && (
+                <p className="text-[10px] text-amber-300/80 leading-relaxed">
+                  {contactScore.ghosting.suggestion}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Deal snapshot — relationships only */}
       {contact?.type === "relationship" &&
@@ -389,10 +551,20 @@ export function GmailThreadView({
   }>>([])
   const bottomRef = useRef<HTMLDivElement>(null)
 
+  // AI Email Intelligence state
+  const [analysisMap, setAnalysisMap] = useState<Record<string, MessageAnalysis>>({})
+  const [threadSummary, setThreadSummary] = useState<ThreadSummary | null>(null)
+  const [contactScore, setContactScore] = useState<ContactScore | null>(null)
+  const [analyzing, setAnalyzing] = useState(false)
+
   useEffect(() => {
     loadThread()
     loadContact()
     setContactThreads([])
+    // Reset AI state on thread change
+    setAnalysisMap({})
+    setThreadSummary(null)
+    setContactScore(null)
   }, [threadId])
 
   const loadContactThreads = async (email: string) => {
@@ -410,8 +582,37 @@ export function GmailThreadView({
   useEffect(() => {
     if (!loadingMessages) {
       bottomRef.current?.scrollIntoView({ behavior: "instant" })
+      // Trigger AI analysis AFTER thread has loaded (lazy, non-blocking)
+      runAnalysis()
     }
   }, [loadingMessages])
+
+  // ── AI Analysis (lazy, after thread loads) ──────────────────────────────
+  const runAnalysis = async () => {
+    if (analyzing) return
+    setAnalyzing(true)
+    try {
+      const res = await fetch("/api/gmail/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ threadId }),
+      })
+      if (!res.ok) throw new Error()
+      const data = await res.json()
+      if (data.analyses) setAnalysisMap(data.analyses)
+      if (data.thread_summary) setThreadSummary(data.thread_summary)
+      // Set contact score from first matched contact
+      if (data.contact_scores) {
+        const firstScore = Object.values(data.contact_scores)[0] as ContactScore | undefined
+        if (firstScore) setContactScore(firstScore)
+      }
+    } catch {
+      // Non-fatal — thread still works without AI
+      console.warn("[AI] Analysis failed for thread", threadId)
+    } finally {
+      setAnalyzing(false)
+    }
+  }
 
   const loadThread = async () => {
     setLoadingMessages(true)
@@ -574,6 +775,19 @@ export function GmailThreadView({
           </div>
         </div>
 
+        {/* Thread summary card (AI) */}
+        {threadSummary && !loadingMessages && (
+          <ThreadSummaryCard summary={threadSummary} />
+        )}
+
+        {/* Analyzing indicator */}
+        {analyzing && !threadSummary && (
+          <div className="mx-5 mb-2 flex items-center gap-2 text-[10px] text-violet-400">
+            <Loader2 size={10} className="animate-spin" />
+            <span>Analyzing emails…</span>
+          </div>
+        )}
+
         {/* Messages */}
         <div className="flex-1 overflow-y-auto py-4 px-5 space-y-5">
           {loadingMessages ? (
@@ -632,11 +846,16 @@ export function GmailThreadView({
                               background:
                                 "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)",
                             }
+
                           : undefined
                       }
                     >
                       {cleanBody || msg.body}
                     </div>
+                    {/* AI insight badge per message */}
+                    {analysisMap[msg.id] && (
+                      <AIInsightBadge analysis={analysisMap[msg.id]} />
+                    )}
                   </div>
                 </div>
               )
@@ -684,6 +903,7 @@ export function GmailThreadView({
         contactThreads={contactThreads}
         activeThreadId={threadId}
         onThreadSelect={onThreadSelect}
+        contactScore={contactScore}
       />
     </div>
   )

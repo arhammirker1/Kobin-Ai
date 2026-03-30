@@ -7,7 +7,7 @@ import { Input, Textarea } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Search, Plus, Video, CalendarIcon, FileText, Linkedin, LayoutList, Kanban, Upload, ChevronLeft, ChevronRight, History, Mail } from "lucide-react"
+import { Search, Plus, Video, CalendarIcon, FileText, Linkedin, LayoutList, Kanban, Upload, ChevronLeft, ChevronRight, History, Mail, TrendingUp, Ghost } from "lucide-react"
 import { LeadsImportDialog } from "@/components/leads-import-dialog"
 import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
@@ -40,6 +40,10 @@ type Relationship = {
   stage_entered_at: string | null
   expected_close_date: string | null
   pipeline_notes: string | null
+  lead_score: number | null
+  lead_status: string | null
+  is_ghosting: boolean | null
+  ghosting_days: number | null
   created_at: string
   updated_at: string
 }
@@ -657,6 +661,31 @@ export function CrmView() {
                       ${rel.deal_value.toLocaleString()}
                       {rel.close_probability ? ` · ${rel.close_probability}%` : ""}
                     </p>
+                  )}
+                  {/* AI Lead Score + Ghosting */}
+                  {(rel.lead_score != null && rel.lead_score > 0) && (
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <div className="flex items-center gap-1">
+                        <TrendingUp size={11} className="text-violet-500" />
+                        <span className="text-[11px] font-semibold text-foreground">{rel.lead_score}</span>
+                        <span className={cn(
+                          "text-[9px] font-bold px-1.5 py-0.5 rounded-full",
+                          rel.lead_status === "hot" && "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400",
+                          rel.lead_status === "warm" && "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400",
+                          rel.lead_status === "cold" && "bg-zinc-100 text-zinc-600 dark:bg-zinc-500/10 dark:text-zinc-400",
+                        )}>
+                          {rel.lead_status?.toUpperCase()}
+                        </span>
+                      </div>
+                      {rel.is_ghosting && (
+                        <div className="flex items-center gap-1">
+                          <Ghost size={11} className="text-amber-500" />
+                          <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                            {rel.ghosting_days}d
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   )}
                   {rel.tags && rel.tags.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-2">
