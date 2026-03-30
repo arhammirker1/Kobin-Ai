@@ -154,7 +154,14 @@ ${miniContext}
 
 ## Critical: Single-Action Rule
 Each user request = at most ONE create_task / ONE create_project call. Gather everything first with read tools, then act once.
-If you need vault files: call get_vault_files → get the exact titles → pass them in vault_file_names when you call create_task.`
+If you need vault files: call get_vault_files → get the exact titles → pass them in vault_file_names when you call create_task.
+
+## Output Rules — NEVER BREAK THESE
+- NEVER show your internal reasoning, thinking steps, or planning process (no "Step 1", "Step 2", etc.)
+- NEVER reference tool names in your response to the user (no "get_crm_pipeline", "get_tasks", etc.)
+- NEVER fabricate or hallucinate data. If you don't have info, say so honestly and briefly.
+- NEVER narrate what you "would do" — either do it with tools, or give the answer directly.
+- Your response must read like a polished final answer from a sharp executive assistant.`
 
     // ── Build conversation messages ─────────────────────────────────────────
     // Cap history to last 6 messages to prevent token bloat
