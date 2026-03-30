@@ -371,6 +371,8 @@ export async function executeAction(
       return executeCreateProject(args, context)
     case "update_project":
       return executeUpdateProject(args, context)
+    case "draft_email_reply":
+      return executeDraftEmailReply(args, context)
     default:
       return { success: false, message: `Unknown tool: ${toolName}` }
   }
@@ -856,6 +858,144 @@ async function executeUpdateProject(
       project_id: project.id,
       original_name: project.name,
       changes,
+    },
+  }
+}
+
+// ── DRAFT EMAIL REPLY ───────────────────────────────────────────────────────
+
+async function executeDraftEmailReply(
+  args: Record<string, any>,
+  ctx: ActionContext
+): Promise<ActionResult> {
+  const { contact_name, tone = "professional", context: userContext } = args
+
+  if (!contact_name?.trim()) {
+    return { success: false, message: "Contact name is required to draft an email reply." }
+  }
+
+  // Look up the contact
+  const { data: contacts } = await supabaseAdmin
+    .from("relationships")
+    .select("id, full_name, email, company, role, pipeline_stage, deal_value")
+    .eq("user_id", ctx.founder_id)
+    .ilike("full_name", `%${contact_name}%`)
+    .limit(1)
+
+  if (!contacts || contacts.length === 0) {
+    return { success: false, message: `No contact found matching "${contact_name}".` }
+  }
+
+  const contact = contacts[0]
+  if (!contact.email) {
+    return { success: false, message: `${contact.full_name} doesn't have an email address on file.` }
+  }
+
+  // Get recent email analyses for context
+  const { data: emailAnalyses } = await supabaseAdmin
+    .from("email_analyses")
+    .select("gmail_thread_id, intent, sentiment, direction, analyzed_at, thread_subject")
+    .eq("user_id", ctx.founder_id)
+    .eq("contact_id", contact.id)
+    .not("gmail_message_id", "like", "__thread_meta_%")
+    .order("analyzed_at", { ascending: false })
+    .limit(10)
+
+  // Build email context for LLM
+  const emailContext: string[] = []
+  emailContext.push(`Contact: ${contact.full_name}`)
+  if (contact.company) emailContext.push(`Company: ${contact.company}`)
+  if (contact.role) emailContext.push(`Role: ${contact.role}`)
+  emailContext.push(`Pipeline: ${contact.pipeline_stage.replace(/_/g, " ")}`)
+  if (contact.deal_value) emailContext.push(`Deal: $${contact.deal_value.toLocaleString()}`)
+
+  let latestSubject = "(no subject)"
+  let latestThreadId: string | null = null
+
+  if (emailAnalyses && emailAnalyses.length > 0) {
+    const threadMap: Record<string, { subject: string | null; messages: typeof emailAnalyses }> = {}
+    for (const a of emailAnalyses) {
+      const tid = a.gmail_thread_id
+      if (!threadMap[tid]) threadMap[tid] = { subject: a.thread_subject, messages: [] }
+      threadMap[tid].messages.push(a)
+      if (a.thread_subject && !threadMap[tid].subject) threadMap[tid].subject = a.thread_subject
+    }
+
+    const latestThread = Object.entries(threadMap)[0]
+    if (latestThread) {
+      latestThreadId = latestThread[0]
+      latestSubject = latestThread[1].subject || "(no subject)"
+      const msgs = latestThread[1].messages
+      const inbound = msgs.filter(m => m.direction === "inbound")
+      const outbound = msgs.filter(m => m.direction === "outbound")
+
+      emailContext.push(`\nLatest thread: "${latestSubject}"`)
+      emailContext.push(`Messages: ${msgs.length} total (${inbound.length} from them, ${outbound.length} from you)`)
+
+      if (inbound.length > 0) {
+        const latestInbound = inbound[0]
+        emailContext.push(`Their latest intent: ${latestInbound.intent}`)
+        emailContext.push(`Their latest sentiment: ${latestInbound.sentiment}`)
+      }
+    }
+  } else {
+    emailContext.push("\nNo previous email conversation found — this would be a first email.")
+  }
+
+  // Get the founder's name for signing
+  const { data: founderProfile } = await supabaseAdmin
+    .from("profiles")
+    .select("full_name")
+    .eq("id", ctx.founder_id)
+    .single()
+
+  const senderName = founderProfile?.full_name || "Founder"
+
+  // Use LLM to generate the draft
+  const { getGroqClient, GROQ_MODEL } = require("@/lib/ai/groq")
+  const groq = getGroqClient()
+
+  const toneGuide: Record<string, string> = {
+    professional: "Professional and polished. Business-appropriate language.",
+    friendly: "Warm and conversational while remaining professional.",
+    urgent: "Conveys urgency without being rude. Action-oriented.",
+    follow_up: "Gentle follow-up tone. Reference previous conversation naturally.",
+  }
+
+  const draftResponse = await groq.chat.completions.create({
+    model: GROQ_MODEL,
+    messages: [
+      {
+        role: "system",
+        content: `You are drafting an email reply. Write ONLY the email body — no subject line, no "Dear/Hi" greeting line, no metadata. Start directly with the message content. Sign off with just the first name of the sender.
+
+Tone: ${toneGuide[tone] || toneGuide.professional}
+Sender: ${senderName}
+
+${emailContext.join("\n")}${userContext ? `\n\nUser's instructions: ${userContext}` : ""}`,
+      },
+      {
+        role: "user",
+        content: `Draft a reply email to ${contact.full_name}${userContext ? `. Context: ${userContext}` : "."}`,
+      },
+    ],
+    max_tokens: 512,
+    temperature: 0.6,
+  })
+
+  const draftBody = draftResponse.choices[0]?.message?.content || "Failed to generate draft."
+
+  return {
+    success: true,
+    message: `Email draft ready for ${contact.full_name}.`,
+    data: {
+      contact_name: contact.full_name,
+      contact_email: contact.email,
+      subject: latestSubject.startsWith("Re:") ? latestSubject : `Re: ${latestSubject}`,
+      thread_id: latestThreadId,
+      body: draftBody,
+      tone,
+      is_email_draft: true,
     },
   }
 }

@@ -38,6 +38,10 @@ import {
   MoreHorizontal,
   Circle,
   Calendar as CalendarIcon,
+  CheckCircle2,
+  AlertTriangle,
+  Loader2,
+  Mail,
 } from "lucide-react"
 import { GmailThreadView } from "@/components/gmail-thread-view"
 
@@ -1379,6 +1383,14 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null)
   const [streamingContent, setStreamingContent] = useState<string>("")
 
+  // AI room state
+  const [aiRoomId, setAiRoomId] = useState<string | null>(null)
+  const [aiActionEvents, setAiActionEvents] = useState<Array<Record<string, any>>>([])
+  const [pendingAiConfirmation, setPendingAiConfirmation] = useState<{
+    description: string; task_id: string; loading: boolean;
+  } | null>(null)
+  const [sendingEmail, setSendingEmail] = useState(false)
+
   useEffect(() => {
     messagesRef.current = messages
   }, [messages])
@@ -1480,6 +1492,15 @@ const filteredRooms = useMemo(() => {
       if (profile) setCurrentUser(profile as Profile)
       // Load chat rooms + people in parallel; Gmail loads via its own effect
       await Promise.all([loadRooms(user.id), loadPeople(user.id)])
+
+      // Auto-create/fetch AI room
+      try {
+        const aiRes = await fetch("/api/ai/room")
+        if (aiRes.ok) {
+          const { room_id } = await aiRes.json()
+          setAiRoomId(room_id)
+        }
+      } catch {}
     }
     init()
   }, [supabase])
@@ -1939,11 +1960,134 @@ const { data: allUnread } = await supabase
     prevMessageCountRef.current = messages.length
   }, [messages.length])
 
+  // ── Check if active room is the AI room ────────────────────────────────────
+  const isAiRoom = activeRoomId === aiRoomId && !!aiRoomId
+
   // ── Send message ───────────────────────────────────────────────────────────
   const handleSend = useCallback(async (content: string, file?: File, taskRef?: TaskPreview) => {
     if (!activeRoomId || !currentUser) return
 
-    // ── @AI intercept ──────────────────────────────────────────────────────
+    // ── AI Room intercept — route through /api/ai/inbox ─────────────────
+    if (isAiRoom && !file && !taskRef) {
+      const userMessage = content.trim()
+      if (!userMessage) return
+
+      // Save user message optimistically
+      const tempUserId = `temp-user-${Date.now()}`
+      const optimisticUser: ChatMessage = {
+        id: tempUserId,
+        room_id: activeRoomId,
+        sender_id: currentUser.id,
+        content,
+        file_url: null, file_name: null, file_type: null, file_size: null,
+        reply_to_id: null, edited_at: null,
+        created_at: new Date().toISOString(),
+        message_type: null,
+        sender: { id: currentUser.id, full_name: currentUser.full_name },
+        reply_to: null,
+      }
+      setMessages((prev) => [...prev, optimisticUser])
+
+      await supabase.from("chat_messages").insert({
+        room_id: activeRoomId,
+        sender_id: currentUser.id,
+        content,
+      })
+
+      // Streaming placeholder
+      const streamId = `streaming-${Date.now()}`
+      setStreamingMessageId(streamId)
+      setStreamingContent("")
+      setAiActionEvents([])
+      setPendingAiConfirmation(null)
+
+      try {
+        const res = await fetch("/api/ai/inbox", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: userMessage,
+            room_id: activeRoomId,
+          }),
+        })
+
+        if (!res.ok || !res.body) throw new Error("AI request failed")
+
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let dbMessageId: string | null = null
+        let accumulated = ""
+        const collectedActions: Array<Record<string, any>> = []
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          const text = decoder.decode(value)
+          const lines = text.split("\n\n").filter(Boolean)
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue
+            try {
+              const parsed = JSON.parse(line.slice(6))
+
+              if (parsed.type === "id") {
+                dbMessageId = parsed.message_id
+              } else if (parsed.type === "action_executed") {
+                const { type, ...actionData } = parsed
+                collectedActions.push(actionData)
+                setAiActionEvents((prev) => [...prev, actionData])
+
+                // Dispatch custom events for UI invalidation
+                if (actionData.tool?.includes("task")) {
+                  window.dispatchEvent(new Event("tasks-updated"))
+                }
+                if (actionData.tool?.includes("project")) {
+                  window.dispatchEvent(new Event("projects-updated"))
+                }
+
+                // Handle delete confirmation
+                if (actionData.needs_confirmation && actionData.confirmation_action) {
+                  setPendingAiConfirmation({
+                    description: actionData.confirmation_action.description,
+                    task_id: actionData.confirmation_action.resolved_id,
+                    loading: false,
+                  })
+                }
+              } else if (parsed.type === "delta") {
+                accumulated += parsed.content
+                setStreamingContent(accumulated)
+              } else if (parsed.type === "done") {
+                setStreamingMessageId(null)
+                setStreamingContent("")
+
+                const aiMessage: ChatMessage = {
+                  id: dbMessageId || `ai-${Date.now()}`,
+                  room_id: activeRoomId,
+                  sender_id: currentUser.id,
+                  content: parsed.content || accumulated,
+                  file_url: null, file_name: null, file_type: null, file_size: null,
+                  reply_to_id: null, edited_at: null,
+                  created_at: new Date().toISOString(),
+                  message_type: "ai_response",
+                  sender: { id: "ai", full_name: "Kobin" },
+                  reply_to: null,
+                }
+                setMessages((prev) => [...prev, aiMessage])
+              }
+            } catch {}
+          }
+        }
+      } catch (err) {
+        setStreamingMessageId(null)
+        setStreamingContent("")
+        toast.error("Kobin failed to respond. Check your API key.")
+      }
+
+      return
+    }
+
+    // ── @AI intercept (for non-AI rooms) ─────────────────────────────────
     const isAIMessage = content.trim().toLowerCase().startsWith("@ai")
     if (isAIMessage && !file && !taskRef) {
       const userMessage = content.trim().slice(3).trim() // strip @ai prefix
@@ -2400,6 +2544,53 @@ if (error) {
               <p className="text-xs text-muted-foreground">No conversations yet</p>
             </div>
           ) : null}
+
+          {/* ── Kobin AI — Pinned at top ── */}
+          {aiRoomId && (
+            <div className="px-2 pt-2 pb-1">
+              <button
+                onClick={() => setActiveRoomId(aiRoomId)}
+                className={cn(
+                  "w-full flex items-center gap-2 px-2 py-2 rounded-lg text-left transition-all group",
+                  activeRoomId === aiRoomId
+                    ? "bg-gradient-to-r from-violet-500/15 to-purple-500/10 text-foreground ring-1 ring-violet-500/20"
+                    : "hover:bg-muted/50 text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <div className="relative flex-shrink-0">
+                  <div className="w-7 h-7 rounded-full flex items-center justify-center"
+                    style={{ background: "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)" }}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                      <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+                        stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </div>
+                  <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-card" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className={cn(
+                      "text-xs font-semibold truncate",
+                      activeRoomId === aiRoomId ? "text-foreground" : ""
+                    )}>Kobin</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold" style={{
+                      background: "rgba(124, 58, 237, 0.15)",
+                      color: "#7C3AED",
+                    }}>AI</span>
+                  </div>
+                  {rooms.find(r => r.id === aiRoomId)?.last_message && (
+                    <p className="text-[10px] text-muted-foreground truncate leading-tight">
+                      {rooms.find(r => r.id === aiRoomId)?.last_message}
+                    </p>
+                  )}
+                </div>
+              </button>
+            </div>
+          )}
+
+          {/* Separator */}
+          {aiRoomId && <div className="mx-3 h-px bg-border/40" />}
+
           {/* Project Channels */}
           {groupedRooms.project.length > 0 && (
             <div className="pt-3 px-2">
@@ -2443,7 +2634,7 @@ if (error) {
                 <Plus className="h-3 w-3" />
               </button>
             </div>
-            {groupedRooms.direct.map((room) => (
+            {groupedRooms.direct.filter(r => r.id !== aiRoomId).map((room) => (
               <RoomButton key={room.id} room={room} active={activeRoomId === room.id} onClick={() => setActiveRoomId(room.id)} />
             ))}
             {groupedRooms.direct.length === 0 && (
@@ -2578,7 +2769,15 @@ if (error) {
             {/* Chat header */}
             <div className="flex items-center gap-3 px-4 py-3 border-b border-border/40 bg-card flex-shrink-0">
               <div className="flex items-center gap-3 flex-1 min-w-0">
-                {activeRoom.type === "direct" && activeRoom.other_user ? (
+                {isAiRoom ? (
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
+                    style={{ background: "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)" }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                      <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+                        stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </div>
+                ) : activeRoom.type === "direct" && activeRoom.other_user ? (
                   <Avatar user={activeRoom.other_user} size="md" />
                 ) : activeRoom.type === "project" ? (
                   <div className="w-9 h-9 rounded-full bg-emerald-500/15 flex items-center justify-center flex-shrink-0">
@@ -2590,9 +2789,9 @@ if (error) {
                   </div>
                 )}
                 <div className="min-w-0">
-                  <h3 className="text-sm font-semibold truncate">{activeRoom.display_name}</h3>
+                  <h3 className="text-sm font-semibold truncate">{isAiRoom ? "Kobin" : activeRoom.display_name}</h3>
                   <p className="text-[11px] text-muted-foreground">
-                    {activeRoom.type === "direct" ? "Active now" : activeRoom.type === "project" ? "Project channel" : "Group channel"}
+                    {isAiRoom ? "AI Assistant · Full workspace access" : activeRoom.type === "direct" ? "Active now" : activeRoom.type === "project" ? "Project channel" : "Group channel"}
                   </p>
                 </div>
               </div>
@@ -2621,14 +2820,50 @@ if (error) {
                   <div className="animate-spin h-5 w-5 border-2 border-primary border-t-transparent rounded-full" />
                 </div>
               ) : messages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-48 text-center px-8">
-                  <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
-                    <MessageSquare className="h-6 w-6 text-muted-foreground/40" />
-                  </div>
-                  <p className="text-sm font-medium">No messages yet</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {canSendMessages ? "Send the first message!" : "Messages will appear here."}
-                  </p>
+                 <div className="flex flex-col items-center justify-center h-48 text-center px-8">
+                  {isAiRoom ? (
+                    <>
+                      <div className="w-14 h-14 rounded-full flex items-center justify-center mb-4"
+                        style={{ background: "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)" }}>
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+                            stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </div>
+                      <p className="text-sm font-semibold">Hey, I'm Kobin</p>
+                      <p className="text-xs text-muted-foreground mt-1 max-w-xs">
+                        Your AI chief of staff. I can manage tasks, look up contacts, draft emails, and more.
+                      </p>
+                      <div className="grid grid-cols-2 gap-1.5 mt-4 w-full max-w-xs">
+                        {[
+                          "What's overdue?",
+                          "Who needs a follow-up?",
+                          "Show my pipeline",
+                          "Create a task for…",
+                          "Draft a reply to…",
+                          "What's on my calendar?",
+                        ].map((s) => (
+                          <button
+                            key={s}
+                            onClick={() => handleSend(s)}
+                            className="text-left px-3 py-2 rounded-xl border border-border bg-muted/30 hover:bg-muted hover:border-border/80 transition-all"
+                          >
+                            <p className="text-[11px] text-muted-foreground leading-snug">{s}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
+                        <MessageSquare className="h-6 w-6 text-muted-foreground/40" />
+                      </div>
+                      <p className="text-sm font-medium">No messages yet</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {canSendMessages ? "Send the first message!" : "Messages will appear here."}
+                      </p>
+                    </>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-0.5 pb-2">
@@ -2694,6 +2929,168 @@ if (error) {
                       content={streamingContent}
                       isStreaming={true}
                     />
+                  )}
+
+                  {/* AI Action Cards (for AI room only) */}
+                  {isAiRoom && aiActionEvents.length > 0 && !streamingMessageId && (
+                    <div className="px-14 py-2 space-y-2">
+                      {aiActionEvents.map((action, i) => (
+                        <div key={i}>
+                          {action.is_email_draft ? (
+                            /* Email draft card */
+                            <div className="rounded-xl border overflow-hidden" style={{ borderColor: "rgba(124, 58, 237, 0.25)" }}>
+                              <div className="px-3 py-2 flex items-center gap-2 border-b" style={{
+                                background: "rgba(91, 91, 214, 0.06)",
+                                borderColor: "rgba(124, 58, 237, 0.15)",
+                              }}>
+                                <Mail size={13} style={{ color: "#7C3AED" }} />
+                                <span className="text-xs font-semibold" style={{ color: "#7C3AED" }}>Email Draft</span>
+                                <span className="text-[10px] text-muted-foreground ml-auto">
+                                  To: {action.contact_email}
+                                </span>
+                              </div>
+                              <div className="px-3 py-2">
+                                <p className="text-[10px] text-muted-foreground mb-1 font-medium">{action.subject}</p>
+                                <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{action.body}</p>
+                              </div>
+                              <div className="px-3 py-2 border-t flex items-center gap-2" style={{ borderColor: "rgba(124, 58, 237, 0.15)" }}>
+                                <button
+                                  onClick={async () => {
+                                    setSendingEmail(true)
+                                    try {
+                                      const res = await fetch("/api/gmail/reply", {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({
+                                          threadId: action.thread_id,
+                                          to: action.contact_email,
+                                          subject: action.subject,
+                                          body: action.body,
+                                        }),
+                                      })
+                                      if (res.ok) {
+                                        toast.success(`Email sent to ${action.contact_name}`)
+                                        setAiActionEvents((prev) => prev.filter((_, idx) => idx !== i))
+                                      } else {
+                                        const err = await res.json()
+                                        toast.error(err.error || "Failed to send")
+                                      }
+                                    } catch {
+                                      toast.error("Failed to send email")
+                                    }
+                                    setSendingEmail(false)
+                                  }}
+                                  disabled={sendingEmail}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+                                  style={{
+                                    background: "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)",
+                                    color: "white",
+                                  }}
+                                >
+                                  {sendingEmail ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
+                                  Send via Gmail
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(action.body)
+                                    toast.success("Draft copied to clipboard")
+                                  }}
+                                  className="px-3 py-1.5 rounded-lg text-xs text-muted-foreground border border-border hover:bg-muted transition-colors"
+                                >
+                                  Copy
+                                </button>
+                              </div>
+                            </div>
+                          ) : action.needs_confirmation ? (
+                            /* Delete confirmation */
+                            <div className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl border border-amber-500/30 bg-amber-500/5">
+                              <AlertTriangle size={14} className="text-amber-400 shrink-0 mt-0.5" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-medium text-amber-300">Confirm deletion</p>
+                                <p className="text-[11px] text-muted-foreground mt-0.5">{action.confirmation_action?.description}</p>
+                              </div>
+                            </div>
+                          ) : (
+                            /* Success card */
+                            <div className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/5">
+                              <CheckCircle2 size={14} className="text-emerald-400 shrink-0 mt-0.5" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-medium text-emerald-300">
+                                  {action.tool === "create_task" && "Task created"}
+                                  {action.tool === "update_task" && "Task updated"}
+                                  {action.tool === "create_project" && "Project created"}
+                                  {action.tool === "update_project" && "Project updated"}
+                                  {action.tool === "draft_email_reply" && "Email drafted"}
+                                </p>
+                                {action.summary && (
+                                  <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{action.summary}</p>
+                                )}
+                                {action.changes && action.changes.length > 0 && (
+                                  <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{action.changes.join(" · ")}</p>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Pending AI delete confirmation buttons */}
+                  {isAiRoom && pendingAiConfirmation && !streamingMessageId && (
+                    <div className="flex items-center gap-2 px-14 py-1">
+                      <button
+                        onClick={async () => {
+                          setPendingAiConfirmation((prev) => prev ? { ...prev, loading: true } : null)
+                          try {
+                            const res = await fetch("/api/ai/inbox", {
+                              method: "DELETE",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ task_id: pendingAiConfirmation.task_id }),
+                            })
+                            const result = await res.json()
+                            if (result.success) {
+                              const confirmMsg: ChatMessage = {
+                                id: `confirm-${Date.now()}`,
+                                room_id: activeRoomId!,
+                                sender_id: currentUser!.id,
+                                content: "✅ Task deleted successfully.",
+                                file_url: null, file_name: null, file_type: null, file_size: null,
+                                reply_to_id: null, edited_at: null,
+                                created_at: new Date().toISOString(),
+                                message_type: "ai_response",
+                                sender: { id: "ai", full_name: "Kobin" },
+                                reply_to: null,
+                              }
+                              setMessages((prev) => [...prev, confirmMsg])
+                              window.dispatchEvent(new Event("tasks-updated"))
+                            } else {
+                              toast.error(result.message || "Failed to delete")
+                            }
+                          } catch {
+                            toast.error("Failed to delete task")
+                          } finally {
+                            setPendingAiConfirmation(null)
+                          }
+                        }}
+                        disabled={pendingAiConfirmation.loading}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                      >
+                        {pendingAiConfirmation.loading ? (
+                          <Loader2 size={11} className="animate-spin" />
+                        ) : (
+                          <Trash2 size={11} />
+                        )}
+                        Confirm Delete
+                      </button>
+                      <button
+                        onClick={() => setPendingAiConfirmation(null)}
+                        disabled={pendingAiConfirmation.loading}
+                        className="px-3 py-1.5 rounded-lg text-xs text-muted-foreground border border-border hover:bg-muted transition-colors disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   )}
 
                   <div ref={messagesEndRef} />

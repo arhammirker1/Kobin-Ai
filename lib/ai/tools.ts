@@ -165,6 +165,29 @@ export const ACTION_TOOLS = [
       },
     },
   },
+  {
+    type: "function" as const,
+    function: {
+      name: "draft_email_reply",
+      description: `Draft an email reply to a CRM contact. Looks up their latest email thread and generates a contextual reply. Returns the draft text — user can review and send. ALWAYS use search_contacts first to verify the contact exists and has email threads.`,
+      parameters: {
+        type: "object",
+        properties: {
+          contact_name: { type: "string", description: "Contact name to reply to" },
+          tone: {
+            type: "string",
+            enum: ["professional", "friendly", "urgent", "follow_up"],
+            description: "Tone of the reply. Default: professional",
+          },
+          context: {
+            type: "string",
+            description: "Additional context or instructions for the reply (e.g. 'schedule a meeting', 'decline politely')",
+          },
+        },
+        required: ["contact_name"],
+      },
+    },
+  },
 ] as const
 
 // ── Combined tools ──────────────────────────────────────────────────────────
@@ -179,6 +202,7 @@ export type AIToolName =
   | "delete_task"
   | "create_project"
   | "update_project"
+  | "draft_email_reply"
 
 export type AnyToolName = ReadToolName | AIToolName
 
@@ -191,4 +215,5 @@ export const READ_TOOL_NAMES = new Set<string>([
   "get_calendar",
   "get_vault_files",
   "search_contacts",
+  "get_follow_up_needed",
 ])

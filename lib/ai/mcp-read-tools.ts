@@ -182,6 +182,15 @@ export const READ_TOOLS = [
       },
     },
   },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_follow_up_needed",
+      description:
+        "Scan workspace for items needing follow-up: overdue tasks, stale CRM deals (14+ days in stage), contacts who are ghosting, and upcoming meetings needing prep. Returns a prioritized action list.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
 ] as const
 
 export type ReadToolName =
@@ -193,6 +202,7 @@ export type ReadToolName =
   | "get_calendar"
   | "get_vault_files"
   | "search_contacts"
+  | "get_follow_up_needed"
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -228,6 +238,8 @@ export async function executeReadTool(
       return execVault(args, founderId)
     case "search_contacts":
       return execSearchContacts(args, founderId)
+    case "get_follow_up_needed":
+      return execFollowUpNeeded(founderId)
     default:
       return { content: `Unknown read tool: ${toolName}` }
   }
@@ -1006,3 +1018,113 @@ async function execSearchContacts(
   return { content: lines.join("\n") }
 }
 
+// ── Follow-up Scanner ───────────────────────────────────────────────────────
+
+async function execFollowUpNeeded(founderId: string): Promise<ReadToolResult> {
+  const now = new Date()
+  const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
+  const tomorrowEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 23, 59, 59)
+
+  const [overdueRes, staleDealsRes, ghostingRes, upcomingMeetingsRes] = await Promise.all([
+    // Overdue tasks
+    supabaseAdmin
+      .from("tasks")
+      .select("id, title, priority, due_date, assigned_to, project_id")
+      .eq("user_id", founderId)
+      .eq("is_completed", false)
+      .not("due_date", "is", null)
+      .lt("due_date", now.toISOString())
+      .order("due_date", { ascending: true })
+      .limit(15),
+
+    // Stale CRM deals (14+ days in current stage)
+    supabaseAdmin
+      .from("relationships")
+      .select("id, full_name, company, pipeline_stage, deal_value, stage_entered_at, lead_score")
+      .eq("user_id", founderId)
+      .eq("status", "active")
+      .not("pipeline_stage", "in", '("closed_won","closed_lost")')
+      .not("stage_entered_at", "is", null)
+      .lt("stage_entered_at", fourteenDaysAgo.toISOString())
+      .order("deal_value", { ascending: false })
+      .limit(10),
+
+    // Ghosting contacts
+    supabaseAdmin
+      .from("relationships")
+      .select("id, full_name, company, email, ghosting_days, last_outbound_at, pipeline_stage, deal_value")
+      .eq("user_id", founderId)
+      .eq("status", "active")
+      .eq("is_ghosting", true)
+      .order("ghosting_days", { ascending: false })
+      .limit(10),
+
+    // Upcoming meetings (next 24h) — may need prep
+    supabaseAdmin
+      .from("events")
+      .select("id, title, start_time, purpose, relationship_id")
+      .eq("user_id", founderId)
+      .gte("start_time", now.toISOString())
+      .lte("start_time", tomorrowEnd.toISOString())
+      .order("start_time", { ascending: true })
+      .limit(5),
+  ])
+
+  const lines: string[] = ["## Follow-Up Needed"]
+  let totalItems = 0
+
+  // Overdue tasks
+  const overdue = overdueRes.data || []
+  if (overdue.length > 0) {
+    totalItems += overdue.length
+    lines.push(`\n### 🔴 Overdue Tasks (${overdue.length})`)
+    for (const t of overdue) {
+      const daysOverdue = Math.floor((now.getTime() - new Date(t.due_date).getTime()) / (1000 * 60 * 60 * 24))
+      lines.push(`- [${t.priority?.charAt(0).toUpperCase() || 'M'}] ${t.title} — ${daysOverdue}d overdue`)
+    }
+  }
+
+  // Stale deals
+  const staleDeals = staleDealsRes.data || []
+  if (staleDeals.length > 0) {
+    totalItems += staleDeals.length
+    lines.push(`\n### 🟡 Stale Deals (${staleDeals.length})`)
+    for (const d of staleDeals) {
+      const days = Math.floor((now.getTime() - new Date(d.stage_entered_at).getTime()) / (1000 * 60 * 60 * 24))
+      const val = d.deal_value ? ` | $${d.deal_value.toLocaleString()}` : ""
+      lines.push(`- ${d.full_name}${d.company ? ` (${d.company})` : ""} — ${d.pipeline_stage.replace(/_/g, " ")} for ${days}d${val}`)
+    }
+  }
+
+  // Ghosting contacts
+  const ghosting = ghostingRes.data || []
+  if (ghosting.length > 0) {
+    totalItems += ghosting.length
+    lines.push(`\n### 👻 Ghosting Contacts (${ghosting.length})`)
+    for (const g of ghosting) {
+      const val = g.deal_value ? ` | $${g.deal_value.toLocaleString()}` : ""
+      lines.push(`- ${g.full_name}${g.company ? ` (${g.company})` : ""} — no reply for ${g.ghosting_days}d${val}`)
+    }
+  }
+
+  // Upcoming meetings needing prep
+  const meetings = upcomingMeetingsRes.data || []
+  if (meetings.length > 0) {
+    totalItems += meetings.length
+    lines.push(`\n### 📅 Upcoming Meetings — Prep Needed (${meetings.length})`)
+    for (const m of meetings) {
+      const time = new Date(m.start_time).toLocaleString("en-US", {
+        hour: "numeric", minute: "2-digit", weekday: "short",
+      })
+      lines.push(`- ${time}: ${m.title}${m.purpose ? ` — ${m.purpose}` : ""}`)
+    }
+  }
+
+  if (totalItems === 0) {
+    lines.push("\nAll clear! No overdue tasks, stale deals, or ghosting contacts.")
+  } else {
+    lines.unshift(`${totalItems} items need your attention:`)
+  }
+
+  return { content: lines.join("\n") }
+}
