@@ -305,6 +305,8 @@ function PipelineCard({
   onEditDeal,
   onDragStart,
 }: PipelineCardProps) {
+  const [expanded, setExpanded] = useState(false)
+
   const currentIdx = STAGE_ORDER.indexOf(contact.pipeline_stage)
   const canMoveBack = currentIdx > 0
   const canMoveForward =
@@ -322,131 +324,158 @@ function PipelineCard({
       : null
 
   const isStale = daysInStage > 14 && !["closed_won", "closed_lost"].includes(contact.pipeline_stage)
-  const isHot = daysInStage <= 2 && !["closed_won", "closed_lost"].includes(contact.pipeline_stage)
 
   return (
     <div
       draggable
       onDragStart={(e) => onDragStart(e, contact.id)}
       className={cn(
-        "group relative bg-card border rounded-xl p-3 cursor-grab active:cursor-grabbing",
+        "group relative bg-card border rounded-xl cursor-grab active:cursor-grabbing",
         "hover:shadow-md hover:border-primary/30 transition-all duration-150",
         isStale && "border-amber-200 dark:border-amber-800/60",
+        expanded ? "p-3" : "px-3 py-2",
       )}
     >
-      {/* Stale indicator */}
-      {isStale && (
-        <div className="absolute top-2.5 right-2.5 flex items-center gap-1">
-          <Clock size={11} className="text-amber-500" />
-          <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400">
-            {daysInStage}d
-          </span>
+      {/* ── Compact row (always visible) ─────────────────────────────── */}
+      <div className="flex items-center gap-2">
+        {/* Name + company */}
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-xs leading-tight truncate">{contact.full_name}</p>
+          {contact.company && (
+            <p className="text-[10px] text-muted-foreground truncate">{contact.company}</p>
+          )}
         </div>
-      )}
 
-      {/* Name + company */}
-      <div className="pr-10">
-        <p className="font-semibold text-sm leading-tight truncate">{contact.full_name}</p>
-        {contact.company && (
-          <p className="text-xs text-muted-foreground truncate mt-0.5">{contact.company}</p>
-        )}
-        {contact.role && (
-          <p className="text-[11px] text-muted-foreground/70 truncate">{contact.role}</p>
-        )}
-      </div>
-
-      {/* Deal value */}
-      {contact.deal_value ? (
-        <div className="mt-2 flex items-center justify-between">
-          <div className="flex items-center gap-1">
-            <DollarSign size={11} className="text-emerald-500" />
-            <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-              {contact.deal_value.toLocaleString()}
+        {/* Right side: deal chip + stale + expand */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {contact.deal_value ? (
+            <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
+              ${contact.deal_value >= 1000 ? `${(contact.deal_value / 1000).toFixed(contact.deal_value % 1000 === 0 ? 0 : 1)}k` : contact.deal_value}
             </span>
-          </div>
-          {contact.close_probability !== null && (
-            <span className="text-[10px] text-muted-foreground">
-              {contact.close_probability}% · ${weightedValue?.toLocaleString()}
+          ) : null}
+
+          {isStale && (
+            <span className="text-[9px] font-medium text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1 py-0.5 rounded-full">
+              {daysInStage}d
             </span>
           )}
-        </div>
-      ) : (
-        <button
-          onClick={() => onEditDeal(contact)}
-          className="mt-2 flex items-center gap-1 text-[11px] text-muted-foreground/60 hover:text-primary transition-colors"
-        >
-          <Plus size={10} />
-          Add deal value
-        </button>
-      )}
 
-      {/* Tags */}
-      {contact.tags && contact.tags.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1">
-          {contact.tags.slice(0, 2).map((tag) => (
-            <span
-              key={tag}
-              className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
-            >
-              {tag}
-            </span>
-          ))}
-          {contact.tags.length > 2 && (
-            <span className="text-[10px] text-muted-foreground/60">+{contact.tags.length - 2}</span>
-          )}
-        </div>
-      )}
-
-      {/* Pipeline notes preview */}
-      {contact.pipeline_notes && (
-        <p className="mt-2 text-[11px] text-muted-foreground/70 italic line-clamp-1 border-t border-border/50 pt-1.5">
-          {contact.pipeline_notes}
-        </p>
-      )}
-
-      {/* Actions row */}
-      <div className="mt-2.5 pt-2 border-t border-border/50 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity">
-        <div className="flex items-center gap-1">
-          {/* Move back */}
-          {canMoveBack && (
-            <button
-              onClick={() => onMoveStage(contact.id, STAGE_ORDER[currentIdx - 1])}
-              className="p-1 rounded hover:bg-muted transition-colors"
-              title="Move back"
-            >
-              <ChevronLeft size={13} className="text-muted-foreground" />
-            </button>
-          )}
-          {/* Move forward */}
-          {canMoveForward && (
-            <button
-              onClick={() => onMoveStage(contact.id, STAGE_ORDER[currentIdx + 1])}
-              className="p-1 rounded hover:bg-muted transition-colors"
-              title="Move forward"
-            >
-              <ChevronRight size={13} className="text-muted-foreground" />
-            </button>
-          )}
-        </div>
-        <div className="flex items-center gap-1">
-          {contact.linkedin_profile_url && (
-            <button
-              onClick={() => window.open(contact.linkedin_profile_url!, "_blank")}
-              className="p-1 rounded hover:bg-muted transition-colors"
-              title="Open LinkedIn"
-            >
-              <Linkedin size={12} className="text-muted-foreground" />
-            </button>
-          )}
           <button
-            onClick={() => onEditDeal(contact)}
-            className="p-1 rounded hover:bg-muted transition-colors"
-            title="Edit deal"
+            onClick={(e) => { e.stopPropagation(); setExpanded(!expanded) }}
+            className="p-0.5 rounded hover:bg-muted transition-colors"
+            title={expanded ? "Collapse" : "Expand details"}
           >
-            <MoreHorizontal size={13} className="text-muted-foreground" />
+            <ChevronRight
+              size={12}
+              className={cn(
+                "text-muted-foreground/60 transition-transform duration-150",
+                expanded && "rotate-90",
+              )}
+            />
           </button>
         </div>
       </div>
+
+      {/* ── Expanded details ─────────────────────────────────────────── */}
+      {expanded && (
+        <div className="mt-2 space-y-2 animate-in fade-in slide-in-from-top-1 duration-150">
+          {/* Role */}
+          {contact.role && (
+            <p className="text-[11px] text-muted-foreground/70 truncate">{contact.role}</p>
+          )}
+
+          {/* Deal value detail */}
+          {contact.deal_value ? (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1">
+                <DollarSign size={11} className="text-emerald-500" />
+                <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                  {contact.deal_value.toLocaleString()}
+                </span>
+              </div>
+              {contact.close_probability !== null && (
+                <span className="text-[10px] text-muted-foreground">
+                  {contact.close_probability}% · ${weightedValue?.toLocaleString()}
+                </span>
+              )}
+            </div>
+          ) : (
+            <button
+              onClick={() => onEditDeal(contact)}
+              className="flex items-center gap-1 text-[11px] text-muted-foreground/60 hover:text-primary transition-colors"
+            >
+              <Plus size={10} />
+              Add deal value
+            </button>
+          )}
+
+          {/* Tags */}
+          {contact.tags && contact.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {contact.tags.slice(0, 3).map((tag) => (
+                <span
+                  key={tag}
+                  className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
+                >
+                  {tag}
+                </span>
+              ))}
+              {contact.tags.length > 3 && (
+                <span className="text-[10px] text-muted-foreground/60">+{contact.tags.length - 3}</span>
+              )}
+            </div>
+          )}
+
+          {/* Pipeline notes */}
+          {contact.pipeline_notes && (
+            <p className="text-[11px] text-muted-foreground/70 italic line-clamp-2 border-t border-border/50 pt-1.5">
+              {contact.pipeline_notes}
+            </p>
+          )}
+
+          {/* Actions row */}
+          <div className="pt-1.5 border-t border-border/50 flex items-center justify-between">
+            <div className="flex items-center gap-1">
+              {canMoveBack && (
+                <button
+                  onClick={() => onMoveStage(contact.id, STAGE_ORDER[currentIdx - 1])}
+                  className="p-1 rounded hover:bg-muted transition-colors"
+                  title="Move back"
+                >
+                  <ChevronLeft size={13} className="text-muted-foreground" />
+                </button>
+              )}
+              {canMoveForward && (
+                <button
+                  onClick={() => onMoveStage(contact.id, STAGE_ORDER[currentIdx + 1])}
+                  className="p-1 rounded hover:bg-muted transition-colors"
+                  title="Move forward"
+                >
+                  <ChevronRight size={13} className="text-muted-foreground" />
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-1">
+              {contact.linkedin_profile_url && (
+                <button
+                  onClick={() => window.open(contact.linkedin_profile_url!, "_blank")}
+                  className="p-1 rounded hover:bg-muted transition-colors"
+                  title="Open LinkedIn"
+                >
+                  <Linkedin size={12} className="text-muted-foreground" />
+                </button>
+              )}
+              <button
+                onClick={() => onEditDeal(contact)}
+                className="p-1 rounded hover:bg-muted transition-colors"
+                title="Edit deal"
+              >
+                <MoreHorizontal size={13} className="text-muted-foreground" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
