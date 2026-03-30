@@ -557,6 +557,22 @@ export function GmailThreadView({
   const [contactScore, setContactScore] = useState<ContactScore | null>(null)
   const [analyzing, setAnalyzing] = useState(false)
 
+  // ── Session cache helpers ──────────────────────────────────────────────
+  const cacheKey = (tid: string, count: number) => `email_analysis_${tid}_${count}`
+
+  const getCachedAnalysis = (tid: string, count: number) => {
+    try {
+      const raw = sessionStorage.getItem(cacheKey(tid, count))
+      return raw ? JSON.parse(raw) : null
+    } catch { return null }
+  }
+
+  const setCachedAnalysis = (tid: string, count: number, data: any) => {
+    try {
+      sessionStorage.setItem(cacheKey(tid, count), JSON.stringify(data))
+    } catch { /* storage full — non-fatal */ }
+  }
+
   useEffect(() => {
     loadThread()
     loadContact()
@@ -587,15 +603,29 @@ export function GmailThreadView({
     }
   }, [loadingMessages])
 
-  // ── AI Analysis (lazy, after thread loads) ──────────────────────────────
+  // ── AI Analysis (with session cache — no re-analysis on reload) ──────────
   const runAnalysis = async () => {
     if (analyzing) return
+
+    // Check sessionStorage first — if we have cached results for this
+    // exact thread + message count, use them instantly (no API call)
+    const cached = getCachedAnalysis(threadId, messages.length)
+    if (cached) {
+      if (cached.analyses) setAnalysisMap(cached.analyses)
+      if (cached.thread_summary) setThreadSummary(cached.thread_summary)
+      if (cached.contact_scores) {
+        const firstScore = Object.values(cached.contact_scores)[0] as ContactScore | undefined
+        if (firstScore) setContactScore(firstScore)
+      }
+      return // Skip API call entirely
+    }
+
     setAnalyzing(true)
     try {
       const res = await fetch("/api/gmail/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ threadId }),
+        body: JSON.stringify({ threadId, messageCount: messages.length }),
       })
       if (!res.ok) throw new Error()
       const data = await res.json()
@@ -606,6 +636,8 @@ export function GmailThreadView({
         const firstScore = Object.values(data.contact_scores)[0] as ContactScore | undefined
         if (firstScore) setContactScore(firstScore)
       }
+      // Cache to sessionStorage so reload is instant
+      setCachedAnalysis(threadId, messages.length, data)
     } catch {
       // Non-fatal — thread still works without AI
       console.warn("[AI] Analysis failed for thread", threadId)
@@ -661,6 +693,8 @@ export function GmailThreadView({
       if (!res.ok) throw new Error()
       toast.success("Reply sent via Gmail")
       setReplyText("")
+      // Invalidate session cache so the new outbound message gets analyzed
+      try { sessionStorage.removeItem(cacheKey(threadId, messages.length)) } catch {}
       setTimeout(loadThread, 2000)
     } catch {
       toast.error("Failed to send reply")
@@ -852,7 +886,7 @@ export function GmailThreadView({
                     >
                       {cleanBody || msg.body}
                     </div>
-                    {/* AI insight badge per message */}
+                    {/* AI insight badge — all messages */}
                     {analysisMap[msg.id] && (
                       <AIInsightBadge analysis={analysisMap[msg.id]} />
                     )}

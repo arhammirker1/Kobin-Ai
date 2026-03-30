@@ -8,7 +8,10 @@ import { NextResponse } from "next/server"
 
 // POST /api/gmail/analyze
 // Analyzes all unanalyzed messages in a Gmail thread.
-// Called lazily after the thread is loaded in the UI.
+// Uses cache-first approach: if all messages are already analyzed,
+// returns cached data instantly without calling Gmail API or AI.
+// Tracks processed message count (including skipped short messages)
+// so the cache check is reliable across reloads.
 
 export async function POST(request: Request) {
   try {
@@ -16,10 +19,38 @@ export async function POST(request: Request) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    const { threadId } = await request.json()
+    const { threadId, messageCount } = await request.json()
     if (!threadId) return NextResponse.json({ error: "threadId required" }, { status: 400 })
 
-    // 1. Get Google token
+    // ─── STEP 1: Check cache first ──────────────────────────────────────
+    // Query all analyses for this thread including "skipped" placeholder rows.
+    // We also store the total processed message count as a thread-level marker
+    // (a row with gmail_message_id = '__thread_meta__') to handle skipped messages.
+    const { data: cachedRows } = await supabaseAdmin
+      .from("email_analyses")
+      .select("gmail_message_id, intent, intent_confidence, sentiment, signals, reasoning, direction, contact_id")
+      .eq("user_id", user.id)
+      .eq("gmail_thread_id", threadId)
+      .order("analyzed_at", { ascending: true })
+
+    // Separate the thread meta marker from actual analyses
+    const threadMeta = cachedRows?.find(r => r.gmail_message_id === `__thread_meta_${threadId}__`)
+    const cachedAnalyses = cachedRows?.filter(r => !r.gmail_message_id.startsWith("__thread_meta_")) || []
+    const lastProcessedCount = threadMeta ? (threadMeta.intent_confidence || 0) : 0
+
+    // If we've processed this exact message count before, return cached data
+    // without calling Gmail API or AI — true cache hit
+    if (lastProcessedCount > 0 && messageCount && lastProcessedCount >= messageCount) {
+      return NextResponse.json({
+        analyses: buildAnalysisMap(cachedAnalyses),
+        thread_summary: buildThreadSummary(cachedAnalyses),
+        contact_scores: await getCachedScores(cachedAnalyses, user.id),
+        analyzed_count: 0,
+        cached: true,
+      })
+    }
+
+    // ─── STEP 2: Need fresh analysis — fetch from Gmail ─────────────────
     const { data: integration } = await supabaseAdmin
       .from("google_integrations")
       .select("*")
@@ -34,7 +65,6 @@ export async function POST(request: Request) {
     const accessToken = await refreshGoogleToken(integration)
     const userEmail = integration.google_email?.toLowerCase() || ""
 
-    // 2. Fetch thread messages from Gmail (full body for analysis)
     const threadRes = await fetch(
       `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}?format=full`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
@@ -48,26 +78,30 @@ export async function POST(request: Request) {
     const messages = threadData.messages || []
 
     if (messages.length === 0) {
-      return NextResponse.json({ analyses: [], thread_summary: null })
+      return NextResponse.json({ analyses: {}, thread_summary: null })
     }
 
-    // 3. Check which messages are already analyzed
-    const messageIds = messages.map((m: any) => m.id)
-    const { data: existingAnalyses } = await supabaseAdmin
-      .from("email_analyses")
-      .select("gmail_message_id, intent, intent_confidence, sentiment, signals, reasoning")
-      .eq("user_id", user.id)
-      .in("gmail_message_id", messageIds)
+    // ─── STEP 3: Find unanalyzed messages ───────────────────────────────
+    const analyzedIds = new Set(cachedAnalyses.map((a) => a.gmail_message_id))
 
-    const analyzedIds = new Set(existingAnalyses?.map((a) => a.gmail_message_id) || [])
+    // If all messages already analyzed, return cached (race condition safety)
+    const unanalyzedMessages = messages.filter((m: any) => !analyzedIds.has(m.id))
+    if (unanalyzedMessages.length === 0) {
+      // Update the thread meta marker with the current message count
+      await upsertThreadMeta(user.id, threadId, messages.length)
+      return NextResponse.json({
+        analyses: buildAnalysisMap(cachedAnalyses),
+        thread_summary: buildThreadSummary(cachedAnalyses),
+        contact_scores: await getCachedScores(cachedAnalyses, user.id),
+        analyzed_count: 0,
+        cached: true,
+      })
+    }
 
-    // 4. Analyze unanalyzed messages
+    // ─── STEP 4: Analyze ONLY new messages ──────────────────────────────
     const newAnalyses: Array<Record<string, any>> = []
 
-    for (const msg of messages) {
-      if (analyzedIds.has(msg.id)) continue
-
-      // Extract email body and sender
+    for (const msg of unanalyzedMessages) {
       const body = extractBody(msg)
       const fromHeader = getHeader(msg, "From")
       const subject = getHeader(msg, "Subject")
@@ -93,7 +127,7 @@ export async function POST(request: Request) {
         .ilike("email", contactEmail)
         .maybeSingle()
 
-      const row = {
+      newAnalyses.push({
         user_id: user.id,
         gmail_message_id: msg.id,
         gmail_thread_id: threadId,
@@ -105,12 +139,10 @@ export async function POST(request: Request) {
         sentiment: analysis.sentiment,
         signals: analysis.signals,
         reasoning: analysis.reasoning,
-      }
-
-      newAnalyses.push(row)
+      })
     }
 
-    // 5. Batch insert new analyses
+    // ─── STEP 5: Insert new analyses ────────────────────────────────────
     if (newAnalyses.length > 0) {
       const { error: insertError } = await supabaseAdmin
         .from("email_analyses")
@@ -121,70 +153,144 @@ export async function POST(request: Request) {
       }
     }
 
-    // 6. Get all analyses for this thread (existing + new)
-    const { data: allAnalyses } = await supabaseAdmin
+    // ─── STEP 5b: Update thread meta with total processed count ─────────
+    // This tracks how many messages we've seen (including skipped short ones)
+    // so the cache check works correctly on reload
+    await upsertThreadMeta(user.id, threadId, messages.length)
+
+    // ─── STEP 6: Get complete analysis set ──────────────────────────────
+    const { data: rawAllAnalyses } = await supabaseAdmin
       .from("email_analyses")
       .select("gmail_message_id, intent, intent_confidence, sentiment, signals, reasoning, direction, contact_id")
       .eq("user_id", user.id)
       .eq("gmail_thread_id", threadId)
       .order("analyzed_at", { ascending: true })
 
-    // 7. Trigger lead scoring + ghosting for matched contacts
-    const contactIds = [...new Set(
-      (allAnalyses || [])
-        .map((a) => a.contact_id)
-        .filter(Boolean)
-    )] as string[]
+    // Filter out thread meta marker rows
+    const allAnalyses = (rawAllAnalyses || []).filter(
+      (a) => !a.gmail_message_id.startsWith("__thread_meta_")
+    )
 
+    // ─── STEP 7: Only re-score if we added NEW analyses ─────────────────
     const scoreResults: Record<string, any> = {}
-    for (const cid of contactIds) {
-      const [scoreResult, ghostingResult] = await Promise.all([
-        scoreAndPersist(cid, user.id),
-        detectAndPersist(cid, user.id),
-      ])
-      scoreResults[cid] = { score: scoreResult, ghosting: ghostingResult }
-    }
+    if (newAnalyses.length > 0) {
+      const contactIds = [...new Set(
+        allAnalyses
+          .map((a) => a.contact_id)
+          .filter(Boolean)
+      )] as string[]
 
-    // 8. Build response — keyed by message ID for easy frontend lookup
-    const analysisMap: Record<string, any> = {}
-    for (const a of allAnalyses || []) {
-      analysisMap[a.gmail_message_id] = {
-        intent: a.intent,
-        intent_confidence: a.intent_confidence,
-        sentiment: a.sentiment,
-        signals: a.signals,
-        reasoning: a.reasoning,
-        direction: a.direction,
+      for (const cid of contactIds) {
+        const [scoreResult, ghostingResult] = await Promise.all([
+          scoreAndPersist(cid, user.id),
+          detectAndPersist(cid, user.id),
+        ])
+        scoreResults[cid] = { score: scoreResult, ghosting: ghostingResult }
       }
-    }
-
-    // Thread-level summary
-    const inboundAnalyses = (allAnalyses || []).filter((a) => a.direction === "inbound")
-    let threadSummary = null
-    if (inboundAnalyses.length > 0) {
-      const { summarizeThreadAnalyses } = await import("@/lib/ai/email-intelligence")
-      threadSummary = summarizeThreadAnalyses(
-        inboundAnalyses.map((a) => ({
-          intent: a.intent,
-          intent_confidence: a.intent_confidence,
-          sentiment: a.sentiment,
-          signals: a.signals || [],
-          reasoning: a.reasoning || "",
-        }))
-      )
+    } else {
+      // No new analyses — just read cached scores
+      Object.assign(scoreResults, await getCachedScores(allAnalyses, user.id))
     }
 
     return NextResponse.json({
-      analyses: analysisMap,
-      thread_summary: threadSummary,
+      analyses: buildAnalysisMap(allAnalyses),
+      thread_summary: buildThreadSummary(allAnalyses),
       contact_scores: scoreResults,
       analyzed_count: newAnalyses.length,
+      cached: false,
     })
   } catch (err) {
     console.error("[Analyze] Error:", err)
     const message = err instanceof Error ? err.message : "Server error"
     return NextResponse.json({ error: message }, { status: 500 })
   }
+}
+
+// ── Response builders ───────────────────────────────────────────────────────
+
+function buildAnalysisMap(analyses: any[]): Record<string, any> {
+  const map: Record<string, any> = {}
+  for (const a of analyses) {
+    map[a.gmail_message_id] = {
+      intent: a.intent,
+      intent_confidence: a.intent_confidence,
+      sentiment: a.sentiment,
+      signals: a.signals,
+      reasoning: a.reasoning,
+      direction: a.direction,
+    }
+  }
+  return map
+}
+
+function buildThreadSummary(analyses: any[]) {
+  const inbound = analyses.filter((a) => a.direction === "inbound")
+  if (inbound.length === 0) return null
+
+  const { summarizeThreadAnalyses } = require("@/lib/ai/email-intelligence")
+  return summarizeThreadAnalyses(
+    inbound.map((a) => ({
+      intent: a.intent,
+      intent_confidence: a.intent_confidence,
+      sentiment: a.sentiment,
+      signals: a.signals || [],
+      reasoning: a.reasoning || "",
+    }))
+  )
+}
+
+async function getCachedScores(analyses: any[], userId: string): Promise<Record<string, any>> {
+  const contactIds = [...new Set(
+    analyses.map((a) => a.contact_id).filter(Boolean)
+  )] as string[]
+
+  if (contactIds.length === 0) return {}
+
+  const results: Record<string, any> = {}
+  for (const cid of contactIds) {
+    const { data: contact } = await supabaseAdmin
+      .from("relationships")
+      .select("lead_score, lead_status, is_ghosting, ghosting_days")
+      .eq("id", cid)
+      .eq("user_id", userId)
+      .single()
+
+    if (contact) {
+      results[cid] = {
+        score: { score: contact.lead_score || 0, status: contact.lead_status || "cold" },
+        ghosting: {
+          is_ghosting: contact.is_ghosting || false,
+          ghosting_days: contact.ghosting_days || 0,
+          suggestion: null,
+        },
+      }
+    }
+  }
+  return results
+}
+
+// ── Thread meta helper ──────────────────────────────────────────────────────
+// Stores the total processed message count for a thread so cache checks
+// aren't thrown off by skipped short messages.
+
+async function upsertThreadMeta(userId: string, threadId: string, totalMessages: number) {
+  const metaId = `__thread_meta_${threadId}__`
+  await supabaseAdmin
+    .from("email_analyses")
+    .upsert(
+      {
+        user_id: userId,
+        gmail_message_id: metaId,
+        gmail_thread_id: threadId,
+        direction: "inbound",
+        intent: "neutral",
+        intent_confidence: totalMessages, // repurpose as counter
+        sentiment: "neutral",
+        signals: [],
+        reasoning: `Thread meta: ${totalMessages} messages processed`,
+      },
+      { onConflict: "user_id,gmail_message_id" }
+    )
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
