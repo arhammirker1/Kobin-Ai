@@ -499,14 +499,13 @@ function EventInviteCard({
         )}
         {/* Sender sees response status */}
         {!isInvitee && (
-          <p className={`text-xs font-medium italic ${
-            status === "accepted" ? "text-emerald-500" :
-            status === "declined" ? "text-destructive" :
-            "text-muted-foreground"
-          }`}>
+          <p className={`text-xs font-medium italic ${status === "accepted" ? "text-emerald-500" :
+              status === "declined" ? "text-destructive" :
+                "text-muted-foreground"
+            }`}>
             {status === "accepted" ? "✓ Accepted" :
-             status === "declined" ? "✗ Declined" :
-             `Sent by ${data.inviter_name} · awaiting response`}
+              status === "declined" ? "✗ Declined" :
+                `Sent by ${data.inviter_name} · awaiting response`}
           </p>
         )}
       </div>
@@ -581,11 +580,11 @@ function TaskRefCard({ task }: { task: TaskPreview }) {
 
 const MENTION_PALETTES = [
   { bg: "bg-violet-500/20", text: "text-violet-400" },
-  { bg: "bg-blue-500/20",   text: "text-blue-400"   },
-  { bg: "bg-emerald-500/20",text: "text-emerald-400" },
-  { bg: "bg-amber-500/20",  text: "text-amber-500"  },
-  { bg: "bg-rose-500/20",   text: "text-rose-400"   },
-  { bg: "bg-cyan-500/20",   text: "text-cyan-400"   },
+  { bg: "bg-blue-500/20", text: "text-blue-400" },
+  { bg: "bg-emerald-500/20", text: "text-emerald-400" },
+  { bg: "bg-amber-500/20", text: "text-amber-500" },
+  { bg: "bg-rose-500/20", text: "text-rose-400" },
+  { bg: "bg-cyan-500/20", text: "text-cyan-400" },
 ]
 
 function AIMessageBubble({ content, isStreaming }: { content: string; isStreaming?: boolean }) {
@@ -803,56 +802,56 @@ const MessageBubble = React.memo(function MessageBubble({
             } catch { return null }
           })()
         ) : (
-        <div className={cn(
-          "relative px-3.5 py-2 text-sm leading-relaxed",
-          isOwn
-            ? "text-white rounded-[20px] rounded-br-[4px]"
-            : "bg-muted text-foreground rounded-[20px] rounded-bl-[4px]",
-          msg.file_url && !msg.content && "p-1 bg-transparent"
-        )}
-        style={isOwn && !(msg.file_url && !msg.content) ? { background: "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)" } : undefined}
-        >
-          {msg.content && (
-  <p className="whitespace-pre-wrap break-words">
-    <MentionText text={msg.content} isOwn={isOwn} />
-  </p>
-)}
-
-          {msg.file_url && (
-            <div className={msg.content ? "mt-2" : ""}>
-              {msg.file_type?.startsWith("image/") ? (
-                <button onClick={() => onImageClick(msg.file_url!, msg.file_name || "image")}>
-                  <img
-                    src={msg.file_url}
-                    alt={msg.file_name || "image"}
-                    className="max-w-[220px] max-h-[220px] rounded-[18px] object-cover hover:opacity-95 transition-opacity cursor-zoom-in"
-                  />
-                </button>
-              ) : (
-  <a
-    href={msg.file_url}
-    target="_blank"
-    rel="noreferrer"
-    className={cn(
-      "flex items-center gap-2 px-3 py-2 rounded-2xl text-xs font-medium",
-      isOwn
-        ? "bg-white/10 text-primary-foreground"
-        : "bg-background border border-border text-foreground"
-    )}
-  >
-    <FileIcon className="h-4 w-4 flex-shrink-0" />
-    <div className="min-w-0">
-      <div className="truncate">{msg.file_name}</div>
-      {msg.file_size && (
-        <div className="opacity-60">{formatFileSize(msg.file_size)}</div>
-      )}
-    </div>
-    <Download className="h-3 w-3 opacity-60" />
-  </a>
-)}
-            </div>
+          <div className={cn(
+            "relative px-3.5 py-2 text-sm leading-relaxed",
+            isOwn
+              ? "text-white rounded-[20px] rounded-br-[4px]"
+              : "bg-muted text-foreground rounded-[20px] rounded-bl-[4px]",
+            msg.file_url && !msg.content && "p-1 bg-transparent"
           )}
-        </div>
+            style={isOwn && !(msg.file_url && !msg.content) ? { background: "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)" } : undefined}
+          >
+            {msg.content && (
+              <p className="whitespace-pre-wrap break-words">
+                <MentionText text={msg.content} isOwn={isOwn} />
+              </p>
+            )}
+
+            {msg.file_url && (
+              <div className={msg.content ? "mt-2" : ""}>
+                {msg.file_type?.startsWith("image/") ? (
+                  <button onClick={() => onImageClick(msg.file_url!, msg.file_name || "image")}>
+                    <img
+                      src={msg.file_url}
+                      alt={msg.file_name || "image"}
+                      className="max-w-[220px] max-h-[220px] rounded-[18px] object-cover hover:opacity-95 transition-opacity cursor-zoom-in"
+                    />
+                  </button>
+                ) : (
+                  <a
+                    href={msg.file_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={cn(
+                      "flex items-center gap-2 px-3 py-2 rounded-2xl text-xs font-medium",
+                      isOwn
+                        ? "bg-white/10 text-primary-foreground"
+                        : "bg-background border border-border text-foreground"
+                    )}
+                  >
+                    <FileIcon className="h-4 w-4 flex-shrink-0" />
+                    <div className="min-w-0">
+                      <div className="truncate">{msg.file_name}</div>
+                      {msg.file_size && (
+                        <div className="opacity-60">{formatFileSize(msg.file_size)}</div>
+                      )}
+                    </div>
+                    <Download className="h-3 w-3 opacity-60" />
+                  </a>
+                )}
+              </div>
+            )}
+          </div>
         )}
 
         {/* Time + edited — always visible */}
@@ -1050,13 +1049,13 @@ function MessageInput({
     }
     if (showMentionPicker) {
       if (e.key === "ArrowDown") { e.preventDefault(); setMentionIndex(i => Math.min(i + 1, filteredPeople.length - 1)); return }
-      if (e.key === "ArrowUp")   { e.preventDefault(); setMentionIndex(i => Math.max(i - 1, 0)); return }
-      if (e.key === "Enter")     { e.preventDefault(); filteredPeople[mentionIndex] && selectMention(filteredPeople[mentionIndex]); return }
+      if (e.key === "ArrowUp") { e.preventDefault(); setMentionIndex(i => Math.max(i - 1, 0)); return }
+      if (e.key === "Enter") { e.preventDefault(); filteredPeople[mentionIndex] && selectMention(filteredPeople[mentionIndex]); return }
     }
     if (showTaskPicker) {
       if (e.key === "ArrowDown") { e.preventDefault(); setTaskIndex(i => Math.min(i + 1, filteredTasks.length - 1)); return }
-      if (e.key === "ArrowUp")   { e.preventDefault(); setTaskIndex(i => Math.max(i - 1, 0)); return }
-      if (e.key === "Enter")     { e.preventDefault(); filteredTasks[taskIndex] && selectTask(filteredTasks[taskIndex]); return }
+      if (e.key === "ArrowUp") { e.preventDefault(); setTaskIndex(i => Math.max(i - 1, 0)); return }
+      if (e.key === "Enter") { e.preventDefault(); filteredTasks[taskIndex] && selectTask(filteredTasks[taskIndex]); return }
     }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault(); handleSend()
@@ -1395,29 +1394,29 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
     messagesRef.current = messages
   }, [messages])
 
-// ── PASTE THE THREE useMemos HERE ──────────────────────────────────────────
-const activeRoom = useMemo(
-  () => rooms.find((r) => r.id === activeRoomId),
-  [rooms, activeRoomId]
-)
-
-const groupedRooms = useMemo(() => ({
-  project: rooms.filter((r) => r.type === "project"),
-  group: rooms.filter((r) => r.type === "group"),
-  direct: rooms.filter((r) => r.type === "direct"),
-}), [rooms])
-
-const filteredRooms = useMemo(() => {
-  if (!sidebarSearch) return rooms
-  return rooms.filter((r) =>
-    r.display_name.toLowerCase().includes(sidebarSearch.toLowerCase())
+  // ── PASTE THE THREE useMemos HERE ──────────────────────────────────────────
+  const activeRoom = useMemo(
+    () => rooms.find((r) => r.id === activeRoomId),
+    [rooms, activeRoomId]
   )
-}, [rooms, sidebarSearch])
+
+  const groupedRooms = useMemo(() => ({
+    project: rooms.filter((r) => r.type === "project"),
+    group: rooms.filter((r) => r.type === "group"),
+    direct: rooms.filter((r) => r.type === "direct"),
+  }), [rooms])
+
+  const filteredRooms = useMemo(() => {
+    if (!sidebarSearch) return rooms
+    return rooms.filter((r) =>
+      r.display_name.toLowerCase().includes(sidebarSearch.toLowerCase())
+    )
+  }, [rooms, sidebarSearch])
 
 
-// ... rest of your hooks
+  // ... rest of your hooks
 
-   
+
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -1500,7 +1499,7 @@ const filteredRooms = useMemo(() => {
           const { room_id } = await aiRes.json()
           setAiRoomId(room_id)
         }
-      } catch {}
+      } catch { }
     }
     init()
   }, [supabase])
@@ -1512,128 +1511,128 @@ const filteredRooms = useMemo(() => {
 
   // ── Load rooms ─────────────────────────────────────────────────────────────
   const loadRooms = useCallback(async (userId: string) => {
-  // Single query for memberships
+    // Single query for memberships
     setLoadingRooms(true)
-  const { data: memberships } = await supabase
-    .from("chat_room_members")
-    .select("room_id, last_read_at")
-    .eq("user_id", userId)
+    const { data: memberships } = await supabase
+      .from("chat_room_members")
+      .select("room_id, last_read_at")
+      .eq("user_id", userId)
 
-  if (!memberships?.length) return
+    if (!memberships?.length) return
 
-  const roomIds = memberships.map((m) => m.room_id)
-  const lastReadMap = Object.fromEntries(memberships.map((m) => [m.room_id, m.last_read_at]))
+    const roomIds = memberships.map((m) => m.room_id)
+    const lastReadMap = Object.fromEntries(memberships.map((m) => [m.room_id, m.last_read_at]))
 
-  // Single query for all rooms
-  const { data: roomData } = await supabase
-    .from("chat_rooms")
-    .select("*")
-    .in("id", roomIds)
-    .order("created_at", { ascending: true })
+    // Single query for all rooms
+    const { data: roomData } = await supabase
+      .from("chat_rooms")
+      .select("*")
+      .in("id", roomIds)
+      .order("created_at", { ascending: true })
 
-  if (!roomData) return
+    if (!roomData) return
 
-  // Single query for ALL last messages across all rooms
-  const { data: allLastMsgs } = await supabase
-    .from("chat_messages")
-    .select("room_id, content, file_name, created_at, sender_id")
-    .in("room_id", roomIds)
-    .order("created_at", { ascending: false })
+    // Single query for ALL last messages across all rooms
+    const { data: allLastMsgs } = await supabase
+      .from("chat_messages")
+      .select("room_id, content, file_name, created_at, sender_id")
+      .in("room_id", roomIds)
+      .order("created_at", { ascending: false })
 
-  // Single query for ALL members of all rooms (for DM name lookup)
-  const { data: allMembers } = await supabase
-    .from("chat_room_members")
-    .select("room_id, user_id")
-    .in("room_id", roomIds)
-    .neq("user_id", userId)
+    // Single query for ALL members of all rooms (for DM name lookup)
+    const { data: allMembers } = await supabase
+      .from("chat_room_members")
+      .select("room_id, user_id")
+      .in("room_id", roomIds)
+      .neq("user_id", userId)
 
-  // Single query for ALL profiles we need
-  const otherUserIds = [...new Set(allMembers?.map((m) => m.user_id) || [])]
-  const { data: allProfiles } = otherUserIds.length > 0
-    ? await supabase
+    // Single query for ALL profiles we need
+    const otherUserIds = [...new Set(allMembers?.map((m) => m.user_id) || [])]
+    const { data: allProfiles } = otherUserIds.length > 0
+      ? await supabase
         .from("profiles")
         .select("id, full_name, user_type")
         .in("id", otherUserIds)
-    : { data: [] }
+      : { data: [] }
 
-  // Build lookup maps
-  const profileMap = Object.fromEntries((allProfiles || []).map((p) => [p.id, p]))
-  const membersByRoom = (allMembers || []).reduce((acc, m) => {
-    if (!acc[m.room_id]) acc[m.room_id] = []
-    acc[m.room_id].push(m.user_id)
-    return acc
-  }, {} as Record<string, string[]>)
+    // Build lookup maps
+    const profileMap = Object.fromEntries((allProfiles || []).map((p) => [p.id, p]))
+    const membersByRoom = (allMembers || []).reduce((acc, m) => {
+      if (!acc[m.room_id]) acc[m.room_id] = []
+      acc[m.room_id].push(m.user_id)
+      return acc
+    }, {} as Record<string, string[]>)
 
-  // Group last messages by room (first one per room = most recent)
-  const lastMsgByRoom: Record<string, any> = {}
-  for (const msg of (allLastMsgs || [])) {
-    if (!lastMsgByRoom[msg.room_id]) lastMsgByRoom[msg.room_id] = msg
-  }
-
-  // Single query for ALL unread counts
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-const { data: allUnread } = await supabase
-  .from("chat_messages")
-  .select("room_id, created_at, sender_id")
-  .in("room_id", roomIds)
-  .neq("sender_id", userId)
-  .gte("created_at", thirtyDaysAgo)
-
-  // Calculate unread per room
-  const unreadByRoom: Record<string, number> = {}
-  for (const msg of (allUnread || [])) {
-    const lastRead = lastReadMap[msg.room_id] || "1970-01-01"
-    if (msg.created_at > lastRead) {
-      unreadByRoom[msg.room_id] = (unreadByRoom[msg.room_id] || 0) + 1
+    // Group last messages by room (first one per room = most recent)
+    const lastMsgByRoom: Record<string, any> = {}
+    for (const msg of (allLastMsgs || [])) {
+      if (!lastMsgByRoom[msg.room_id]) lastMsgByRoom[msg.room_id] = msg
     }
-  }
 
-  // Assemble rooms
-  const enriched = roomData.map((room) => {
-    const lastMsg = lastMsgByRoom[room.id]
-    let displayName = room.name || "Unnamed"
-    let otherUser: Profile | undefined
+    // Single query for ALL unread counts
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+    const { data: allUnread } = await supabase
+      .from("chat_messages")
+      .select("room_id, created_at, sender_id")
+      .in("room_id", roomIds)
+      .neq("sender_id", userId)
+      .gte("created_at", thirtyDaysAgo)
 
-    if (room.type === "direct") {
-      const otherUserId = membersByRoom[room.id]?.[0]
-      if (otherUserId && profileMap[otherUserId]) {
-        otherUser = profileMap[otherUserId] as Profile
-        displayName = otherUser.full_name
+    // Calculate unread per room
+    const unreadByRoom: Record<string, number> = {}
+    for (const msg of (allUnread || [])) {
+      const lastRead = lastReadMap[msg.room_id] || "1970-01-01"
+      if (msg.created_at > lastRead) {
+        unreadByRoom[msg.room_id] = (unreadByRoom[msg.room_id] || 0) + 1
       }
     }
 
-    return {
-      ...room,
-      display_name: displayName,
-      unread_count: unreadByRoom[room.id] || 0,
-      last_message: lastMsg ? (() => {
-        if (!lastMsg.content) return lastMsg.file_name || "Attachment"
-        // Don't show raw JSON for event invites
-        try {
-          const parsed = JSON.parse(lastMsg.content)
-          if (parsed.type === "event_invite") return "📅 Meeting Invite"
-        } catch {}
-        return lastMsg.content
-      })() : undefined,
-      last_message_at: lastMsg?.created_at,
-      other_user: otherUser,
-    } as ChatRoom
-  })
+    // Assemble rooms
+    const enriched = roomData.map((room) => {
+      const lastMsg = lastMsgByRoom[room.id]
+      let displayName = room.name || "Unnamed"
+      let otherUser: Profile | undefined
 
-  // Sort by latest message, then by created_at
-  const sorted = enriched.sort((a, b) => {
-    const aTime = a.last_message_at ? new Date(a.last_message_at).getTime() : new Date(a.created_at).getTime()
-    const bTime = b.last_message_at ? new Date(b.last_message_at).getTime() : new Date(b.created_at).getTime()
-    return bTime - aTime
-  })
+      if (room.type === "direct") {
+        const otherUserId = membersByRoom[room.id]?.[0]
+        if (otherUserId && profileMap[otherUserId]) {
+          otherUser = profileMap[otherUserId] as Profile
+          displayName = otherUser.full_name
+        }
+      }
 
-  setRooms(sorted)
+      return {
+        ...room,
+        display_name: displayName,
+        unread_count: unreadByRoom[room.id] || 0,
+        last_message: lastMsg ? (() => {
+          if (!lastMsg.content) return lastMsg.file_name || "Attachment"
+          // Don't show raw JSON for event invites
+          try {
+            const parsed = JSON.parse(lastMsg.content)
+            if (parsed.type === "event_invite") return "📅 Meeting Invite"
+          } catch { }
+          return lastMsg.content
+        })() : undefined,
+        last_message_at: lastMsg?.created_at,
+        other_user: otherUser,
+      } as ChatRoom
+    })
 
-  if (sorted.length > 0 && !activeRoomId) {
-    setActiveRoomId(sorted[0].id)
-  }
-  setLoadingRooms(false)
-}, [supabase, activeRoomId])
+    // Sort by latest message, then by created_at
+    const sorted = enriched.sort((a, b) => {
+      const aTime = a.last_message_at ? new Date(a.last_message_at).getTime() : new Date(a.created_at).getTime()
+      const bTime = b.last_message_at ? new Date(b.last_message_at).getTime() : new Date(b.created_at).getTime()
+      return bTime - aTime
+    })
+
+    setRooms(sorted)
+
+    if (sorted.length > 0 && !activeRoomId) {
+      setActiveRoomId(sorted[0].id)
+    }
+    setLoadingRooms(false)
+  }, [supabase, activeRoomId])
 
   // ── Load people (for DMs) ──────────────────────────────────────────────────
   const loadPeople = useCallback(async (userId: string) => {
@@ -1725,26 +1724,26 @@ const { data: allUnread } = await supabase
           return true
         })
         .map((msg) => {
-        const grouped: Record<string, { count: number; user_ids: string[] }> = {}
-        for (const r of msg.reactions || []) {
-          if (!grouped[r.emoji]) grouped[r.emoji] = { count: 0, user_ids: [] }
-          grouped[r.emoji].count++
-          grouped[r.emoji].user_ids.push(r.user_id)
-        }
-        return {
-          ...msg,
-          // For AI messages, inject a stable sender so AIMessageBubble renders correctly
-          sender: msg.message_type === "ai_response"
-            ? { id: "ai", full_name: "AI" }
-            : msg.sender,
-          reactions: Object.entries(grouped).map(([emoji, d]) => ({
-            emoji,
-            count: d.count,
-            user_ids: d.user_ids,
-            reacted_by_me: d.user_ids.includes(currentUser?.id ?? ""),
-          })),
-        }
-      })
+          const grouped: Record<string, { count: number; user_ids: string[] }> = {}
+          for (const r of msg.reactions || []) {
+            if (!grouped[r.emoji]) grouped[r.emoji] = { count: 0, user_ids: [] }
+            grouped[r.emoji].count++
+            grouped[r.emoji].user_ids.push(r.user_id)
+          }
+          return {
+            ...msg,
+            // For AI messages, inject a stable sender so AIMessageBubble renders correctly
+            sender: msg.message_type === "ai_response"
+              ? { id: "ai", full_name: "AI" }
+              : msg.sender,
+            reactions: Object.entries(grouped).map(([emoji, d]) => ({
+              emoji,
+              count: d.count,
+              user_ids: d.user_ids,
+              reacted_by_me: d.user_ids.includes(currentUser?.id ?? ""),
+            })),
+          }
+        })
       setMessages(msgs)
       messagesRef.current = msgs
       setLoadingMessages(false)
@@ -1840,7 +1839,7 @@ const { data: allUnread } = await supabase
 
 
 
-    // ── Mark room as read ──────────────────────────────────────────────────────
+  // ── Mark room as read ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!activeRoomId || !currentUser) return
     supabase
@@ -1856,7 +1855,7 @@ const { data: allUnread } = await supabase
   }, [activeRoomId, currentUser, supabase])
   // ── Realtime subscription ──────────────────────────────────────────────────
   useEffect(() => {
-    if (!activeRoomId || !currentUser) return    
+    if (!activeRoomId || !currentUser) return
     // Cleanup previous
 
     if (realtimeRef.current) {
@@ -1874,47 +1873,47 @@ const { data: allUnread } = await supabase
           filter: `room_id=eq.${activeRoomId}`,
         },
         async (payload) => {
-  const newMsg = payload.new as ChatMessage
+          const newMsg = payload.new as ChatMessage
 
-  // AI response — only add if it's the final saved version (content !== "...")
-  // The streaming bubble already shows content live; this handles persistence
-  if (newMsg.message_type === "ai_response") {
-    // Skip the placeholder "..." that gets inserted before streaming starts
-    if (newMsg.content === "...") return
-    // The streaming flow in handleSend already adds the final message to state
-    // on "done" — so we just skip this realtime event entirely to avoid duplicates
-    return
-  }
+          // AI response — only add if it's the final saved version (content !== "...")
+          // The streaming bubble already shows content live; this handles persistence
+          if (newMsg.message_type === "ai_response") {
+            // Skip the placeholder "..." that gets inserted before streaming starts
+            if (newMsg.content === "...") return
+            // The streaming flow in handleSend already adds the final message to state
+            // on "done" — so we just skip this realtime event entirely to avoid duplicates
+            return
+          }
 
-  // Skip if this is our own message — optimistic update already added it
-  if (newMsg.sender_id === currentUser.id) {
-    // Replace the temp optimistic message with the real ID from DB
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id.startsWith("temp-") && m.sender_id === currentUser.id && m.content === newMsg.content
-          ? { ...m, id: newMsg.id, created_at: newMsg.created_at }
-          : m
-      )
-    )
-    return
-  }
+          // Skip if this is our own message — optimistic update already added it
+          if (newMsg.sender_id === currentUser.id) {
+            // Replace the temp optimistic message with the real ID from DB
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id.startsWith("temp-") && m.sender_id === currentUser.id && m.content === newMsg.content
+                  ? { ...m, id: newMsg.id, created_at: newMsg.created_at }
+                  : m
+              )
+            )
+            return
+          }
 
-  // For other users' messages, enrich with sender name from people list
-  // then add — no extra DB fetch needed
-  const enriched: ChatMessage = {
-    ...newMsg,
-    sender: peopleRef.current.find((p) => p.id === newMsg.sender_id) || { id: newMsg.sender_id, full_name: "Unknown" },
-    reply_to: null,
-  }
+          // For other users' messages, enrich with sender name from people list
+          // then add — no extra DB fetch needed
+          const enriched: ChatMessage = {
+            ...newMsg,
+            sender: peopleRef.current.find((p) => p.id === newMsg.sender_id) || { id: newMsg.sender_id, full_name: "Unknown" },
+            reply_to: null,
+          }
 
-  setMessages((prev) => [...prev, enriched])
+          setMessages((prev) => [...prev, enriched])
 
-  await supabase
-    .from("chat_room_members")
-    .update({ last_read_at: new Date().toISOString() })
-    .eq("room_id", activeRoomId)
-    .eq("user_id", currentUser.id)
-}
+          await supabase
+            .from("chat_room_members")
+            .update({ last_read_at: new Date().toISOString() })
+            .eq("room_id", activeRoomId)
+            .eq("user_id", currentUser.id)
+        }
       )
       .on(
         "postgres_changes",
@@ -1928,7 +1927,7 @@ const { data: allUnread } = await supabase
           setMessages((prev) => prev.filter((m) => m.id !== (payload.old as ChatMessage).id))
         }
       )
-      
+
       .subscribe()
 
     realtimeRef.current = channel
@@ -2075,7 +2074,7 @@ const { data: allUnread } = await supabase
                 }
                 setMessages((prev) => [...prev, aiMessage])
               }
-            } catch {}
+            } catch { }
           }
         }
       } catch (err) {
@@ -2180,7 +2179,7 @@ const { data: allUnread } = await supabase
                 }
                 setMessages((prev) => [...prev, aiMessage])
               }
-            } catch {}
+            } catch { }
           }
         }
       } catch (err) {
@@ -2262,41 +2261,41 @@ const { data: allUnread } = await supabase
     if (!content && !fileUrl) return
 
     // Optimistically add message immediately
-const tempId = `temp-${Date.now()}`
-const optimisticMsg: ChatMessage = {
-  id: tempId,
-  room_id: activeRoomId,
-  sender_id: currentUser.id,
-  content: content || null,
-  file_url: fileUrl,
-  file_name: fileName,
-  file_type: fileType,
-  file_size: fileSize,
-  reply_to_id: replyTo?.id || null,
-  edited_at: null,
-  created_at: new Date().toISOString(),
-  sender: { id: currentUser.id, full_name: currentUser.full_name },
-  reply_to: replyTo ? { id: replyTo.id, content: replyTo.content, file_name: replyTo.file_name, sender: replyTo.sender } as any : null,
-}
-setMessages((prev) => [...prev, optimisticMsg])
-setReplyTo(null)
+    const tempId = `temp-${Date.now()}`
+    const optimisticMsg: ChatMessage = {
+      id: tempId,
+      room_id: activeRoomId,
+      sender_id: currentUser.id,
+      content: content || null,
+      file_url: fileUrl,
+      file_name: fileName,
+      file_type: fileType,
+      file_size: fileSize,
+      reply_to_id: replyTo?.id || null,
+      edited_at: null,
+      created_at: new Date().toISOString(),
+      sender: { id: currentUser.id, full_name: currentUser.full_name },
+      reply_to: replyTo ? { id: replyTo.id, content: replyTo.content, file_name: replyTo.file_name, sender: replyTo.sender } as any : null,
+    }
+    setMessages((prev) => [...prev, optimisticMsg])
+    setReplyTo(null)
 
-const { error } = await supabase.from("chat_messages").insert({
-  room_id: activeRoomId,
-  sender_id: currentUser.id,
-  content: content || null,
-  file_url: fileUrl,
-  file_name: fileName,
-  file_type: fileType,
-  file_size: fileSize,
-  reply_to_id: replyTo?.id || null,
-})
+    const { error } = await supabase.from("chat_messages").insert({
+      room_id: activeRoomId,
+      sender_id: currentUser.id,
+      content: content || null,
+      file_url: fileUrl,
+      file_name: fileName,
+      file_type: fileType,
+      file_size: fileSize,
+      reply_to_id: replyTo?.id || null,
+    })
 
-if (error) {
-  // Revert optimistic message on failure
-  setMessages((prev) => prev.filter((m) => m.id !== tempId))
-  toast.error("Failed to send message")
-} else {
+    if (error) {
+      // Revert optimistic message on failure
+      setMessages((prev) => prev.filter((m) => m.id !== tempId))
+      toast.error("Failed to send message")
+    } else {
       // Re-sort rooms so latest message bubbles to top
       setRooms((prev) => {
         const updated = prev.map((r) =>
@@ -2337,7 +2336,7 @@ if (error) {
                   message_preview: pushBody,
                 },
               }),
-            }).catch(() => {})
+            }).catch(() => { })
           )
         )
       }
@@ -2354,7 +2353,7 @@ if (error) {
   const handleEdit = useCallback(async (msg: ChatMessage) => {
     setEditingMsg(msg)
   }, [])
-  
+
 
   // ---- Handle Forward -------------
   const handleForwardTo = useCallback(async (roomId: string) => {
@@ -2527,7 +2526,7 @@ if (error) {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-            {loadingRooms ? (
+          {loadingRooms ? (
             <div className="px-2 pt-3 space-y-1">
               {[...Array(4)].map((_, i) => (
                 <div key={i} className="flex items-center gap-2 px-2 py-1.5 rounded-lg">
@@ -2614,13 +2613,13 @@ if (error) {
                 <Plus className="h-3 w-3" />
               </button>
             </div>
-          {groupedRooms.group.length > 0 && (
-            <>
-              {groupedRooms.group.map((room) => (
-                <RoomButton key={room.id} room={room} active={activeRoomId === room.id} onClick={() => setActiveRoomId(room.id)} />
-              ))}
-            </>
-          )}
+            {groupedRooms.group.length > 0 && (
+              <>
+                {groupedRooms.group.map((room) => (
+                  <RoomButton key={room.id} room={room} active={activeRoomId === room.id} onClick={() => setActiveRoomId(room.id)} />
+                ))}
+              </>
+            )}
           </div>
 
           {/* Direct Messages */}
@@ -2653,10 +2652,10 @@ if (error) {
             <div className="flex items-center justify-between px-2 mb-1">
               <span className="text-[10px] font-semibold uppercase tracking-widest flex items-center gap-1.5" style={{ color: gmailConnected ? "var(--color-text-danger, #E24B4A)" : "var(--muted-foreground)" }}>
                 <svg width="11" height="11" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
-                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
+                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
+                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
                 </svg>
                 Gmail
               </span>
@@ -2820,7 +2819,7 @@ if (error) {
                   <div className="animate-spin h-5 w-5 border-2 border-primary border-t-transparent rounded-full" />
                 </div>
               ) : messages.length === 0 ? (
-                 <div className="flex flex-col items-center justify-center h-48 text-center px-8">
+                <div className="flex flex-col items-center justify-center h-48 text-center px-8">
                   {isAiRoom ? (
                     <>
                       <div className="w-14 h-14 rounded-full flex items-center justify-center mb-4"
@@ -2898,7 +2897,7 @@ if (error) {
                             <span className="text-[10px] text-muted-foreground/60 font-medium">
                               {isToday(new Date(msg.created_at)) ? "Today"
                                 : isYesterday(new Date(msg.created_at)) ? "Yesterday"
-                                : format(new Date(msg.created_at), "MMM d")}
+                                  : format(new Date(msg.created_at), "MMM d")}
                             </span>
                             <div className="flex-1 h-px bg-border/40" />
                           </div>
@@ -2906,19 +2905,19 @@ if (error) {
                         {msg.message_type === "ai_response" || (msg as any).is_ai === true ? (
                           <AIMessageBubble content={msg.content || ""} />
                         ) : (
-                        <MessageBubble
-                          msg={msg}
-                          isOwn={msg.sender_id === currentUser?.id}
-                          showAvatar={showAvatar}
-                          roomType={activeRoom?.type || "direct"}
-                          onReply={setReplyTo}
-                          onDelete={handleDelete}
-                          onEdit={handleEdit}
-                          onForward={setForwardMsg}
-                          onReact={handleReact}
-                          currentUserId={currentUser?.id || ""}
-                          onImageClick={(src, name) => setLightbox({ src, name })}
-                        />
+                          <MessageBubble
+                            msg={msg}
+                            isOwn={msg.sender_id === currentUser?.id}
+                            showAvatar={showAvatar}
+                            roomType={activeRoom?.type || "direct"}
+                            onReply={setReplyTo}
+                            onDelete={handleDelete}
+                            onEdit={handleEdit}
+                            onForward={setForwardMsg}
+                            onReact={handleReact}
+                            currentUserId={currentUser?.id || ""}
+                            onImageClick={(src, name) => setLightbox({ src, name })}
+                          />
                         )}
                       </div>
                     )
