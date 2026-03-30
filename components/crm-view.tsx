@@ -7,7 +7,7 @@ import { Input, Textarea } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Search, Plus, Video, CalendarIcon, FileText, Linkedin, LayoutList, Kanban, Upload, ChevronLeft, ChevronRight, History } from "lucide-react"
+import { Search, Plus, Video, CalendarIcon, FileText, Linkedin, LayoutList, Kanban, Upload, ChevronLeft, ChevronRight, History, Mail } from "lucide-react"
 import { LeadsImportDialog } from "@/components/leads-import-dialog"
 import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
@@ -26,6 +26,7 @@ const RELATIONSHIP_TYPES = [
 type Relationship = {
   id: string
   full_name: string
+  email: string | null
   company: string | null
   role: string | null
   relationship_type: "lead" | "investor" | "partner" | "talent"
@@ -85,6 +86,7 @@ export function CrmView() {
 
   const [newRelationship, setNewRelationship] = useState<Partial<Relationship>>({
     full_name: "",
+    email: "",
     company: "",
     role: "",
     relationship_type: "lead",
@@ -206,7 +208,7 @@ export function CrmView() {
   const handleDealUpdate = async (id: string, updates: Partial<PipelineContact>) => {
     // Optimistic update
     setRelationships((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, ...updates } : r)),
+      prev.map((r) => (r.id === id ? { ...r, ...updates } as Relationship : r)),
     )
 
     const { error } = await supabase
@@ -237,7 +239,7 @@ export function CrmView() {
     const { error } = await supabase.from("relationships").insert({
       user_id: user.id,
       full_name: newRelationship.full_name,
-      email: (newRelationship as any).email || null,
+      email: newRelationship.email || null,
       company: newRelationship.company || null,
       role: newRelationship.role || null,
       relationship_type: newRelationship.relationship_type || "lead",
@@ -255,12 +257,11 @@ export function CrmView() {
       toast.success("Contact added to pipeline")
       setIsAddDialogOpen(false)
       setNewRelationship({
-        full_name: "", company: "", role: "",
+        full_name: "", email: "", company: "", role: "",
         relationship_type: "lead", linkedin_profile_url: "",
         meeting_link: "", status: "active", tags: [],
         pipeline_stage: "new_lead",
-        email: "",
-      } as any)
+      })
       fetchRelationships()
     }
   }
@@ -272,6 +273,7 @@ export function CrmView() {
       .from("relationships")
       .update({
         full_name: selectedRelationship.full_name,
+        email: selectedRelationship.email,
         company: selectedRelationship.company,
         role: selectedRelationship.role,
         relationship_type: selectedRelationship.relationship_type,
@@ -478,8 +480,8 @@ export function CrmView() {
                   <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest">Email</label>
                   <Input
                     type="email"
-                    value={(newRelationship as any).email || ""}
-                    onChange={(e) => setNewRelationship({ ...newRelationship, email: e.target.value } as any)}
+                    value={newRelationship.email || ""}
+                    onChange={(e) => setNewRelationship({ ...newRelationship, email: e.target.value })}
                     placeholder="sarah@company.com"
                     className="h-9"
                   />
@@ -641,6 +643,15 @@ export function CrmView() {
                     </div>
                   </div>
                   {rel.role && <p className="text-xs text-muted-foreground mt-1">{rel.role}</p>}
+                  {rel.email && (
+                    <a
+                      href={`mailto:${rel.email}`}
+                      className="flex items-center gap-1 text-xs text-muted-foreground mt-1 hover:text-primary transition-colors"
+                    >
+                      <Mail size={11} className="shrink-0" />
+                      {rel.email}
+                    </a>
+                  )}
                   {rel.deal_value && (
                     <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400 mt-1">
                       ${rel.deal_value.toLocaleString()}
@@ -781,6 +792,16 @@ export function CrmView() {
                   value={selectedRelationship.full_name}
                   onChange={(e) => setSelectedRelationship({ ...selectedRelationship, full_name: e.target.value })}
                 />
+              </div>
+              <div className="grid gap-2">
+                <Label>Email</Label>
+                <Input
+                  type="email"
+                  value={selectedRelationship.email || ""}
+                  onChange={(e) => setSelectedRelationship({ ...selectedRelationship, email: e.target.value })}
+                  placeholder="sarah@company.com"
+                />
+                <p className="text-[11px] text-muted-foreground">Used to match Gmail threads to this contact</p>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">

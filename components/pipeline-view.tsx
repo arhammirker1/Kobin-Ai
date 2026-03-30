@@ -33,6 +33,7 @@ import {
   Target,
   X,
   Plus,
+  Mail,
 } from "lucide-react"
 import { toast } from "sonner"
 import { formatDistanceToNow, differenceInDays } from "date-fns"
@@ -139,6 +140,7 @@ const STAGE_ORDER: PipelineStage[] = [
 export interface PipelineContact {
   id: string
   full_name: string
+  email: string | null
   company: string | null
   role: string | null
   relationship_type: string
@@ -382,6 +384,18 @@ function PipelineCard({
           {/* Role */}
           {contact.role && (
             <p className="text-[11px] text-muted-foreground/70 truncate">{contact.role}</p>
+          )}
+
+          {/* Email */}
+          {contact.email && (
+            <a
+              href={`mailto:${contact.email}`}
+              onClick={(e) => e.stopPropagation()}
+              className="flex items-center gap-1 text-[11px] text-muted-foreground/70 hover:text-primary transition-colors truncate"
+            >
+              <Mail size={10} className="shrink-0" />
+              {contact.email}
+            </a>
           )}
 
           {/* Deal value detail */}

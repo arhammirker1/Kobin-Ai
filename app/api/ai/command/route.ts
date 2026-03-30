@@ -199,20 +199,30 @@ If you need vault files: call get_vault_files → get the exact titles → pass 
           temperature: 0.3,
         })
       } catch (apiError: any) {
-        // Groq returns 400 when the model tries to batch read+action tools
-        // with template placeholders (e.g. vault_file_names: "${vault_files}")
+        // Groq returns 400 when the model outputs malformed tool args
+        // (e.g. string "true" for boolean, or template placeholders)
         const errorMessage = apiError?.message || apiError?.error?.message || ""
         if (apiError?.status === 400 && errorMessage.includes("tool_use_failed")) {
           console.log(`[AI-CMD] Step ${step + 1} | Groq schema error — retrying with read-only tools`)
-          // Retry with only read tools to force read-first behavior
-          response = await groq.chat.completions.create({
-            model: GROQ_MODEL,
-            messages,
-            tools: [...ALL_TOOLS].filter((t: any) => READ_TOOL_NAMES.has(t.function.name)) as any,
-            tool_choice: "auto",
-            max_tokens: 1024,
-            temperature: 0.3,
-          })
+          try {
+            response = await groq.chat.completions.create({
+              model: GROQ_MODEL,
+              messages,
+              tools: [...ALL_TOOLS].filter((t: any) => READ_TOOL_NAMES.has(t.function.name)) as any,
+              tool_choice: "auto",
+              max_tokens: 1024,
+              temperature: 0.3,
+            })
+          } catch (retryError: any) {
+            // Read-only retry also failed — fall back to no tools
+            console.log(`[AI-CMD] Step ${step + 1} | Read-only retry also failed — falling back to plain response`)
+            response = await groq.chat.completions.create({
+              model: GROQ_MODEL,
+              messages,
+              max_tokens: 1024,
+              temperature: 0.3,
+            })
+          }
         } else {
           throw apiError // Re-throw non-schema errors
         }

@@ -108,14 +108,31 @@ ${miniContext}${roomContext}
       const inputTokens = estimateTokens(JSON.stringify(messages))
       console.log(`[AI-CHAT] Step ${step + 1} | Input: ~${inputTokens} tokens`)
 
-      const response = await groq.chat.completions.create({
-        model: GROQ_MODEL,
-        messages,
-        tools: READ_TOOLS as any,
-        tool_choice: "auto",
-        max_tokens: 1024,
-        temperature: 0.7,
-      })
+      let response: any
+      try {
+        response = await groq.chat.completions.create({
+          model: GROQ_MODEL,
+          messages,
+          tools: READ_TOOLS as any,
+          tool_choice: "auto",
+          max_tokens: 1024,
+          temperature: 0.7,
+        })
+      } catch (apiError: any) {
+        // Groq returns 400 when model outputs malformed tool args (e.g. string for boolean)
+        const errorMessage = apiError?.message || apiError?.error?.message || ""
+        if (apiError?.status === 400 && errorMessage.includes("tool_use_failed")) {
+          console.log(`[AI-CHAT] Step ${step + 1} | Groq schema error — retrying without tools`)
+          response = await groq.chat.completions.create({
+            model: GROQ_MODEL,
+            messages,
+            max_tokens: 1024,
+            temperature: 0.7,
+          })
+        } else {
+          throw apiError
+        }
+      }
 
       const choice = response.choices[0]
       const toolCalls = choice?.message?.tool_calls

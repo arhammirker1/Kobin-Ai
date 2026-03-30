@@ -529,7 +529,9 @@ async function execCRM(
   args: Record<string, any>,
   founderId: string
 ): Promise<ReadToolResult> {
-  const { stage, include_clients = false, stale_only = false } = args
+  const { stage } = args
+  const include_clients = args.include_clients === true || args.include_clients === "true"
+  const stale_only = args.stale_only === true || args.stale_only === "true"
   const now = new Date()
   const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
 
