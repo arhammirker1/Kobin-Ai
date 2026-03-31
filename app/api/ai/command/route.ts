@@ -60,7 +60,11 @@ function repairToolArgs(toolName: string, args: Record<string, any>): Record<str
     }
   }
   if (toolName === "delete_task" && typeof repaired.needs_confirmation !== "boolean") {
-    repaired.needs_confirmation = true
+    if (typeof repaired.needs_confirmation === "string") {
+      repaired.needs_confirmation = repaired.needs_confirmation.toLowerCase() === "true"
+    } else {
+      repaired.needs_confirmation = true
+    }
   }
   return repaired
 }

@@ -122,11 +122,18 @@ export const ACTION_TOOLS = [
       description: `Delete a task by title (fuzzy match). Always set needs_confirmation=true.`,
       parameters: {
         type: "object",
+        additionalProperties: false,
         properties: {
           task_title: { type: "string", description: "Task title to find" },
-          needs_confirmation: { type: "boolean", description: "Must be true" },
+          needs_confirmation: {
+            anyOf: [
+              { type: "boolean" },
+              { type: "string", enum: ["true", "false"] },
+            ],
+            description: "Must resolve to true. String values are accepted and normalized.",
+          },
         },
-        required: ["task_title", "needs_confirmation"],
+        required: ["task_title"],
       },
     },
   },
