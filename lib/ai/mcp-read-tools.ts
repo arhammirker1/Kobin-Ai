@@ -89,8 +89,16 @@ export const READ_TOOLS = [
     function: {
       name: "get_team_workload",
       description:
-        "Get all team members with their active task counts and workload level (FREE/LIGHT/MODERATE/HEAVY). Use before assigning tasks.",
-      parameters: { type: "object", properties: {}, required: [] },
+        "Get team members with active/overdue/blocked counts and workload level (FREE/LIGHT/MODERATE/HEAVY). Use before assigning tasks. Optional name filter to inspect one person.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            description: "Optional team member name filter (fuzzy match).",
+          },
+        },
+      },
     },
   },
   {
@@ -219,7 +227,7 @@ export async function executeReadTool(
     case "get_projects":
       return execGetProjects(args, founderId)
     case "get_team_workload":
-      return execTeamWorkload(founderId)
+      return execTeamWorkload(args, founderId)
     case "get_crm_pipeline":
       return execCRM(args, founderId)
     case "get_calendar":
@@ -528,7 +536,8 @@ async function execGetProjects(
   return { content: lines.join("\n"), projectData }
 }
 
-async function execTeamWorkload(founderId: string): Promise<ReadToolResult> {
+async function execTeamWorkload(args: Record<string, any>, founderId: string): Promise<ReadToolResult> {
+  const nameFilter = (args.name || "").toString().trim().toLowerCase()
   const { data: members } = await supabaseAdmin
     .from("team_members")
     .select(
@@ -539,28 +548,40 @@ async function execTeamWorkload(founderId: string): Promise<ReadToolResult> {
 
   if (!members || members.length === 0) return { content: "No active team members.", teamData: [] }
 
-  // Count active tasks per member
+  // Count active/overdue/blocked tasks per member
   const { data: tasks } = await supabaseAdmin
     .from("tasks")
-    .select("assigned_to")
+    .select("assigned_to, status, due_date")
     .eq("user_id", founderId)
     .eq("is_completed", false)
 
-  const counts: Record<string, number> = {}
+  const counts: Record<string, { active: number; overdue: number; blocked: number }> = {}
+  const now = new Date()
   for (const t of tasks || []) {
-    if (t.assigned_to) counts[t.assigned_to] = (counts[t.assigned_to] || 0) + 1
+    if (!t.assigned_to) continue
+    if (!counts[t.assigned_to]) counts[t.assigned_to] = { active: 0, overdue: 0, blocked: 0 }
+    counts[t.assigned_to].active += 1
+    if (t.status === "blocked") counts[t.assigned_to].blocked += 1
+    if (t.due_date && new Date(t.due_date) < now) counts[t.assigned_to].overdue += 1
   }
 
-  const teamData: TeamMemberContext[] = members.map((m: any) => ({
+  let teamData: TeamMemberContext[] = members.map((m: any) => ({
     user_id: m.user_id,
     full_name: m.profile?.full_name || "Unknown",
     position: m.position || "",
-    active_task_count: counts[m.user_id] || 0,
+    active_task_count: counts[m.user_id]?.active || 0,
   }))
+
+  if (nameFilter) {
+    teamData = teamData.filter((m) => m.full_name.toLowerCase().includes(nameFilter))
+  }
 
   const sorted = [...teamData].sort((a, b) => a.active_task_count - b.active_task_count)
 
-  const lines = [`Team (${sorted.length} members):`]
+  const lines = [nameFilter ? `Team workload (filtered: ${nameFilter})` : `Team (${sorted.length} members):`]
+  if (sorted.length === 0) {
+    return { content: `No team members found for "${nameFilter}".`, teamData: [] }
+  }
   for (const m of sorted) {
     const load =
       m.active_task_count === 0
@@ -571,7 +592,7 @@ async function execTeamWorkload(founderId: string): Promise<ReadToolResult> {
             ? "MODERATE"
             : "HEAVY"
     lines.push(
-      `- ${m.full_name} | ${m.position} | ${m.active_task_count} tasks [${load}]`
+      `- ${m.full_name} | ${m.position} | ${m.active_task_count} active | ${counts[m.user_id]?.overdue || 0} overdue | ${counts[m.user_id]?.blocked || 0} blocked [${load}]`
     )
   }
 

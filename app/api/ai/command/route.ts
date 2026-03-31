@@ -308,6 +308,7 @@ If you need vault files: call get_vault_files → get the exact titles → pass 
 - Do not expose raw tool names in user-facing responses.
 - If data is missing, say so clearly and ask a focused follow-up.
 - Give concise, executive-quality answers.
+- Never narrate your internal plan ("first I will check..."). Execute tools, then report final results only.
 
 ## Strict Tool Param Types
 ${CREATE_TASK_PARAM_CONTRACT}`
@@ -334,6 +335,7 @@ ${CREATE_TASK_PARAM_CONTRACT}`
     const toolsCalled: string[] = []
     const createActionsExecuted = new Set<string>() // Dedup guard for create_task/create_project
     const deferredActionTools = new Set<string>()
+    const requiresAction = isActionIntent(message)
 
     // ── Token logging ─────────────────────────────────────────────────────
     const systemTokens = estimateTokens(systemPrompt)
@@ -355,7 +357,7 @@ ${CREATE_TASK_PARAM_CONTRACT}`
         response = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
           messages,
           tools: ALL_TOOLS as any,
-          tool_choice: "auto",
+          tool_choice: (requiresAction && step < 2 ? "required" : "auto") as any,
           max_tokens: 1024,
           temperature: 0.3,
         })
@@ -373,7 +375,7 @@ ${CREATE_TASK_PARAM_CONTRACT}`
             response = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
               messages,
               tools: ALL_TOOLS as any,
-              tool_choice: "auto",
+              tool_choice: (requiresAction ? "required" : "auto") as any,
               max_tokens: 1024,
               temperature: 0,
             })
