@@ -786,16 +786,18 @@ async function execVault(
   founderId: string
 ): Promise<ReadToolResult> {
   const { project_name, search } = args
+  const normalizedProjectName =
+    typeof project_name === "string" ? project_name.replace(/^project\s+/i, "").trim() : project_name
 
   // Resolve project
   let projectId: string | null = null
   let projectLabel = "All projects"
-  if (project_name) {
+  if (normalizedProjectName) {
     const { data } = await supabaseAdmin
       .from("projects")
       .select("id, name")
       .eq("founder_id", founderId)
-      .ilike("name", `%${project_name}%`)
+      .ilike("name", `%${normalizedProjectName}%`)
       .limit(1)
     if (data?.[0]) {
       projectId = data[0].id

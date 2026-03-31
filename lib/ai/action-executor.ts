@@ -143,6 +143,7 @@ async function resolveProject(
   founderId: string
 ): Promise<ProjectContext | null> {
   if (!name) return null
+  const normalizedName = name.replace(/^project\s+/i, "").trim()
 
   // Auto-fetch project data if not pre-loaded by read tools
   if (projects.length === 0) {
@@ -158,7 +159,7 @@ async function resolveProject(
 
   if (projects.length === 0) return null
   const names = projects.map((p) => p.name)
-  const result = fuzzyMatch(name, names)
+  const result = fuzzyMatch(normalizedName || name, names)
   if (result) return projects[result.index]
   return null
 }
@@ -461,6 +462,14 @@ async function executeCreateTask(
     return { success: false, message: `Invalid due date format. Please provide an ISO date/time.` }
   }
   const normalizedDeliverableRequired = parseBooleanLike(deliverable_required, false)
+  let effectiveDueDate = normalizedDueDate
+  let dueDateAutoAdjusted = false
+  if (effectiveDueDate && new Date(effectiveDueDate) < new Date() && normalizedStatus !== "completed") {
+    const now = new Date()
+    const endToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
+    effectiveDueDate = endToday.toISOString()
+    dueDateAutoAdjusted = true
+  }
 
   // Resolve assignee
   let assignedTo: string | null = null
@@ -530,7 +539,7 @@ async function executeCreateTask(
   }
 
   // Determine bucket
-  const resolvedBucket = normalizedBucket || smartBucket(normalizedDueDate || undefined, !!assignedTo)
+  const resolvedBucket = normalizedBucket || smartBucket(effectiveDueDate || undefined, !!assignedTo)
   const resolvedDeliverableDescription =
     normalizedDeliverableRequired && !deliverable_description
       ? "Upload a deliverable describing what changed."
@@ -543,7 +552,7 @@ async function executeCreateTask(
     notes: notes || null,
     priority: normalizedPriority,
     status: normalizedStatus,
-    due_date: normalizedDueDate,
+    due_date: effectiveDueDate,
     assigned_to: assignedTo,
     project_id: projectId,
     bucket: resolvedBucket,
@@ -570,7 +579,7 @@ async function executeCreateTask(
   const details: string[] = []
   details.push(`**${title}**`)
   if (assigneeName) details.push(`Assigned to: ${assigneeName}`)
-  if (normalizedDueDate) details.push(`Due: ${new Date(normalizedDueDate).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}`)
+  if (effectiveDueDate) details.push(`Due: ${new Date(effectiveDueDate).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}`)
   if (projectNameResolved) details.push(`Project: ${projectNameResolved}`)
   details.push(`Priority: ${normalizedPriority.charAt(0).toUpperCase() + normalizedPriority.slice(1)}`)
   details.push(`Bucket: ${resolvedBucket}`)
@@ -589,6 +598,9 @@ async function executeCreateTask(
   if (invalidLinks.length > 0) {
     message += ` Note: Ignored invalid links: ${invalidLinks.map((u) => `"${u}"`).join(", ")}.`
   }
+  if (dueDateAutoAdjusted) {
+    message += ` Note: Due date was in the past, so it was adjusted to today.`
+  }
 
   return {
     success: true,
@@ -597,7 +609,7 @@ async function executeCreateTask(
       task_id: data.id,
       title: data.title,
       assigned_to: assigneeName,
-      due_date: normalizedDueDate,
+      due_date: effectiveDueDate,
       project: projectNameResolved,
       priority: normalizedPriority,
       bucket: resolvedBucket,
@@ -605,6 +617,7 @@ async function executeCreateTask(
       links_attached: resources?.length || 0,
       unmatched_files: unmatchedFiles,
       invalid_links: invalidLinks,
+      due_date_auto_adjusted: dueDateAutoAdjusted,
       summary: details.join(" | "),
     },
   }

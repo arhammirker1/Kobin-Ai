@@ -371,6 +371,7 @@ ${CREATE_TASK_PARAM_CONTRACT}`
     const createActionsExecuted = new Set<string>() // Dedup guard for create_task/create_project
     const deferredActionTools = new Set<string>()
     const requiresAction = isActionIntent(message)
+    let lastActionMessage = ""
 
     // ── Token logging ─────────────────────────────────────────────────────
     const systemTokens = estimateTokens(systemPrompt)
@@ -575,6 +576,7 @@ ${CREATE_TASK_PARAM_CONTRACT}`
           // ── Action tool ───────────────────────────────────────────────
           const result = await executeAction(toolName as AIToolName, toolArgs, actionContext)
           console.log(`[AI-CMD] Action tool ${toolName} → ${result.success ? "success" : "failed"}`)
+          if (result.message) lastActionMessage = result.message
 
           toolResults.push({
             tool_call_id: toolCall.id,
@@ -596,6 +598,12 @@ ${CREATE_TASK_PARAM_CONTRACT}`
       // Append tool call exchange to conversation
       messages.push(choice.message)
       messages.push(...toolResults)
+
+      // For explicit action intents, once an action succeeds, return immediately
+      // instead of asking the model for another narration turn (which can re-trigger schema errors).
+      if (requiresAction && actionEvents.length > 0) {
+        return createSSEResponse(lastActionMessage || "Action completed.", actionEvents)
+      }
     }
 
     // ── Exhausted loop — stream final narration ─────────────────────────────
