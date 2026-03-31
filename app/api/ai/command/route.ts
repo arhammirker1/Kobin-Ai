@@ -136,6 +136,37 @@ async function recoverCreateTaskFromText(
   return await executeAction("create_task", repaired, actionContext)
 }
 
+function inferTaskTitleFromHistory(
+  userMessage: string,
+  history: Array<{ role: string; content: string }>
+): string | null {
+  const quoted = userMessage.match(/"([^"]+)"/)?.[1]
+  if (quoted) return quoted
+
+  // For references like "this task", infer from most recent task-like mention.
+  for (const msg of [...history].reverse()) {
+    if (!msg?.content) continue
+    const m = msg.content.match(/task\s+"([^"]+)"/i)
+    if (m?.[1]) return m[1]
+    if (/lead list/i.test(msg.content)) return "lead list"
+  }
+  return null
+}
+
+async function recoverDeleteTaskFromText(
+  userMessage: string,
+  history: Array<{ role: string; content: string }>,
+  actionContext: ActionContext
+): Promise<ActionResult | null> {
+  const taskTitle = inferTaskTitleFromHistory(userMessage, history)
+  if (!taskTitle) return null
+  return await executeAction(
+    "delete_task",
+    { task_title: taskTitle, needs_confirmation: true },
+    actionContext
+  )
+}
+
 function isModelDecommissionedError(err: any): boolean {
   const msg = err?.message || err?.error?.message || ""
   return String(msg).toLowerCase().includes("decommissioned")
@@ -383,16 +414,21 @@ ${CREATE_TASK_PARAM_CONTRACT}`
             console.log(`[AI-CMD] Step ${step + 1} | All-tools retry failed — falling back to plain response`)
             const retryMessage = retryErr?.message || retryErr?.error?.message || ""
             if (isActionIntent(message)) {
-              const recovered = await recoverCreateTaskFromText(
-                groq,
-                selectedModel.model || GROQ_MODEL,
-                message,
-                actionContext
-              )
+              let recovered: ActionResult | null = null
+              if (message.toLowerCase().includes("delete")) {
+                recovered = await recoverDeleteTaskFromText(message, history, actionContext)
+              } else if (message.toLowerCase().includes("create")) {
+                recovered = await recoverCreateTaskFromText(
+                  groq,
+                  selectedModel.model || GROQ_MODEL,
+                  message,
+                  actionContext
+                )
+              }
               if (recovered) {
                 if (recovered.success) {
                   actionEvents.push({
-                    tool: "create_task",
+                    tool: message.toLowerCase().includes("delete") ? "delete_task" : "create_task",
                     ...recovered.data,
                     needs_confirmation: recovered.needs_confirmation,
                     confirmation_action: recovered.confirmation_action,
