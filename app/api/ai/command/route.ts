@@ -140,6 +140,16 @@ export async function POST(request: Request) {
 
     const systemPrompt = `You are the AI manager for Command Center — an agency OS. You can READ workspace data and EXECUTE actions using tools.
 
+## CRITICAL: Tool Parameter Names
+When calling create_task, you MUST use EXACT parameter names:
+- Task title → use "title" (NEVER "task_name", "name", "task_title")  
+- Description/context → use "notes" (NEVER "description", "details", "content")
+- Who to assign → use "assigned_to_name" (NEVER "assignee", "assigned_to", "assignee_name")
+- Which project → use "project_name" (NEVER "project", "project_id")
+- What to submit → use "deliverable_description" (NEVER "deliverable", "submission")
+- Files to attach → use "vault_file_names" as array of strings
+Wrong parameter names cause the tool call to fail entirely.
+
 ${miniContext}
 
 ## How You Work
@@ -203,35 +213,41 @@ If you need vault files: call get_vault_files → get the exact titles → pass 
           tools: ALL_TOOLS as any,
           tool_choice: "auto",
           max_tokens: 1024,
-          temperature: 0.3,
+          temperature: 0.2,
         })
       } catch (apiError: any) {
-        // Groq returns 400 when the model outputs malformed tool args
-        // (e.g. string "true" for boolean, or template placeholders)
         const errorMessage = apiError?.message || apiError?.error?.message || ""
-        if (apiError?.status === 400 && errorMessage.includes("tool_use_failed")) {
-          console.log(`[AI-CMD] Step ${step + 1} | Groq schema error — retrying with read-only tools`)
+        const isSchemaError = apiError?.status === 400 && errorMessage.includes("tool_use_failed")
+
+        if (isSchemaError) {
+          // Model used wrong param names — retry with ALL tools at very low temperature
+          // so it follows the schema strictly
+          console.log(`[AI-CMD] Step ${step + 1} | Groq schema error — retrying with all tools @ low temperature`)
           try {
             response = await groq.chat.completions.create({
               model: GROQ_MODEL,
               messages,
-              tools: [...ALL_TOOLS].filter((t: any) => READ_TOOL_NAMES.has(t.function.name)) as any,
+              tools: ALL_TOOLS as any,
               tool_choice: "auto",
               max_tokens: 1024,
-              temperature: 0.3,
+              temperature: 0.0,
             })
           } catch (retryError: any) {
-            // Read-only retry also failed — fall back to no tools
-            console.log(`[AI-CMD] Step ${step + 1} | Read-only retry also failed — falling back to plain response`)
-            response = await groq.chat.completions.create({
-              model: GROQ_MODEL,
-              messages,
-              max_tokens: 1024,
-              temperature: 0.3,
+            // Both attempts failed — respond with a helpful error message
+            console.log(`[AI-CMD] Step ${step + 1} | All-tools retry failed — returning error response`)
+            const encoder = new TextEncoder()
+            const errMsg = "I had trouble executing that action. Please try rephrasing — for example: \"Create a task called X, assign to Y, due Friday\"."
+            const readable = new ReadableStream({
+              start(controller) {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "delta", content: errMsg })}\n\n`))
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`))
+                controller.close()
+              },
             })
+            return new Response(readable, { headers: SSE_HEADERS })
           }
         } else {
-          throw apiError // Re-throw non-schema errors
+          throw apiError
         }
       }
 

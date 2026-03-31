@@ -10,51 +10,65 @@ export const ACTION_TOOLS = [
     type: "function" as const,
     function: {
       name: "create_task",
-      description: `Create a task in ONE call with ALL details. Requires title. BEFORE calling this, use read tools to resolve: team member names (get_team_workload), project names (get_projects), and vault file titles (get_vault_files). Pass vault_file_names as exact titles from get_vault_files results. Infer due_date from natural language (ISO format). Auto-bucket: today/this-week/delegated/backlog. NEVER call this twice for the same task.`,
+      description: `Create a new task. EXACT parameter names are MANDATORY — do NOT invent aliases.
+REQUIRED: title (string) — the task name/title. NEVER use "task_name", "name", "task_title" — ONLY "title".
+OPTIONAL parameters (use EXACT names):
+- notes (string): extra context. NEVER use "description" or "details" — ONLY "notes".
+- priority (string enum): "low" | "medium" | "high" | "urgent". Default: "medium".
+- status (string enum): "todo" | "in-progress" | "blocked" | "completed". Default: "todo".
+- due_date (string): ISO 8601 format "YYYY-MM-DDTHH:mm:ss". Infer from natural language.
+- assigned_to_name (string): team member's name. NEVER use "assignee" or "assigned_to" — ONLY "assigned_to_name".
+- project_name (string): project name to link to. NEVER use "project" — ONLY "project_name".
+- bucket (string enum): "today" | "this-week" | "delegated" | "backlog". Auto-determined from due_date if omitted.
+- deliverable_required (boolean): true if assignee must submit a file on completion.
+- deliverable_description (string): what they should submit. NEVER use "deliverable" alone — ONLY "deliverable_description".
+- vault_file_names (array of strings): exact vault file titles to attach (from get_vault_files results).
+- external_links (array): [{url: string, label: string}] — external URLs to attach.
+RULES: Call ONCE per task. Use read tools first to resolve team member names and project names.`,
       parameters: {
         type: "object",
         properties: {
-          title: { type: "string", description: "Task title" },
-          notes: { type: "string", description: "Additional context" },
+          title: { type: "string", description: "The task title. REQUIRED. Use ONLY 'title', never 'task_name' or 'name'." },
+          notes: { type: "string", description: "Additional context or description. Use ONLY 'notes', never 'description'." },
           priority: {
             type: "string",
             enum: ["low", "medium", "high", "urgent"],
-            description: "Default: medium",
+            description: "Task priority. Must be exactly one of: low, medium, high, urgent. Default: medium.",
           },
           status: {
             type: "string",
             enum: ["todo", "in-progress", "blocked", "completed"],
-            description: "Default: todo",
+            description: "Task status. Must be exactly one of: todo, in-progress, blocked, completed. Default: todo.",
           },
           due_date: {
             type: "string",
-            description: "Due date in ISO 8601 (YYYY-MM-DDTHH:mm:ss)",
+            description: "Due date in ISO 8601 format: YYYY-MM-DDTHH:mm:ss. Example: 2025-04-15T09:00:00",
           },
           assigned_to_name: {
             type: "string",
-            description: "Team member name to assign to",
+            description: "Full or first name of team member to assign to. Use ONLY 'assigned_to_name', never 'assignee'.",
           },
           project_name: {
             type: "string",
-            description: "Project name to link to",
+            description: "Project name to link this task to. Use ONLY 'project_name', never 'project'.",
           },
           bucket: {
             type: "string",
             enum: ["today", "this-week", "delegated", "backlog"],
-            description: "Auto-determined if not set",
+            description: "Task bucket. Auto-set from due_date if omitted: today/this-week/delegated/backlog.",
           },
           deliverable_required: {
             type: "boolean",
-            description: "Require deliverable upload on completion",
+            description: "Set true if assignee must upload a deliverable file when completing. Must be boolean true/false.",
           },
           deliverable_description: {
             type: "string",
-            description: "What to submit as deliverable",
+            description: "What the assignee should submit as deliverable. Use ONLY 'deliverable_description', never 'deliverable'.",
           },
           vault_file_names: {
             type: "array",
             items: { type: "string" },
-            description: "Vault file titles to attach (must belong to linked project)",
+            description: "Exact vault file titles to attach. Get these from get_vault_files first.",
           },
           external_links: {
             type: "array",
@@ -62,14 +76,15 @@ export const ACTION_TOOLS = [
               type: "object",
               properties: {
                 url: { type: "string" },
-                label: { type: "string", description: "Auto-generated from URL if not provided" },
+                label: { type: "string" },
               },
               required: ["url", "label"],
             },
-            description: "External links to attach",
+            description: "External URLs to attach. Each item must have 'url' and 'label'.",
           },
         },
         required: ["title"],
+        additionalProperties: false,
       },
     },
   },
