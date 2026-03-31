@@ -10,9 +10,10 @@ export const ACTION_TOOLS = [
     type: "function" as const,
     function: {
       name: "create_task",
-      description: `Create a task in ONE call with ALL details. Requires title. BEFORE calling this, use read tools to resolve: team member names (get_team_workload), project names (get_projects), and vault file titles (get_vault_files). Pass vault_file_names as exact titles from get_vault_files results. Infer due_date from natural language (ISO format). Auto-bucket: today/this-week/delegated/backlog. NEVER call this twice for the same task.`,
+      description: `Create a task in ONE call with ALL details. Requires title. IMPORTANT: every parameter must be a primitive JSON value (string/boolean) or array of strings. NEVER send nested objects for fields like title/project_name/assigned_to_name/deliverable_required. BEFORE calling this, use read tools to resolve: team member names (get_team_workload), project names (get_projects), and vault file titles (get_vault_files). Pass vault_file_names as exact titles from get_vault_files results. Infer due_date from natural language (ISO format). Auto-bucket: today/this-week/delegated/backlog. NEVER call this twice for the same task.`,
       parameters: {
         type: "object",
+        additionalProperties: false,
         properties: {
           title: { type: "string", description: "Task title" },
           notes: { type: "string", description: "Additional context" },
@@ -64,6 +65,7 @@ export const ACTION_TOOLS = [
                 url: { type: "string" },
                 label: { type: "string", description: "Auto-generated from URL if not provided" },
               },
+              additionalProperties: false,
               required: ["url"],
             },
             description: "External links to attach",
@@ -77,9 +79,10 @@ export const ACTION_TOOLS = [
     type: "function" as const,
     function: {
       name: "update_task",
-      description: `Update an existing task by title (fuzzy match). Only include fields to change. Same name resolution as create_task.`,
+      description: `Update an existing task by title (fuzzy match). Only include fields to change. IMPORTANT: use primitive JSON values only (no nested object wrappers for scalar fields). Same name resolution as create_task.`,
       parameters: {
         type: "object",
+        additionalProperties: false,
         properties: {
           task_title: { type: "string", description: "Task title to find (fuzzy match)" },
           new_title: { type: "string", description: "New title if renaming" },
@@ -103,6 +106,7 @@ export const ACTION_TOOLS = [
                 url: { type: "string" },
                 label: { type: "string" },
               },
+              additionalProperties: false,
               required: ["url"],
             },
           },

@@ -79,6 +79,20 @@ function isActionIntent(message: string): boolean {
   ].some((k) => text.includes(k))
 }
 
+const CREATE_TASK_PARAM_CONTRACT = `
+When calling create_task, obey this strict parameter contract:
+- title: string
+- notes: string (optional)
+- project_name: string (optional)
+- assigned_to_name: string (optional)
+- vault_file_names: array of strings (optional)
+- deliverable_required: boolean (optional)
+- deliverable_description: string (optional)
+- bucket: string (today|this-week|delegated|backlog) (optional)
+- priority: string (low|medium|high|urgent) (optional)
+- due_date: string ISO datetime (optional)
+Never send nested objects for any scalar field.`
+
 function extractJsonObject(text: string): Record<string, any> | null {
   if (!text) return null
   try {
@@ -293,7 +307,10 @@ If you need vault files: call get_vault_files → get the exact titles → pass 
 - Do not show internal chain-of-thought.
 - Do not expose raw tool names in user-facing responses.
 - If data is missing, say so clearly and ask a focused follow-up.
-- Give concise, executive-quality answers.`
+- Give concise, executive-quality answers.
+
+## Strict Tool Param Types
+${CREATE_TASK_PARAM_CONTRACT}`
 
     // ── Build conversation messages ─────────────────────────────────────────
     // Keep as much recent history as fits in a token budget.
@@ -348,6 +365,10 @@ If you need vault files: call get_vault_files → get the exact titles → pass 
         const errorMessage = apiError?.message || apiError?.error?.message || ""
         if (apiError?.status === 400 && errorMessage.includes("tool_use_failed")) {
           console.log(`[AI-CMD] Step ${step + 1} | Groq schema error — retrying with all tools @ low temperature`)
+          messages.push({
+            role: "system",
+            content: `Your previous tool call violated parameter types. ${CREATE_TASK_PARAM_CONTRACT}`,
+          })
           try {
             response = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
               messages,
