@@ -300,6 +300,41 @@ function normalizeProjectStatus(status?: string): string | undefined {
   return s
 }
 
+function normalizeEnumValue(
+  value: any,
+  allowed: string[],
+  fallback: string
+): string {
+  if (typeof value !== "string") return fallback
+  const v = value.toLowerCase().trim()
+  return allowed.includes(v) ? v : fallback
+}
+
+function parseBooleanLike(value: any, fallback = false): boolean {
+  if (typeof value === "boolean") return value
+  if (typeof value === "string") {
+    const v = value.toLowerCase().trim()
+    if (v === "true") return true
+    if (v === "false") return false
+  }
+  return fallback
+}
+
+function parseIsoDateSafe(value: any): string | null {
+  if (!value || typeof value !== "string") return null
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? null : d.toISOString()
+}
+
+function isValidUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === "http:" || parsed.protocol === "https:"
+  } catch {
+    return false
+  }
+}
+
 // ── Find task by title ──────────────────────────────────────────────────────
 
 async function findTaskByTitle(
@@ -411,6 +446,21 @@ async function executeCreateTask(
   if (!title?.trim()) {
     return { success: false, message: "Task title is required." }
   }
+  title = title.trim()
+  if (title.length > 200) {
+    return { success: false, message: "Task title is too long. Keep it under 200 characters." }
+  }
+
+  const normalizedPriority = normalizeEnumValue(priority, ["low", "medium", "high", "urgent"], "medium")
+  const normalizedStatus = normalizeEnumValue(status, ["todo", "in-progress", "blocked", "completed"], "todo")
+  const normalizedBucket = bucket
+    ? normalizeEnumValue(bucket, ["today", "this-week", "delegated", "backlog"], "backlog")
+    : undefined
+  const normalizedDueDate = due_date ? parseIsoDateSafe(due_date) : null
+  if (due_date && !normalizedDueDate) {
+    return { success: false, message: `Invalid due date format. Please provide an ISO date/time.` }
+  }
+  const normalizedDeliverableRequired = parseBooleanLike(deliverable_required, false)
 
   // Resolve assignee
   let assignedTo: string | null = null
@@ -447,6 +497,9 @@ async function executeCreateTask(
   // Resolve vault file attachments
   let vaultAttachments: VaultAttachment[] | null = null
   let unmatchedFiles: string[] = []
+  if (vault_file_names && Array.isArray(vault_file_names)) {
+    vault_file_names = [...new Set(vault_file_names.map((f) => String(f).trim()).filter(Boolean))]
+  }
   if (vault_file_names && vault_file_names.length > 0 && projectId) {
     const result = await resolveVaultFiles(vault_file_names, projectId, ctx.founder_id)
     vaultAttachments = result.matched.length > 0 ? result.matched : null
@@ -460,30 +513,43 @@ async function executeCreateTask(
 
   // Process external links with auto-labeling
   let resources: Array<{ url: string; title: string }> | null = null
+  let invalidLinks: string[] = []
   if (external_links && external_links.length > 0) {
-    resources = external_links.map((link: { url: string; label?: string }) => ({
-      url: link.url,
-      title: generateLinkLabel(link.url, link.label),
-    }))
+    resources = []
+    for (const link of external_links as Array<{ url: string; label?: string }>) {
+      if (!link?.url || !isValidUrl(link.url)) {
+        if (link?.url) invalidLinks.push(link.url)
+        continue
+      }
+      resources.push({
+        url: link.url,
+        title: generateLinkLabel(link.url, link.label),
+      })
+    }
+    if (resources.length === 0) resources = null
   }
 
   // Determine bucket
-  const resolvedBucket = bucket || smartBucket(due_date, !!assignedTo)
+  const resolvedBucket = normalizedBucket || smartBucket(normalizedDueDate || undefined, !!assignedTo)
+  const resolvedDeliverableDescription =
+    normalizedDeliverableRequired && !deliverable_description
+      ? "Upload a deliverable describing what changed."
+      : (deliverable_description || null)
 
   const insertData = {
     user_id: ctx.founder_id,
     created_by: ctx.user_id,
-    title: title.trim(),
+    title,
     notes: notes || null,
-    priority: priority || "medium",
-    status: status || "todo",
-    due_date: due_date ? new Date(due_date).toISOString() : null,
+    priority: normalizedPriority,
+    status: normalizedStatus,
+    due_date: normalizedDueDate,
     assigned_to: assignedTo,
     project_id: projectId,
     bucket: resolvedBucket,
-    is_completed: false,
-    deliverable_required: deliverable_required || false,
-    deliverable_description: deliverable_description || null,
+    is_completed: normalizedStatus === "completed",
+    deliverable_required: normalizedDeliverableRequired,
+    deliverable_description: resolvedDeliverableDescription,
     resources: resources,
     linked: null,
     vault_attachments: vaultAttachments,
@@ -504,9 +570,9 @@ async function executeCreateTask(
   const details: string[] = []
   details.push(`**${title}**`)
   if (assigneeName) details.push(`Assigned to: ${assigneeName}`)
-  if (due_date) details.push(`Due: ${new Date(due_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}`)
+  if (normalizedDueDate) details.push(`Due: ${new Date(normalizedDueDate).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}`)
   if (projectNameResolved) details.push(`Project: ${projectNameResolved}`)
-  details.push(`Priority: ${(priority || "medium").charAt(0).toUpperCase() + (priority || "medium").slice(1)}`)
+  details.push(`Priority: ${normalizedPriority.charAt(0).toUpperCase() + normalizedPriority.slice(1)}`)
   details.push(`Bucket: ${resolvedBucket}`)
   if (vaultAttachments && vaultAttachments.length > 0) {
     details.push(`Vault files: ${vaultAttachments.map(v => v.title).join(", ")}`)
@@ -520,6 +586,9 @@ async function executeCreateTask(
   if (unmatchedFiles.length > 0) {
     message += ` Note: Could not find vault files matching: ${unmatchedFiles.map(f => `"${f}"`).join(", ")}.`
   }
+  if (invalidLinks.length > 0) {
+    message += ` Note: Ignored invalid links: ${invalidLinks.map((u) => `"${u}"`).join(", ")}.`
+  }
 
   return {
     success: true,
@@ -528,13 +597,14 @@ async function executeCreateTask(
       task_id: data.id,
       title: data.title,
       assigned_to: assigneeName,
-      due_date,
+      due_date: normalizedDueDate,
       project: projectNameResolved,
-      priority: priority || "medium",
+      priority: normalizedPriority,
       bucket: resolvedBucket,
       vault_files_attached: vaultAttachments?.length || 0,
       links_attached: resources?.length || 0,
       unmatched_files: unmatchedFiles,
+      invalid_links: invalidLinks,
       summary: details.join(" | "),
     },
   }
