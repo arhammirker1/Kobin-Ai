@@ -13,6 +13,33 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4)
 }
 
+function isModelDecommissionedError(err: any): boolean {
+  const msg = err?.message || err?.error?.message || ""
+  return String(msg).toLowerCase().includes("decommissioned")
+}
+
+async function createCompletionWithModelFallback(
+  groq: any,
+  primaryModel: string,
+  payload: Record<string, any>
+) {
+  try {
+    return await groq.chat.completions.create({
+      ...payload,
+      model: primaryModel,
+    })
+  } catch (err: any) {
+    if (!isModelDecommissionedError(err)) throw err
+    const fallbackModel = GROQ_MODEL
+    if (fallbackModel === primaryModel) throw err
+    console.warn(`[AI-CHAT] Model ${primaryModel} is decommissioned. Falling back to ${fallbackModel}.`)
+    return await groq.chat.completions.create({
+      ...payload,
+      model: fallbackModel,
+    })
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const supabase = await createClient()
@@ -122,8 +149,7 @@ ${miniContext}${roomContext}
 
       let response: any
       try {
-        response = await groq.chat.completions.create({
-          model: selectedModel.model || GROQ_MODEL,
+        response = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
           messages,
           tools: READ_TOOLS as any,
           tool_choice: "auto",
@@ -135,8 +161,7 @@ ${miniContext}${roomContext}
         const errorMessage = apiError?.message || apiError?.error?.message || ""
         if (apiError?.status === 400 && errorMessage.includes("tool_use_failed")) {
           console.log(`[AI-CHAT] Step ${step + 1} | Groq schema error — retrying without tools`)
-          response = await groq.chat.completions.create({
-            model: selectedModel.model || GROQ_MODEL,
+          response = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
             messages,
             max_tokens: 1024,
             temperature: 0.7,
@@ -188,8 +213,7 @@ ${miniContext}${roomContext}
         }
 
         // First step, no tools — stream directly
-        const directStream = await groq.chat.completions.create({
-          model: selectedModel.model || GROQ_MODEL,
+        const directStream = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
           messages,
           stream: true,
           max_tokens: 1024,
@@ -267,8 +291,7 @@ ${miniContext}${roomContext}
     console.log(`[AI-CHAT] Max steps reached, streaming final`)
     console.log(`[AI-CHAT] Tools used: ${toolsCalled.join(", ")}`)
 
-    const finalStream = await groq.chat.completions.create({
-      model: selectedModel.model || GROQ_MODEL,
+    const finalStream = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
       messages,
       stream: true,
       max_tokens: 1024,

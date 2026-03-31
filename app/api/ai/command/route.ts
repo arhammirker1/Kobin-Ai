@@ -55,6 +55,33 @@ function repairToolArgs(toolName: string, args: Record<string, any>): Record<str
   return repaired
 }
 
+function isModelDecommissionedError(err: any): boolean {
+  const msg = err?.message || err?.error?.message || ""
+  return String(msg).toLowerCase().includes("decommissioned")
+}
+
+async function createCompletionWithModelFallback(
+  groq: any,
+  primaryModel: string,
+  payload: Record<string, any>
+) {
+  try {
+    return await groq.chat.completions.create({
+      ...payload,
+      model: primaryModel,
+    })
+  } catch (err: any) {
+    if (!isModelDecommissionedError(err)) throw err
+    const fallbackModel = GROQ_MODEL
+    if (fallbackModel === primaryModel) throw err
+    console.warn(`[AI-CMD] Model ${primaryModel} is decommissioned. Falling back to ${fallbackModel}.`)
+    return await groq.chat.completions.create({
+      ...payload,
+      model: fallbackModel,
+    })
+  }
+}
+
 // ── Confirmed delete endpoint ───────────────────────────────────────────────
 
 export async function DELETE(request: Request) {
@@ -239,8 +266,7 @@ If you need vault files: call get_vault_files → get the exact titles → pass 
 
       let response: any
       try {
-        response = await groq.chat.completions.create({
-          model: selectedModel.model || GROQ_MODEL,
+        response = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
           messages,
           tools: ALL_TOOLS as any,
           tool_choice: "auto",
@@ -254,8 +280,7 @@ If you need vault files: call get_vault_files → get the exact titles → pass 
         if (apiError?.status === 400 && errorMessage.includes("tool_use_failed")) {
           console.log(`[AI-CMD] Step ${step + 1} | Groq schema error — retrying with read-only tools`)
           try {
-            response = await groq.chat.completions.create({
-              model: selectedModel.model || GROQ_MODEL,
+            response = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
               messages,
               tools: [...ALL_TOOLS].filter((t: any) => READ_TOOL_NAMES.has(t.function.name)) as any,
               tool_choice: "auto",
@@ -265,8 +290,7 @@ If you need vault files: call get_vault_files → get the exact titles → pass 
           } catch (retryError: any) {
             // Read-only retry also failed — fall back to no tools
             console.log(`[AI-CMD] Step ${step + 1} | Read-only retry also failed — falling back to plain response`)
-            response = await groq.chat.completions.create({
-              model: selectedModel.model || GROQ_MODEL,
+            response = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
               messages,
               max_tokens: 1024,
               temperature: 0.3,
@@ -292,8 +316,7 @@ If you need vault files: call get_vault_files → get the exact titles → pass 
         }
 
         // First step, no tools — stream directly
-        const directStream = await groq.chat.completions.create({
-          model: selectedModel.model || GROQ_MODEL,
+        const directStream = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
           messages,
           stream: true,
           max_tokens: 1024,
@@ -406,8 +429,7 @@ If you need vault files: call get_vault_files → get the exact titles → pass 
     console.log(`[AI-CMD] Max steps reached, streaming final response`)
     console.log(`[AI-CMD] Tools used: ${toolsCalled.join(", ")}`)
 
-    const finalStream = await groq.chat.completions.create({
-      model: selectedModel.model || GROQ_MODEL,
+    const finalStream = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
       messages,
       stream: true,
       max_tokens: 1024,
