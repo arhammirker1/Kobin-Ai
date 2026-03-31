@@ -8,12 +8,78 @@ import type { ReadToolName } from "@/lib/ai/mcp-read-tools"
 import { executeAction, executeDeleteTaskConfirmed } from "@/lib/ai/action-executor"
 import type { AIToolName } from "@/lib/ai/tools"
 import type { ActionContext } from "@/lib/ai/action-executor"
+import { selectModelForRequest } from "@/lib/ai/model-router"
 import { NextResponse } from "next/server"
 
 // ── Token estimation helper ─────────────────────────────────────────────────
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4)
+}
+
+function packHistoryByBudget(
+  history: Array<{ role: string; content: string }>,
+  tokenBudget: number
+): Array<{ role: "user" | "assistant"; content: string }> {
+  const packed: Array<{ role: "user" | "assistant"; content: string }> = []
+  let used = 0
+  for (const msg of [...history].reverse()) {
+    if (!msg?.content || (msg.role !== "user" && msg.role !== "assistant")) continue
+    const msgTokens = estimateTokens(msg.content)
+    if (used + msgTokens > tokenBudget) break
+    packed.push({ role: msg.role, content: msg.content })
+    used += msgTokens
+  }
+  return packed.reverse()
+}
+
+function repairToolArgs(toolName: string, args: Record<string, any>): Record<string, any> {
+  const repaired = { ...args }
+  if (toolName === "create_task" || toolName === "update_task") {
+    if (repaired.vault_file_names && !Array.isArray(repaired.vault_file_names)) {
+      repaired.vault_file_names =
+        typeof repaired.vault_file_names === "string" ? [repaired.vault_file_names] : []
+    }
+    if (repaired.external_links && !Array.isArray(repaired.external_links)) {
+      repaired.external_links = []
+    }
+    if (Array.isArray(repaired.external_links)) {
+      repaired.external_links = repaired.external_links
+        .filter((l: any) => l && typeof l.url === "string" && l.url.trim())
+        .map((l: any) => ({ url: l.url, ...(l.label ? { label: l.label } : {}) }))
+    }
+  }
+  if (toolName === "delete_task" && typeof repaired.needs_confirmation !== "boolean") {
+    repaired.needs_confirmation = true
+  }
+  return repaired
+}
+
+function isModelDecommissionedError(err: any): boolean {
+  const msg = err?.message || err?.error?.message || ""
+  return String(msg).toLowerCase().includes("decommissioned")
+}
+
+async function createCompletionWithModelFallback(
+  groq: any,
+  primaryModel: string,
+  payload: Record<string, any>
+) {
+  try {
+    return await groq.chat.completions.create({
+      ...payload,
+      model: primaryModel,
+    })
+  } catch (err: any) {
+    if (!isModelDecommissionedError(err)) throw err
+    const fallbackModel = GROQ_MODEL
+    if (fallbackModel === primaryModel) throw err
+    console.warn(`[AI-CMD] Model ${primaryModel} is decommissioned. Falling back to ${fallbackModel}.`)
+    return await groq.chat.completions.create({
+      ...payload,
+      model: fallbackModel,
+    })
+  }
 }
 
 // ── Confirmed delete endpoint ───────────────────────────────────────────────
@@ -143,29 +209,33 @@ export async function POST(request: Request) {
 ${miniContext}
 
 ## How You Work
-1. ALWAYS gather ALL needed data with read tools BEFORE executing any action tool
-2. If the request mentions vault files, projects, or team members — call the relevant read tools FIRST in step 1
-3. Then call the action tool ONCE with ALL parameters (title, assignee, project, vault files, deliverables, links) in a single call
-4. NEVER call create_task or create_project more than once for the same request
-5. For task assignment, check team workload first via get_team_workload
-6. Match names (people, projects, vault files) against data from read tools
-7. After actions, confirm what was done with specifics
-8. Be direct. Founders are busy. No filler.
+0. You have full access to all available read and action tools in this route.
+1. Gather required data with read tools before action tools whenever data is needed
+2. For vault files, projects, or team members, resolve exact matches from read results first
+3. Prefer a single complete action call with all known parameters
+4. Avoid duplicate create calls for the same intent
+5. For assignment requests, check team workload before choosing an assignee
+6. After actions, confirm exactly what was done
+7. Be direct and useful; prioritize execution over ceremony.
 
 ## Critical: Single-Action Rule
 Each user request = at most ONE create_task / ONE create_project call. Gather everything first with read tools, then act once.
 If you need vault files: call get_vault_files → get the exact titles → pass them in vault_file_names when you call create_task.
 
-## Output Rules — NEVER BREAK THESE
-- NEVER show your internal reasoning, thinking steps, or planning process (no "Step 1", "Step 2", etc.)
-- NEVER reference tool names in your response to the user (no "get_crm_pipeline", "get_tasks", etc.)
-- NEVER fabricate or hallucinate data. If you don't have info, say so honestly and briefly.
-- NEVER narrate what you "would do" — either do it with tools, or give the answer directly.
-- Your response must read like a polished final answer from a sharp executive assistant.`
+## Output Rules
+- Do not show internal chain-of-thought.
+- Do not expose raw tool names in user-facing responses.
+- If data is missing, say so clearly and ask a focused follow-up.
+- Give concise, executive-quality answers.`
 
     // ── Build conversation messages ─────────────────────────────────────────
-    // Cap history to last 6 messages to prevent token bloat
-    const cappedHistory = history.slice(-6)
+    // Keep as much recent history as fits in a token budget.
+    const cappedHistory = packHistoryByBudget(history, 2200)
+    const selectedModel = selectModelForRequest({
+      intent: "command",
+      message,
+      historyCount: cappedHistory.length,
+    })
     const messages: any[] = [
       { role: "system", content: systemPrompt },
       ...cappedHistory.map((m: { role: string; content: string }) => ({
@@ -179,11 +249,12 @@ If you need vault files: call get_vault_files → get the exact titles → pass 
     const actionEvents: Array<Record<string, any>> = []
     const toolsCalled: string[] = []
     const createActionsExecuted = new Set<string>() // Dedup guard for create_task/create_project
+    const deferredActionTools = new Set<string>()
 
     // ── Token logging ─────────────────────────────────────────────────────
     const systemTokens = estimateTokens(systemPrompt)
     const toolSchemaTokens = estimateTokens(JSON.stringify(ALL_TOOLS))
-    console.log(`[AI-CMD] System: ~${systemTokens} tokens | Tools schema: ~${toolSchemaTokens} tokens | History: ${cappedHistory.length} msgs`)
+    console.log(`[AI-CMD] System: ~${systemTokens} tokens | Tools schema: ~${toolSchemaTokens} tokens | History: ${cappedHistory.length} msgs | Model: ${selectedModel.model} (${selectedModel.tier}/${selectedModel.reason})`)
 
     // ── Multi-step tool loop (max 4 iterations) ─────────────────────────────
     // Extra iteration to accommodate: read → defer → action → response
@@ -197,8 +268,7 @@ If you need vault files: call get_vault_files → get the exact titles → pass 
 
       let response: any
       try {
-        response = await groq.chat.completions.create({
-          model: GROQ_MODEL,
+        response = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
           messages,
           tools: ALL_TOOLS as any,
           tool_choice: "auto",
@@ -210,24 +280,24 @@ If you need vault files: call get_vault_files → get the exact titles → pass 
         // (e.g. string "true" for boolean, or template placeholders)
         const errorMessage = apiError?.message || apiError?.error?.message || ""
         if (apiError?.status === 400 && errorMessage.includes("tool_use_failed")) {
-          console.log(`[AI-CMD] Step ${step + 1} | Groq schema error — retrying with read-only tools`)
+          console.log(`[AI-CMD] Step ${step + 1} | Groq schema error — retrying with all tools @ low temperature`)
           try {
-            response = await groq.chat.completions.create({
-              model: GROQ_MODEL,
+            response = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
+              messages,
+              tools: ALL_TOOLS as any,
+              tool_choice: "auto",
+              max_tokens: 1024,
+              temperature: 0,
+            })
+          } catch {
+            // If all-tools retry still fails, try read-only to salvage context.
+            console.log(`[AI-CMD] Step ${step + 1} | All-tools retry failed — trying read-only tools`)
+            response = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
               messages,
               tools: [...ALL_TOOLS].filter((t: any) => READ_TOOL_NAMES.has(t.function.name)) as any,
               tool_choice: "auto",
               max_tokens: 1024,
-              temperature: 0.3,
-            })
-          } catch (retryError: any) {
-            // Read-only retry also failed — fall back to no tools
-            console.log(`[AI-CMD] Step ${step + 1} | Read-only retry also failed — falling back to plain response`)
-            response = await groq.chat.completions.create({
-              model: GROQ_MODEL,
-              messages,
-              max_tokens: 1024,
-              temperature: 0.3,
+              temperature: 0,
             })
           }
         } else {
@@ -250,8 +320,7 @@ If you need vault files: call get_vault_files → get the exact titles → pass 
         }
 
         // First step, no tools — stream directly
-        const directStream = await groq.chat.completions.create({
-          model: GROQ_MODEL,
+        const directStream = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
           messages,
           stream: true,
           max_tokens: 1024,
@@ -284,6 +353,7 @@ If you need vault files: call get_vault_files → get the exact titles → pass 
         } catch {
           toolArgs = {}
         }
+        toolArgs = repairToolArgs(toolName, toolArgs)
 
         if (READ_TOOL_NAMES.has(toolName)) {
           // ── Read tool ─────────────────────────────────────────────────
@@ -303,8 +373,9 @@ If you need vault files: call get_vault_files → get the exact titles → pass 
           // ── Defer action tools in mixed batches ────────────────────
           // If the model tried to call read + action tools in the same step,
           // skip action tools so the model re-calls them with actual data
-          if (isMixedBatch) {
+          if (isMixedBatch && !deferredActionTools.has(toolName)) {
             console.log(`[AI-CMD] Deferred ${toolName} — waiting for read results first`)
+            deferredActionTools.add(toolName)
             toolResults.push({
               tool_call_id: toolCall.id,
               role: "tool",
@@ -363,8 +434,7 @@ If you need vault files: call get_vault_files → get the exact titles → pass 
     console.log(`[AI-CMD] Max steps reached, streaming final response`)
     console.log(`[AI-CMD] Tools used: ${toolsCalled.join(", ")}`)
 
-    const finalStream = await groq.chat.completions.create({
-      model: GROQ_MODEL,
+    const finalStream = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
       messages,
       stream: true,
       max_tokens: 1024,
@@ -375,6 +445,15 @@ If you need vault files: call get_vault_files → get the exact titles → pass 
   } catch (err) {
     const message = err instanceof Error ? err.message : "Server error"
     console.error("[AI-CMD] Error:", message)
-    return NextResponse.json({ error: message }, { status: 500 })
+    return NextResponse.json(
+      {
+        error: "AI command execution failed",
+        detail: message,
+        degraded_mode: true,
+        user_message:
+          "I hit a temporary tool execution issue. Please retry, or split the request into smaller actions.",
+      },
+      { status: 500 }
+    )
   }
 }
