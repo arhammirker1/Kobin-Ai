@@ -293,6 +293,13 @@ function generateLinkLabel(url: string, providedLabel?: string): string {
   }
 }
 
+function normalizeProjectStatus(status?: string): string | undefined {
+  if (!status) return status
+  const s = status.toLowerCase().trim()
+  if (s === "cancelled") return "archived"
+  return s
+}
+
 // ── Find task by title ──────────────────────────────────────────────────────
 
 async function findTaskByTitle(
@@ -749,6 +756,7 @@ async function executeCreateProject(
   ctx: ActionContext
 ): Promise<ActionResult> {
   const { name, description, priority, status, start_date, end_date } = args
+  const normalizedStatus = normalizeProjectStatus(status)
 
   if (!name?.trim()) {
     return { success: false, message: "Project name is required." }
@@ -759,7 +767,7 @@ async function executeCreateProject(
     name: name.trim(),
     description: description || null,
     priority: priority || "medium",
-    status: status || "active",
+    status: normalizedStatus || "active",
     start_date: start_date || null,
     end_date: end_date || null,
   }
@@ -782,7 +790,7 @@ async function executeCreateProject(
       project_id: data.id,
       name: data.name,
       priority: priority || "medium",
-      status: status || "active",
+      status: normalizedStatus || "active",
     },
   }
 }
@@ -794,6 +802,7 @@ async function executeUpdateProject(
   ctx: ActionContext
 ): Promise<ActionResult> {
   const { project_name, new_name, description, priority, status, start_date, end_date } = args
+  const normalizedStatus = normalizeProjectStatus(status)
 
   if (!project_name?.trim()) {
     return { success: false, message: "Need a project name to find the project to update." }
@@ -822,9 +831,9 @@ async function executeUpdateProject(
     updateData.priority = priority
     changes.push(`Priority → ${priority}`)
   }
-  if (status) {
-    updateData.status = status
-    changes.push(`Status → ${status}`)
+  if (normalizedStatus) {
+    updateData.status = normalizedStatus
+    changes.push(`Status → ${normalizedStatus}`)
   }
   if (start_date) {
     updateData.start_date = start_date

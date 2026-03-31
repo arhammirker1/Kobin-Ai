@@ -73,7 +73,7 @@ export const READ_TOOLS = [
         properties: {
           status: {
             type: "string",
-            enum: ["active", "on-hold", "completed", "cancelled", "all"],
+            enum: ["active", "on-hold", "completed", "archived", "all"],
             description: "Filter by status. Default: all",
           },
           name: {
@@ -243,7 +243,7 @@ async function execOverview(founderId: string): Promise<ReadToolResult> {
   const [tasksRes, projectsRes, teamRes, dealsRes, eventsRes] = await Promise.all([
     supabaseAdmin
       .from("tasks")
-      .select("id, status, priority, due_date, is_completed")
+      .select("id, title, status, priority, due_date, project_id, is_completed")
       .eq("user_id", founderId)
       .eq("is_completed", false),
     supabaseAdmin
@@ -286,6 +286,7 @@ async function execOverview(founderId: string): Promise<ReadToolResult> {
   const today = tasks.filter((t) => t.due_date && new Date(t.due_date) <= todayEnd).length
   const byPriority = { urgent: 0, high: 0, medium: 0, low: 0 } as Record<string, number>
   tasks.forEach((t) => { if (t.priority && byPriority[t.priority] !== undefined) byPriority[t.priority]++ })
+  const projectMap = Object.fromEntries(projects.map((p) => [p.id, p.name]))
 
   const lines: string[] = []
   lines.push(`## Task Overview`)
@@ -317,6 +318,37 @@ async function execOverview(founderId: string): Promise<ReadToolResult> {
   )
 
   lines.push(`\n## Calendar: ${eventsRes.data?.length || 0} events this week`)
+
+  const topOverdue = tasks
+    .filter((t) => t.due_date && new Date(t.due_date) < now)
+    .sort((a, b) => new Date(a.due_date!).getTime() - new Date(b.due_date!).getTime())
+    .slice(0, 5)
+  if (topOverdue.length > 0) {
+    lines.push(`\n## Critical Overdue Tasks`)
+    topOverdue.forEach((t) => {
+      const projectName = t.project_id ? projectMap[t.project_id] || "Unlinked" : "Unlinked"
+      lines.push(`- [${PRI[t.priority] || "M"}] ${t.title} | ${projectName} | due ${shortDate(t.due_date)}`)
+    })
+  }
+
+  const upcomingDeadlines = tasks
+    .filter((t) => t.due_date && new Date(t.due_date) >= now)
+    .sort((a, b) => new Date(a.due_date!).getTime() - new Date(b.due_date!).getTime())
+    .slice(0, 5)
+  if (upcomingDeadlines.length > 0) {
+    lines.push(`\n## Upcoming Task Deadlines`)
+    upcomingDeadlines.forEach((t) => {
+      const projectName = t.project_id ? projectMap[t.project_id] || "Unlinked" : "Unlinked"
+      lines.push(`- ${t.title} | ${projectName} | due ${shortDate(t.due_date)}`)
+    })
+  }
+
+  if (staleDeals.length > 0) {
+    lines.push(`\n## Stale Deals (14+ days in stage)`)
+    staleDeals.slice(0, 5).forEach((d) => {
+      lines.push(`- ${d.pipeline_stage} | $${(d.deal_value || 0).toLocaleString()} | entered ${shortDate(d.stage_entered_at)}`)
+    })
+  }
 
   return { content: lines.join("\n") }
 }
