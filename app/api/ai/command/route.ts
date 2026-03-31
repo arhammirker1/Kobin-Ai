@@ -7,7 +7,7 @@ import { executeReadTool } from "@/lib/ai/mcp-read-tools"
 import type { ReadToolName } from "@/lib/ai/mcp-read-tools"
 import { executeAction, executeDeleteTaskConfirmed } from "@/lib/ai/action-executor"
 import type { AIToolName } from "@/lib/ai/tools"
-import type { ActionContext } from "@/lib/ai/action-executor"
+import type { ActionContext, ActionResult } from "@/lib/ai/action-executor"
 import { selectModelForRequest } from "@/lib/ai/model-router"
 import { NextResponse } from "next/server"
 
@@ -77,6 +77,49 @@ function isActionIntent(message: string): boolean {
     "create project",
     "update project",
   ].some((k) => text.includes(k))
+}
+
+function extractJsonObject(text: string): Record<string, any> | null {
+  if (!text) return null
+  try {
+    return JSON.parse(text)
+  } catch {}
+  const match = text.match(/\{[\s\S]*\}/)
+  if (!match) return null
+  try {
+    return JSON.parse(match[0])
+  } catch {
+    return null
+  }
+}
+
+async function recoverCreateTaskFromText(
+  groq: any,
+  model: string,
+  userMessage: string,
+  actionContext: ActionContext
+): Promise<ActionResult | null> {
+  const extraction = await createCompletionWithModelFallback(groq, model, {
+    messages: [
+      {
+        role: "system",
+        content:
+          "Extract task creation arguments from the user request. Return JSON only with primitive values. Never output nested objects. Allowed keys: title, notes, project_name, assigned_to_name, vault_file_names (array of strings), deliverable_required (boolean), deliverable_description, bucket, priority, due_date.",
+      },
+      { role: "user", content: userMessage },
+    ],
+    max_tokens: 400,
+    temperature: 0,
+  })
+
+  const content = extraction?.choices?.[0]?.message?.content || ""
+  const parsed = extractJsonObject(content)
+  if (!parsed) return null
+
+  const repaired = repairToolArgs("create_task", parsed)
+  if (!repaired.title || typeof repaired.title !== "string") return null
+
+  return await executeAction("create_task", repaired, actionContext)
 }
 
 function isModelDecommissionedError(err: any): boolean {
@@ -316,9 +359,29 @@ If you need vault files: call get_vault_files → get the exact titles → pass 
           } catch (retryErr: any) {
             console.log(`[AI-CMD] Step ${step + 1} | All-tools retry failed — falling back to plain response`)
             const retryMessage = retryErr?.message || retryErr?.error?.message || ""
+            if (isActionIntent(message)) {
+              const recovered = await recoverCreateTaskFromText(
+                groq,
+                selectedModel.model || GROQ_MODEL,
+                message,
+                actionContext
+              )
+              if (recovered) {
+                if (recovered.success) {
+                  actionEvents.push({
+                    tool: "create_task",
+                    ...recovered.data,
+                    needs_confirmation: recovered.needs_confirmation,
+                    confirmation_action: recovered.confirmation_action,
+                  })
+                }
+                return createSSEResponse(recovered.message, actionEvents)
+              }
+            }
+
             messages.push({
               role: "system",
-              content: `Tool validation failed. Use exact tool parameter names from schema only. Error: ${retryMessage}`,
+              content: `Tool validation failed. Use exact primitive parameter types from schema only. Error: ${retryMessage}`,
             })
             response = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
               messages,
