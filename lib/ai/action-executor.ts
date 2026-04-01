@@ -1110,16 +1110,99 @@ async function executeSendMessageToRoom(
     return { success: false, message: "Recipient and message are required." }
   }
 
-  // Always require confirmation for sending messages
+  let recipientUserId: string | null = null
+  let resolvedName = recipient_name
+  let roomId: string | null = null
+
+  // 1. Search active team members
+  const { data: teamMembers } = await supabaseAdmin
+    .from("team_members")
+    .select("user_id, profile:profiles!team_members_user_id_profiles_fkey(full_name)")
+    .eq("founder_id", ctx.founder_id)
+    .eq("is_active", true)
+
+  if (teamMembers) {
+    const match = teamMembers.find((m: any) =>
+      (m.profile?.full_name || "").toLowerCase().includes(recipient_name.toLowerCase())
+    )
+    if (match) {
+      recipientUserId = match.user_id
+      resolvedName = (match.profile as any)?.full_name || recipient_name
+    }
+  }
+
+  // 2. Search clients with portal access
+  if (!recipientUserId) {
+    const { data: clients } = await supabaseAdmin
+      .from("clients")
+      .select("portal_user_id, name")
+      .eq("founder_id", ctx.founder_id)
+      .not("portal_user_id", "is", null)
+      .ilike("name", `%${recipient_name}%`)
+      .limit(1)
+
+    if (clients?.[0]?.portal_user_id) {
+      recipientUserId = clients[0].portal_user_id
+      resolvedName = clients[0].name
+    }
+  }
+
+  // 3. Search project channels
+  if (!recipientUserId) {
+    const { data: project } = await supabaseAdmin
+      .from("projects")
+      .select("id, name")
+      .eq("founder_id", ctx.founder_id)
+      .ilike("name", `%${recipient_name}%`)
+      .limit(1)
+      .maybeSingle()
+
+    if (project) {
+      const { data: room } = await supabaseAdmin
+        .from("chat_rooms")
+        .select("id")
+        .eq("project_id", project.id)
+        .eq("type", "project")
+        .maybeSingle()
+
+      if (room) { roomId = room.id; resolvedName = project.name }
+    }
+  }
+
+  // 4. Resolve existing DM room
+  if (recipientUserId && !roomId) {
+    const dmKey = [ctx.founder_id, recipientUserId].sort().join(":")
+    const { data: existingRoom } = await supabaseAdmin
+      .from("chat_rooms")
+      .select("id")
+      .eq("dm_key", dmKey)
+      .maybeSingle()
+    roomId = existingRoom?.id || null
+  }
+
+  if (!recipientUserId && !roomId) {
+    const names = (teamMembers || []).map((m: any) => m.profile?.full_name).filter(Boolean).join(", ")
+    return {
+      success: false,
+      message: `Could not find "${recipient_name}" in team members, clients, or project channels.${names ? ` Available team: ${names}` : ""}`,
+    }
+  }
+
   return {
     success: true,
     needs_confirmation: true,
-    message: `Ready to send to **${recipient_name}**:\n\n"${message}"\n\nConfirm?`,
+    message: `Ready to send to **${resolvedName}**:\n\n"${message}"\n\nConfirm?`,
     confirmation_action: {
       tool: "send_message_confirmed",
-      args: { recipient_name, message },
-      resolved_id: recipient_name,
-      description: `Send message to ${recipient_name}`,
+      args: {
+        recipient_user_id: recipientUserId,
+        room_id: roomId,
+        message,
+        recipient_name: resolvedName,
+        founder_id: ctx.founder_id,
+      },
+      resolved_id: resolvedName,
+      description: `Send message to ${resolvedName}`,
     },
   }
 }

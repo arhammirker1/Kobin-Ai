@@ -1391,7 +1391,7 @@ const activeRoom = useMemo(
 const groupedRooms = useMemo(() => ({
   project: rooms.filter((r) => r.type === "project"),
   group: rooms.filter((r) => r.type === "group"),
-  direct: rooms.filter((r) => r.type === "direct"),
+  direct: rooms.filter((r) => r.type === "direct" && !r.dm_key?.startsWith("ai-room:")),
 }), [rooms])
 
 const filteredRooms = useMemo(() => {
@@ -1437,6 +1437,8 @@ const filteredRooms = useMemo(() => {
         .single()
 
       if (profile) setCurrentUser(profile as Profile)
+      // Warm AI caches + ensure AI room exists (fire-and-forget)
+      fetch("/api/ai/warm", { method: "POST" }).catch(() => {})
       await Promise.all([loadRooms(user.id), loadPeople(user.id), loadGmailThreads()])
     }
     init()
@@ -1527,10 +1529,14 @@ const { data: allUnread } = await supabase
     let otherUser: Profile | undefined
 
     if (room.type === "direct") {
-      const otherUserId = membersByRoom[room.id]?.[0]
-      if (otherUserId && profileMap[otherUserId]) {
-        otherUser = profileMap[otherUserId] as Profile
-        displayName = otherUser.full_name
+      if (room.dm_key?.startsWith("ai-room:")) {
+        displayName = "AI · Command Center"
+      } else {
+        const otherUserId = membersByRoom[room.id]?.[0]
+        if (otherUserId && profileMap[otherUserId]) {
+          otherUser = profileMap[otherUserId] as Profile
+          displayName = otherUser.full_name
+        }
       }
     }
 
@@ -1552,8 +1558,12 @@ const { data: allUnread } = await supabase
     } as ChatRoom
   })
 
-  // Sort by latest message, then by created_at
+  // Sort — AI room always pinned first, then by latest message
   const sorted = enriched.sort((a, b) => {
+    const aIsAI = a.dm_key?.startsWith("ai-room:")
+    const bIsAI = b.dm_key?.startsWith("ai-room:")
+    if (aIsAI && !bIsAI) return -1
+    if (!aIsAI && bIsAI) return 1
     const aTime = a.last_message_at ? new Date(a.last_message_at).getTime() : new Date(a.created_at).getTime()
     const bTime = b.last_message_at ? new Date(b.last_message_at).getTime() : new Date(b.created_at).getTime()
     return bTime - aTime
@@ -2353,6 +2363,14 @@ if (error) {
               <p className="text-xs text-muted-foreground">No conversations yet</p>
             </div>
           ) : null}
+
+          {/* AI Assistant — always pinned to top */}
+          {rooms.filter(r => r.dm_key?.startsWith("ai-room:")).map(room => (
+            <div key={room.id} className="px-2 pt-3 pb-1 border-b border-border/30">
+              <RoomButton room={room} active={activeRoomId === room.id} onClick={() => setActiveRoomId(room.id)} />
+            </div>
+          ))}
+
           {/* Project Channels */}
           {groupedRooms.project.length > 0 && (
             <div className="pt-3 px-2">
@@ -2497,7 +2515,15 @@ if (error) {
             {/* Chat header */}
             <div className="flex items-center gap-3 px-4 py-3 border-b border-border/40 bg-card flex-shrink-0">
               <div className="flex items-center gap-3 flex-1 min-w-0">
-                {activeRoom.type === "direct" && activeRoom.other_user ? (
+                {activeRoom.dm_key?.startsWith("ai-room:") ? (
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
+                    style={{ background: "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)" }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                      <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+                        stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </div>
+                ) : activeRoom.type === "direct" && activeRoom.other_user ? (
                   <Avatar user={activeRoom.other_user} size="md" />
                 ) : activeRoom.type === "project" ? (
                   <div className="w-9 h-9 rounded-full bg-emerald-500/15 flex items-center justify-center flex-shrink-0">
@@ -2511,7 +2537,7 @@ if (error) {
                 <div className="min-w-0">
                   <h3 className="text-sm font-semibold truncate">{activeRoom.display_name}</h3>
                   <p className="text-[11px] text-muted-foreground">
-                    {activeRoom.type === "direct" ? "Active now" : activeRoom.type === "project" ? "Project channel" : "Group channel"}
+                    {activeRoom.dm_key?.startsWith("ai-room:") ? "Your AI assistant" : activeRoom.type === "direct" ? "Active now" : activeRoom.type === "project" ? "Project channel" : "Group channel"}
                   </p>
                 </div>
               </div>
@@ -2713,7 +2739,15 @@ function RoomButton({
       )}
     >
       <div className="flex-shrink-0">
-        {room.type === "direct" && room.other_user ? (
+        {room.dm_key?.startsWith("ai-room:") ? (
+          <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+            style={{ background: "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)" }}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
+              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+                stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
+        ) : room.type === "direct" && room.other_user ? (
           <Avatar user={room.other_user} size="sm" />
         ) : room.type === "project" ? (
           <div className="w-5 h-5 flex items-center justify-center">
