@@ -55,39 +55,29 @@ export abstract class BaseTool<T extends z.ZodTypeAny = z.ZodTypeAny> {
   }
 
   /**
-   * Simple helper to convert Zod schema to JSON schema (partial implementation).
-   * In a real app, one would use a library like zod-to-json-schema.
+   * Hardened helper to convert Zod schema to JSON schema.
+   * Ensures strict compliance with Groq/OpenAI tool-use requirements.
    */
   private zodToJsonSchema(schema: z.ZodTypeAny): any {
     if (schema instanceof z.ZodObject) {
       const shape = schema.shape
-      const properties: any = {}
+      const properties: Record<string, any> = {}
       const required: string[] = []
 
       for (const [key, value] of Object.entries(shape)) {
+        const unwrapped = this.unwrapZod(value as z.ZodTypeAny)
         const isOptional = (value as any).isOptional?.() || (value as any) instanceof z.ZodOptional
+        
         if (!isOptional) {
           required.push(key)
         }
 
-        // Basic type mapping
-        let type = "string"
-        let description = (value as any).description
-        let enum_values: any[] | undefined
-
-        if (value instanceof z.ZodString) type = "string"
-        if (value instanceof z.ZodNumber) type = "number"
-        if (value instanceof z.ZodBoolean) type = "boolean"
-        if (value instanceof z.ZodArray) type = "array"
-        if (value instanceof z.ZodEnum) {
-          type = "string"
-          enum_values = value._def.values
-        }
-
-        properties[key] = {
-          type,
-          ...(description ? { description } : {}),
-          ...(enum_values ? { enum: enum_values } : {}),
+        properties[key] = this.convertZodType(unwrapped)
+        
+        // Preserve description if present
+        const description = (value as any).description || (unwrapped as any).description
+        if (description) {
+          properties[key].description = description
         }
       }
 
@@ -98,14 +88,46 @@ export abstract class BaseTool<T extends z.ZodTypeAny = z.ZodTypeAny> {
         additionalProperties: false,
       }
     }
-    
+
     if (schema instanceof z.ZodRecord) {
-      return {
-        type: "object",
-        additionalProperties: true
-      }
+      return { type: "object", additionalProperties: true }
     }
 
     return { type: "object" }
+  }
+
+  private unwrapZod(schema: z.ZodTypeAny): z.ZodTypeAny {
+    let current = schema
+    while (
+      current instanceof z.ZodOptional ||
+      current instanceof z.ZodNullable ||
+      current instanceof z.ZodDefault
+    ) {
+      current = current._def.innerType
+    }
+    return current
+  }
+
+  private convertZodType(schema: z.ZodTypeAny): any {
+    if (schema instanceof z.ZodString) return { type: "string" }
+    if (schema instanceof z.ZodNumber) return { type: "number" }
+    if (schema instanceof z.ZodBoolean) return { type: "boolean" }
+    
+    if (schema instanceof z.ZodEnum) {
+      return { type: "string", enum: schema._def.values }
+    }
+
+    if (schema instanceof z.ZodArray) {
+      return {
+        type: "array",
+        items: this.convertZodType(this.unwrapZod(schema.element))
+      }
+    }
+
+    if (schema instanceof z.ZodObject) {
+      return this.zodToJsonSchema(schema)
+    }
+
+    return { type: "string" } // Fallback
   }
 }
