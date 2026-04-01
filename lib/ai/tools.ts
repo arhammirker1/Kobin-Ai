@@ -162,6 +162,73 @@ export const ACTION_TOOLS = [
   {
     type: "function" as const,
     function: {
+      name: "search_messages",
+      description: "Search across ALL chat rooms and DMs for messages matching a query. Use this when user asks what someone said, or to find context from past conversations.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Search query" },
+          person_name: { type: "string", description: "Optional — filter by sender name" },
+          project_name: { type: "string", description: "Optional — filter by project room" },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "update_deal_stage",
+      description: "Move a CRM deal/lead to a new pipeline stage.",
+      parameters: {
+        type: "object",
+        properties: {
+          contact_name: { type: "string", description: "Contact name (fuzzy match)" },
+          new_stage: {
+            type: "string",
+            enum: ["new_lead", "contacted", "meeting_booked", "proposal", "negotiating", "closed_won", "closed_lost"],
+          },
+        },
+        required: ["contact_name", "new_stage"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "send_message_to_room",
+      description: "Send a message to a project channel or DM. Use when user says 'tell Ahmed' or 'post in Reelix channel'.",
+      parameters: {
+        type: "object",
+        properties: {
+          recipient_name: { type: "string", description: "Person name for DM, or project name for channel" },
+          message: { type: "string", description: "The message to send" },
+          needs_confirmation: { type: "boolean", description: "Always true — confirm before sending" },
+        },
+        required: ["recipient_name", "message"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "analyze_workspace",
+      description: "Run full workspace intelligence analysis — risk detection, bottleneck detection, priority ranking, team load. Use for 'what should I focus on', 'what's at risk', 'give me a status report'.",
+      parameters: {
+        type: "object",
+        properties: {
+          focus: {
+            type: "string",
+            enum: ["all", "risks", "team", "pipeline", "projects"],
+            description: "What to focus on. Default: all",
+          },
+        },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
       name: "update_project",
       description: `Update a project by name (fuzzy match). Only include fields to change.`,
       parameters: {
@@ -193,6 +260,10 @@ export type AIToolName =
   | "delete_task"
   | "create_project"
   | "update_project"
+  | "search_messages"
+  | "update_deal_stage"
+  | "send_message_to_room"
+  | "analyze_workspace"
 
 export type AnyToolName = ReadToolName | AIToolName
 
@@ -206,4 +277,6 @@ export const READ_TOOL_NAMES = new Set<string>([
   "get_vault_files",
   "get_task_creation_context",
   "search_contacts",
+  // analyze_workspace is read-like but returns synthesized data
+  "analyze_workspace",
 ])

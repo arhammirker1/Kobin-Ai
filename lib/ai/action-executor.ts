@@ -414,6 +414,14 @@ export async function executeAction(
       return executeCreateProject(args, context)
     case "update_project":
       return executeUpdateProject(args, context)
+    case "search_messages":
+      return executeSearchMessages(args, context)
+    case "update_deal_stage":
+      return executeUpdateDealStage(args, context)
+    case "send_message_to_room":
+      return executeSendMessageToRoom(args, context)
+    case "analyze_workspace":
+      return executeAnalyzeWorkspace(args, context)
     default:
       return { success: false, message: `Unknown tool: ${toolName}` }
   }
@@ -945,5 +953,222 @@ async function executeUpdateProject(
       original_name: project.name,
       changes,
     },
+  }
+}
+
+// ── SEARCH MESSAGES ─────────────────────────────────────────────────────────
+
+async function executeSearchMessages(
+  args: Record<string, any>,
+  ctx: ActionContext
+): Promise<ActionResult> {
+  const { query, person_name, project_name } = args
+
+  if (!query?.trim()) {
+    return { success: false, message: "Search query is required." }
+  }
+
+  // Find rooms this founder has access to
+  const { data: rooms } = await supabaseAdmin
+    .from("chat_rooms")
+    .select("id, name, type, project_id")
+    .eq("founder_id", ctx.founder_id)
+
+  if (!rooms || rooms.length === 0) {
+    return { success: false, message: "No chat rooms found." }
+  }
+
+  let roomIds = rooms.map(r => r.id)
+
+  // Filter by project if specified
+  if (project_name) {
+    const { data: proj } = await supabaseAdmin
+      .from("projects")
+      .select("id")
+      .eq("founder_id", ctx.founder_id)
+      .ilike("name", `%${project_name}%`)
+      .limit(1)
+
+    if (proj?.[0]) {
+      const projectRoomIds = rooms
+        .filter(r => r.project_id === proj[0].id)
+        .map(r => r.id)
+      roomIds = projectRoomIds.length > 0 ? projectRoomIds : roomIds
+    }
+  }
+
+  // Search messages
+  const { data: messages } = await supabaseAdmin
+    .from("chat_messages")
+    .select("id, content, sender_id, created_at, room_id")
+    .in("room_id", roomIds)
+    .ilike("content", `%${query}%`)
+    .not("message_type", "in", '("event_invite","task_ref","ai_response")')
+    .order("created_at", { ascending: false })
+    .limit(10)
+
+  if (!messages || messages.length === 0) {
+    return { success: false, message: `No messages found matching "${query}".` }
+  }
+
+  // Resolve sender names
+  const senderIds = [...new Set(messages.map(m => m.sender_id))]
+  const { data: profiles } = await supabaseAdmin
+    .from("profiles")
+    .select("id, full_name")
+    .in("id", senderIds)
+
+  const profileMap = Object.fromEntries((profiles || []).map(p => [p.id, p.full_name]))
+
+  // Filter by person name if specified
+  let filtered = messages
+  if (person_name) {
+    const nameLower = person_name.toLowerCase()
+    filtered = messages.filter(m => {
+      const name = profileMap[m.sender_id] || ""
+      return name.toLowerCase().includes(nameLower)
+    })
+    if (filtered.length === 0) {
+      return { success: false, message: `No messages from "${person_name}" matching "${query}".` }
+    }
+  }
+
+  const roomMap = Object.fromEntries(rooms.map(r => [r.id, r.name || r.type]))
+
+  const results = filtered.slice(0, 5).map(m => {
+    const sender = profileMap[m.sender_id] || "Unknown"
+    const room = roomMap[m.room_id] || "DM"
+    const date = new Date(m.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+    return `[${date}] ${sender} in ${room}: "${m.content?.slice(0, 150)}"`
+  })
+
+  return {
+    success: true,
+    message: `Found ${filtered.length} message${filtered.length > 1 ? "s" : ""} matching "${query}":\n\n${results.join("\n\n")}`,
+    data: { count: filtered.length, results },
+  }
+}
+
+// ── UPDATE DEAL STAGE ───────────────────────────────────────────────────────
+
+async function executeUpdateDealStage(
+  args: Record<string, any>,
+  ctx: ActionContext
+): Promise<ActionResult> {
+  const { contact_name, new_stage } = args
+
+  if (!contact_name || !new_stage) {
+    return { success: false, message: "Contact name and new stage are required." }
+  }
+
+  const { data: contacts } = await supabaseAdmin
+    .from("relationships")
+    .select("id, full_name, pipeline_stage, company")
+    .eq("user_id", ctx.founder_id)
+    .ilike("full_name", `%${contact_name}%`)
+    .limit(1)
+
+  if (!contacts || contacts.length === 0) {
+    return { success: false, message: `No contact found matching "${contact_name}".` }
+  }
+
+  const contact = contacts[0]
+
+  const { error } = await supabaseAdmin
+    .from("relationships")
+    .update({
+      pipeline_stage: new_stage,
+      stage_entered_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", contact.id)
+
+  if (error) return { success: false, message: `Failed: ${error.message}` }
+
+  const stageLabel = new_stage.replace(/_/g, " ")
+  return {
+    success: true,
+    message: `${contact.full_name}${contact.company ? ` (${contact.company})` : ""} moved to **${stageLabel}**.`,
+    data: {
+      contact_id: contact.id,
+      contact_name: contact.full_name,
+      old_stage: contact.pipeline_stage,
+      new_stage,
+    },
+  }
+}
+
+// ── SEND MESSAGE TO ROOM ────────────────────────────────────────────────────
+
+async function executeSendMessageToRoom(
+  args: Record<string, any>,
+  ctx: ActionContext
+): Promise<ActionResult> {
+  const { recipient_name, message } = args
+
+  if (!recipient_name || !message) {
+    return { success: false, message: "Recipient and message are required." }
+  }
+
+  // Always require confirmation for sending messages
+  return {
+    success: true,
+    needs_confirmation: true,
+    message: `Ready to send to **${recipient_name}**:\n\n"${message}"\n\nConfirm?`,
+    confirmation_action: {
+      tool: "send_message_confirmed",
+      args: { recipient_name, message },
+      resolved_id: recipient_name,
+      description: `Send message to ${recipient_name}`,
+    },
+  }
+}
+
+// ── ANALYZE WORKSPACE ───────────────────────────────────────────────────────
+
+async function executeAnalyzeWorkspace(
+  args: Record<string, any>,
+  ctx: ActionContext
+): Promise<ActionResult> {
+  const { focus = "all" } = args
+  const { analyzeWorkspace } = await import("@/lib/ai/intelligence")
+  const intel = await analyzeWorkspace(ctx.founder_id)
+
+  const lines: string[] = []
+
+  if (focus === "all" || focus === "risks") {
+    if (intel.risks.length === 0) {
+      lines.push("✅ No critical risks detected.")
+    } else {
+      lines.push(`⚠️ ${intel.risks.length} risk${intel.risks.length > 1 ? "s" : ""} detected:`)
+      intel.risks.slice(0, 6).forEach(r => {
+        const icon = r.severity === "critical" ? "🔴" : r.severity === "high" ? "🟠" : "🟡"
+        lines.push(`${icon} ${r.title}: ${r.detail}`)
+      })
+    }
+  }
+
+  if (focus === "all" || focus === "team") {
+    lines.push("\n**Team load:**")
+    intel.teamStatus.forEach(m => {
+      const icon = m.load === "HEAVY" ? "🔴" : m.load === "MODERATE" ? "🟠" : m.load === "LIGHT" ? "🟢" : "⚪"
+      lines.push(`${icon} ${m.name}: ${m.load}${m.overdue > 0 ? ` (${m.overdue} overdue)` : ""}`)
+    })
+  }
+
+  if ((focus === "all" || focus === "projects") && intel.bottlenecks.length > 0) {
+    lines.push("\n**Bottlenecks:**")
+    intel.bottlenecks.forEach(b => lines.push(`• ${b}`))
+  }
+
+  if (intel.priorities.length > 0) {
+    lines.push("\n**Top priorities:**")
+    intel.priorities.forEach(p => lines.push(`${p.rank}. ${p.action} — ${p.reason}`))
+  }
+
+  return {
+    success: true,
+    message: lines.join("\n"),
+    data: intel,
   }
 }
