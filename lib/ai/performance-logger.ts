@@ -174,7 +174,7 @@ export class AIPerformanceTracker {
       const preview = systemMsg.content.slice(0, 200).replace(/\n/g, " ")
       console.log(
         `${colorize(COLORS.request, `[${this.requestId}]`)} ` +
-        `${colorize(COLORS.llm, DIM + "   System: " + preview}...`
+        `${colorize(COLORS.llm, DIM + "   System: " + preview + "...")}`
       )
     }
   }
