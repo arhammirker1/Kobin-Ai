@@ -40,6 +40,37 @@ async function createCompletionWithModelFallback(
   }
 }
 
+// ── Request-level tool memoization ─────────────────────────────────────────────
+
+type ChatToolMemoKey = string
+type ChatToolMemoValue = string
+
+function chatMemoKey(toolName: string, args: Record<string, any>): ChatToolMemoKey {
+  return `${toolName}:${JSON.stringify(args)}`
+}
+
+function createChatToolMemoizer() {
+  const memo = new Map<ChatToolMemoKey, Promise<ChatToolMemoValue>>()
+
+  return {
+    async getOrExecute(
+      key: ChatToolMemoKey,
+      executor: () => Promise<string>
+    ): Promise<string> {
+      if (memo.has(key)) {
+        console.log(`[MEMO] Cache hit: ${key}`)
+        return memo.get(key)!
+      }
+      const promise = executor()
+      memo.set(key, promise)
+      return promise
+    },
+    clear() {
+      memo.clear()
+    }
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const supabase = await createClient()
@@ -262,9 +293,15 @@ const selectedModel = selectModelForRequest({
       // Execute read tools
       console.log(`[AI-CHAT] Step ${step + 1} | Tools: ${toolCalls.map((tc: any) => tc.function.name).join(", ")}`)
 
+      // Initialize memoizer for this step
+      const chatMemo = createChatToolMemoizer()
       const toolResults: Array<{ tool_call_id: string; role: "tool"; content: string }> = []
 
-      for (const toolCall of toolCalls) {
+      // Execute ALL read tools in PARALLEL
+      const startTime = Date.now()
+      console.log(`[AI-CHAT] Executing ${toolCalls.length} read tool(s) in parallel`)
+
+      const readPromises = toolCalls.map(async (toolCall: any) => {
         const toolName = toolCall.function.name as ReadToolName
         toolsCalled.push(toolName)
 
@@ -275,15 +312,25 @@ const selectedModel = selectModelForRequest({
           toolArgs = {}
         }
 
-        const result = await executeReadTool(toolName, toolArgs, founder_id)
-        console.log(`[AI-CHAT] Read tool ${toolName} → ${estimateTokens(result.content)} tokens`)
-
-        toolResults.push({
-          tool_call_id: toolCall.id,
-          role: "tool",
-          content: result.content,
+        const key = chatMemoKey(toolName, toolArgs)
+        const content = await chatMemo.getOrExecute(key, async () => {
+          const result = await executeReadTool(toolName, toolArgs, founder_id)
+          console.log(`[AI-CHAT] Read tool ${toolName} → ${estimateTokens(result.content)} tokens`)
+          return result.content
         })
-      }
+
+        return {
+          tool_call_id: toolCall.id,
+          role: "tool" as const,
+          content,
+        }
+      })
+
+      const readResults = await Promise.all(readPromises)
+      toolResults.push(...readResults)
+
+      const elapsed = Date.now() - startTime
+      console.log(`[AI-CHAT] Read tools completed in ${elapsed}ms`)
 
       messages.push(choice.message)
       messages.push(...toolResults)

@@ -740,83 +740,86 @@ async function execCalendar(
   founderId: string
 ): Promise<ReadToolResult> {
   const { range = "next_7_days" } = args
-  const now = new Date()
 
-  let gte: string
-  let lte: string
-  let ascending = true
-  let label = ""
+  return withCache(CK.calendar(founderId, range), 300, async () => {
+    const now = new Date()
 
-  switch (range) {
-    case "today": {
-      gte = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
-      lte = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).toISOString()
-      label = "Today's events"
-      break
+    let gte: string
+    let lte: string
+    let ascending = true
+    let label = ""
+
+    switch (range) {
+      case "today": {
+        gte = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
+        lte = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).toISOString()
+        label = "Today's events"
+        break
+      }
+      case "this_week": {
+        const dayOfWeek = now.getDay()
+        const weekStart = new Date(now.getTime() - dayOfWeek * 24 * 60 * 60 * 1000)
+        weekStart.setHours(0, 0, 0, 0)
+        const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000 - 1)
+        gte = weekStart.toISOString()
+        lte = weekEnd.toISOString()
+        label = "This week"
+        break
+      }
+      case "next_14_days":
+        gte = now.toISOString()
+        lte = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString()
+        label = "Next 14 days"
+        break
+      case "past_7_days":
+        gte = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+        lte = now.toISOString()
+        ascending = false
+        label = "Past 7 days"
+        break
+      case "past_30_days":
+        gte = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+        lte = now.toISOString()
+        ascending = false
+        label = "Past 30 days"
+        break
+      default:
+        gte = now.toISOString()
+        lte = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+        label = "Next 7 days"
     }
-    case "this_week": {
-      const dayOfWeek = now.getDay()
-      const weekStart = new Date(now.getTime() - dayOfWeek * 24 * 60 * 60 * 1000)
-      weekStart.setHours(0, 0, 0, 0)
-      const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000 - 1)
-      gte = weekStart.toISOString()
-      lte = weekEnd.toISOString()
-      label = "This week"
-      break
+
+    const { data: events, error } = await supabaseAdmin
+      .from("events")
+      .select("id, title, start_time, end_time, type, purpose, meeting_link, outcome")
+      .eq("user_id", founderId)
+      .gte("start_time", gte)
+      .lte("start_time", lte)
+      .order("start_time", { ascending })
+      .limit(15)
+
+    if (error) return { content: `Error: ${error.message}` }
+    if (!events || events.length === 0)
+      return { content: `No events found (${label}).` }
+
+    const lines = [`${label} (${events.length}):`]
+    for (const e of events) {
+      const date = new Date(e.start_time).toLocaleString("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      })
+      let line = `- ${date} | ${e.title} | ${e.type}`
+      if (e.purpose) line += ` | ${e.purpose}`
+      if (e.meeting_link) line += ` | has link`
+      if (e.outcome) line += ` | outcome: ${e.outcome.slice(0, 60)}`
+      lines.push(line)
     }
-    case "next_14_days":
-      gte = now.toISOString()
-      lte = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString()
-      label = "Next 14 days"
-      break
-    case "past_7_days":
-      gte = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-      lte = now.toISOString()
-      ascending = false
-      label = "Past 7 days"
-      break
-    case "past_30_days":
-      gte = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-      lte = now.toISOString()
-      ascending = false
-      label = "Past 30 days"
-      break
-    default:
-      gte = now.toISOString()
-      lte = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
-      label = "Next 7 days"
-  }
 
-  const { data: events, error } = await supabaseAdmin
-    .from("events")
-    .select("id, title, start_time, end_time, type, purpose, meeting_link, outcome")
-    .eq("user_id", founderId)
-    .gte("start_time", gte)
-    .lte("start_time", lte)
-    .order("start_time", { ascending })
-    .limit(15)
-
-  if (error) return { content: `Error: ${error.message}` }
-  if (!events || events.length === 0)
-    return { content: `No events found (${label}).` }
-
-  const lines = [`${label} (${events.length}):`]
-  for (const e of events) {
-    const date = new Date(e.start_time).toLocaleString("en-US", {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    })
-    let line = `- ${date} | ${e.title} | ${e.type}`
-    if (e.purpose) line += ` | ${e.purpose}`
-    if (e.meeting_link) line += ` | has link`
-    if (e.outcome) line += ` | outcome: ${e.outcome.slice(0, 60)}`
-    lines.push(line)
-  }
-
-  return { content: lines.join("\n") }
+    return { content: lines.join("\n") }
+  })
 }
 
 async function execVault(
@@ -826,6 +829,26 @@ async function execVault(
   const { project_name, search } = args
   const normalizedProjectName =
     typeof project_name === "string" ? project_name.replace(/^project\s+/i, "").trim() : project_name
+
+  // Create cache key from args (only cache if no search term)
+  const cacheKey = `vault:${founderId}:${normalizedProjectName || "all"}:${search || "none"}`
+  
+  // Only use cache for unfiltered queries (search queries are unique)
+  const useCache = !search
+
+  if (useCache) {
+    return withCache(cacheKey, 600, async () => _execVault(args, founderId, normalizedProjectName))
+  }
+
+  return _execVault(args, founderId, normalizedProjectName)
+}
+
+async function _execVault(
+  args: Record<string, any>,
+  founderId: string,
+  normalizedProjectName: string | null
+): Promise<ReadToolResult> {
+  const { project_name, search } = args
 
   // Resolve project
   let projectId: string | null = null

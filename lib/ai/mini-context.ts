@@ -2,7 +2,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin"
 import { withCache, CK } from "@/lib/redis"
 
 export async function buildMiniContext(founderId: string): Promise<string> {
-  return withCache(CK.miniContext(founderId), 45, () => _build(founderId))
+  return withCache(CK.miniContext(founderId), 30, () => _build(founderId))
 }
 
 async function _build(founderId: string): Promise<string> {

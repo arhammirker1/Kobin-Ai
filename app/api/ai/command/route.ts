@@ -88,6 +88,37 @@ async function groqCall(groq: any, model: string, payload: Record<string, any>) 
   }
 }
 
+// ── Request-level tool memoization ─────────────────────────────────────────────
+
+type ToolMemoKey = string
+type ToolMemoValue = { content: string; teamData?: any[]; projectData?: any[] }
+
+function memoKey(toolName: string, args: Record<string, any>): ToolMemoKey {
+  return `${toolName}:${JSON.stringify(args)}`
+}
+
+function createToolMemoizer() {
+  const memo = new Map<ToolMemoKey, Promise<ToolMemoValue>>()
+  
+  return {
+    async getOrExecute<T extends ToolMemoValue>(
+      key: ToolMemoKey,
+      executor: () => Promise<T>
+    ): Promise<T> {
+      if (memo.has(key)) {
+        console.log(`[MEMO] Cache hit: ${key}`)
+        return memo.get(key) as Promise<T>
+      }
+      const promise = executor()
+      memo.set(key, promise as ToolMemoValue)
+      return promise
+    },
+    clear() {
+      memo.clear()
+    }
+  }
+}
+
 // ── Confirmed delete (called by frontend after user confirms) ─────────────
 
 export async function DELETE(request: Request) {
@@ -237,29 +268,62 @@ Never send nested objects for scalar fields.`
       const hasAction = toolCalls.some((tc: any) => !READ_TOOL_NAMES.has(tc.function.name))
       const isMixed   = hasRead && hasAction
 
+      // Initialize memoizer for this step
+      const toolMemo = createToolMemoizer()
       const toolResults: Array<{ tool_call_id: string; role: "tool"; content: string }> = []
 
-      for (const tc of toolCalls) {
+      // Separate read and action tool calls
+      const readCalls = toolCalls.filter((tc: any) => READ_TOOL_NAMES.has(tc.function.name))
+      const actionCalls = toolCalls.filter((tc: any) => !READ_TOOL_NAMES.has(tc.function.name))
+
+      // ── Execute READ tools in PARALLEL ────────────────────────────────────
+      if (readCalls.length > 0) {
+        console.log(`[CMD] Executing ${readCalls.length} read tool(s) in parallel`)
+        const startTime = Date.now()
+
+        const readPromises = readCalls.map(async (tc: any) => {
+          const toolName = tc.function.name
+          let toolArgs: Record<string, any> = {}
+          try { toolArgs = JSON.parse(tc.function.arguments) } catch {}
+          toolArgs = repairArgs(toolName, toolArgs)
+
+          const key = memoKey(toolName, toolArgs)
+          const result = await toolMemo.getOrExecute(key, () =>
+            executeReadTool(toolName as ReadToolName, toolArgs, founder_id)
+          )
+
+          // Update actionContext with returned data
+          if (result.teamData)    actionContext.team     = result.teamData
+          if (result.projectData) actionContext.projects = result.projectData
+
+          return {
+            tool_call_id: tc.id,
+            role: "tool" as const,
+            content: result.content
+          }
+        })
+
+        const readResults = await Promise.all(readPromises)
+        toolResults.push(...readResults)
+
+        const elapsed = Date.now() - startTime
+        console.log(`[CMD] Read tools completed in ${elapsed}ms`)
+      }
+
+      // ── Execute ACTION tools SEQUENTIALLY (required for state mutations) ──
+      for (const tc of actionCalls) {
         const toolName = tc.function.name
         let toolArgs: Record<string, any> = {}
         try { toolArgs = JSON.parse(tc.function.arguments) } catch {}
         toolArgs = repairArgs(toolName, toolArgs)
 
-        if (READ_TOOL_NAMES.has(toolName)) {
-          // Read tool
-          const result = await executeReadTool(toolName as ReadToolName, toolArgs, founder_id)
-          if (result.teamData)    actionContext.team     = result.teamData
-          if (result.projectData) actionContext.projects = result.projectData
-          toolResults.push({ tool_call_id: tc.id, role: "tool", content: result.content })
-
-        } else if (isMixed) {
+        if (isMixed) {
           // Defer action tools when mixed with read tools
           console.log(`[CMD] deferred ${toolName} (mixed batch)`)
           toolResults.push({
             tool_call_id: tc.id, role: "tool",
             content: JSON.stringify({ success: false, message: `Deferred: call ${toolName} again after read results.` }),
           })
-
         } else {
           // Action tool
           if ((toolName === "create_task" || toolName === "create_project") && createActionsExecuted.has(toolName)) {

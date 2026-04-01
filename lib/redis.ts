@@ -72,4 +72,7 @@ export const CK = {
   teamWorkload: (founderId: string) => `tw:${founderId}`,
   projects: (founderId: string) => `proj:${founderId}`,
   vaultFiles: (founderId: string, projectId: string) => `vault:${founderId}:${projectId}`,
+  overview: (founderId: string) => `overview:${founderId}`,
+  tasks: (founderId: string, filter: string) => `tasks:${founderId}:${filter}`,
+  calendar: (founderId: string, range: string) => `cal:${founderId}:${range}`,
 }
