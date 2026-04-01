@@ -1,3 +1,5 @@
+import { GROQ_MODEL_FAST, GROQ_MODEL_STD, GROQ_MODEL_STRONG } from "./groq"
+
 interface ModelRoutingInput {
   intent: "chat" | "command"
   message: string
@@ -6,71 +8,46 @@ interface ModelRoutingInput {
 
 interface ModelRoutingResult {
   model: string
-  tier: "fast" | "strong"
+  tier: "fast" | "std" | "strong"
   reason: string
-}
-
-function estimateTokens(text: string): number {
-  return Math.ceil((text || "").length / 4)
 }
 
 function isComplexRequest(message: string): boolean {
   const lower = message.toLowerCase()
-  const complexSignals = [
-    "plan",
-    "roadmap",
-    "analyze",
-    "compare",
-    "tradeoff",
-    "step by step",
-    "multi",
-    "several",
-    "and then",
-    "create",
-    "update",
-    "delete",
-    "assign",
-    "lead list",
-    "project",
-    "task",
-    "crm",
-    "calendar",
-    "vault",
-  ]
-  return complexSignals.some((s) => lower.includes(s))
+  return [
+    "plan", "roadmap", "analyze", "compare", "tradeoff",
+    "step by step", "create", "update", "delete", "assign",
+    "multi", "several", "all", "every",
+  ].some((s) => lower.includes(s))
+}
+
+function isSimpleRequest(message: string): boolean {
+  const lower = message.toLowerCase()
+  return (
+    message.length < 60 &&
+    !isComplexRequest(message) &&
+    ["what", "who", "when", "how many", "show", "list", "status"].some(
+      (s) => lower.startsWith(s)
+    )
+  )
 }
 
 export function selectModelForRequest(input: ModelRoutingInput): ModelRoutingResult {
-  const fastModel = process.env.GROQ_MODEL_FAST || "meta-llama/llama-4-scout-17b-16e-instruct"
-  // Do not default to decommissioned models. If GROQ_MODEL_STRONG is not set,
-  // fall back to the fast model so requests remain operational.
-  const strongModel = process.env.GROQ_MODEL_STRONG || fastModel
+  const { intent, message, historyCount } = input
 
-  const messageTokens = estimateTokens(input.message)
-  const heavyConversation = input.historyCount >= 10
-  const complex = isComplexRequest(input.message)
-
-  // Command mode gets stronger default behavior for tool orchestration.
-  if (input.intent === "command" && (complex || heavyConversation || messageTokens > 180)) {
-    return {
-      model: strongModel,
-      tier: "strong",
-      reason: "complex-command",
-    }
+  // Fast: simple read-only chat questions
+  if (intent === "chat" && isSimpleRequest(message) && historyCount < 5) {
+    return { model: GROQ_MODEL_FAST, tier: "fast", reason: "simple-chat" }
   }
 
-  // Chat mode escalates on complexity/long prompts.
-  if (input.intent === "chat" && (complex || messageTokens > 240)) {
-    return {
-      model: strongModel,
-      tier: "strong",
-      reason: "complex-chat",
-    }
+  // Strong: complex multi-step planning or long conversations
+  if (
+    intent === "command" &&
+    (historyCount >= 12 || message.length > 300 || /plan|roadmap|analyze|compare/i.test(message))
+  ) {
+    return { model: GROQ_MODEL_STRONG, tier: "strong", reason: "complex-command" }
   }
 
-  return {
-    model: fastModel,
-    tier: "fast",
-    reason: "default-fast",
-  }
+  // Std (default): tool calling, commands, standard chat
+  return { model: GROQ_MODEL_STD, tier: "std", reason: "default-std" }
 }

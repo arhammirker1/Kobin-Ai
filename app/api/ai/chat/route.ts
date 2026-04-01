@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server"
 import { supabaseAdmin } from "@/lib/supabase/admin"
-import { getGroqClient, GROQ_MODEL } from "@/lib/ai/groq"
+import { getGroqClient, GROQ_MODEL_STD, GROQ_MODEL } from "@/lib/ai/groq"
 import { buildMiniContext } from "@/lib/ai/mini-context"
 import { READ_TOOLS, executeReadTool } from "@/lib/ai/mcp-read-tools"
 import type { ReadToolName } from "@/lib/ai/mcp-read-tools"
@@ -30,7 +30,7 @@ async function createCompletionWithModelFallback(
     })
   } catch (err: any) {
     if (!isModelDecommissionedError(err)) throw err
-    const fallbackModel = GROQ_MODEL
+    const fallbackModel = GROQ_MODEL_STD
     if (fallbackModel === primaryModel) throw err
     console.warn(`[AI-CHAT] Model ${primaryModel} is decommissioned. Falling back to ${fallbackModel}.`)
     return await groq.chat.completions.create({
@@ -115,11 +115,13 @@ ${miniContext}${roomContext}
       { role: "system", content: systemPrompt },
       { role: "user", content: message },
     ]
-    const selectedModel = selectModelForRequest({
-      intent: "chat",
-      message,
-      historyCount: 1,
-    })
+const selectedModel = selectModelForRequest({
+    intent: "chat",
+    message,
+    historyCount: 1,
+  })
+  // chat defaults to STD tier for tool-calling quality
+  if (selectedModel.tier === "fast") selectedModel.model = GROQ_MODEL_STD
 
     const groq = getGroqClient()
     const toolsCalled: string[] = []

@@ -462,14 +462,10 @@ async function executeCreateTask(
     return { success: false, message: `Invalid due date format. Please provide an ISO date/time.` }
   }
   const normalizedDeliverableRequired = parseBooleanLike(deliverable_required, false)
-  let effectiveDueDate = normalizedDueDate
-  let dueDateAutoAdjusted = false
-  if (effectiveDueDate && new Date(effectiveDueDate) < new Date() && normalizedStatus !== "completed") {
-    const now = new Date()
-    const endToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
-    effectiveDueDate = endToday.toISOString()
-    dueDateAutoAdjusted = true
-  }
+  // Do NOT silently mutate past due dates — let the user's intent stand.
+  // Past dates are valid for tasks being backfilled. We flag them instead.
+  const effectiveDueDate = normalizedDueDate
+  const dueDateAutoAdjusted = false
 
   // Resolve assignee
   let assignedTo: string | null = null
