@@ -3,6 +3,7 @@
 // to fetch exactly what it needs, when it needs it.
 
 import { supabaseAdmin } from "@/lib/supabase/admin"
+import { withCache, CK } from "@/lib/redis"
 import type { TeamMemberContext, ProjectContext } from "./action-executor"
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -504,17 +505,31 @@ async function execGetProjects(
 ): Promise<ReadToolResult> {
   const { status = "all", name } = args
 
-  let query = supabaseAdmin
-    .from("projects")
-    .select("id, name, description, status, priority, start_date, end_date")
-    .eq("founder_id", founderId)
-    .order("updated_at", { ascending: false })
+  // Use cache only for unfiltered full list (used by task creation context)
+  const fetchProjects = async () => {
+    let query = supabaseAdmin
+      .from("projects")
+      .select("id, name, description, status, priority, start_date, end_date")
+      .eq("founder_id", founderId)
+      .order("updated_at", { ascending: false })
 
-  if (status && status !== "all") query = query.eq("status", status)
-  if (name) query = query.ilike("name", `%${name}%`)
+    if (status && status !== "all") query = query.eq("status", status)
+    if (name) query = query.ilike("name", `%${name}%`)
 
-  const { data: projects, error } = await query
-  if (error) return { content: `Error: ${error.message}`, projectData: [] }
+    const { data, error } = await query
+    if (error) return { data: null, error }
+    return { data, error: null }
+  }
+
+  const useCache = (!status || status === "all") && !name
+  const { data: projects, error } = useCache
+    ? await withCache(CK.projects(founderId), 60, async () => {
+        const result = await fetchProjects()
+        return result.data
+      }).then(data => ({ data, error: null }))
+    : await fetchProjects()
+
+  if (error) return { content: `Error: ${(error as any).message}`, projectData: [] }
   if (!projects || projects.length === 0) return { content: "No projects found.", projectData: [] }
 
   // Get task counts per project
@@ -558,13 +573,16 @@ async function execGetProjects(
 
 async function execTeamWorkload(args: Record<string, any>, founderId: string): Promise<ReadToolResult> {
   const nameFilter = (args.name || "").toString().trim().toLowerCase()
-  const { data: members } = await supabaseAdmin
-    .from("team_members")
-    .select(
-      "user_id, position, is_active, profile:profiles!team_members_user_id_profiles_fkey(full_name, email)"
-    )
-    .eq("founder_id", founderId)
-    .eq("is_active", true)
+  const members = await withCache(CK.teamWorkload(founderId), 30, async () => {
+    const { data } = await supabaseAdmin
+      .from("team_members")
+      .select(
+        "user_id, position, is_active, profile:profiles!team_members_user_id_profiles_fkey(full_name, email)"
+      )
+      .eq("founder_id", founderId)
+      .eq("is_active", true)
+    return data || []
+  })
 
   if (!members || members.length === 0) return { content: "No active team members.", teamData: [] }
 
@@ -871,24 +889,30 @@ async function execTaskCreationContext(
 ): Promise<ReadToolResult> {
   const { project_name } = args
   const now = new Date()
-
-  // Run team + projects in parallel
-  const [membersRes, projectsRes] = await Promise.all([
-    supabaseAdmin
-      .from("team_members")
-      .select("user_id, position, is_active, profile:profiles!team_members_user_id_profiles_fkey(full_name, email)")
-      .eq("founder_id", founderId)
-      .eq("is_active", true),
-    supabaseAdmin
-      .from("projects")
-      .select("id, name, status, priority")
-      .eq("founder_id", founderId)
-      .in("status", ["active", "on-hold"])
-      .order("name"),
+// Run team + projects in parallel (both Redis-cached)
+  const [members, projects] = await Promise.all([
+    withCache(CK.teamWorkload(founderId), 30, async () => {
+      const { data } = await supabaseAdmin
+        .from("team_members")
+        .select(
+          "user_id, position, is_active, profile:profiles!team_members_user_id_profiles_fkey(full_name, email)"
+        )
+        .eq("founder_id", founderId)
+        .eq("is_active", true)
+      return data || []
+    }),
+    withCache(CK.projects(founderId), 60, async () => {
+      const { data } = await supabaseAdmin
+        .from("projects")
+        .select("id, name, status, priority")
+        .eq("founder_id", founderId)
+        .in("status", ["active", "on-hold"])
+        .order("name")
+      return data || []
+    }),
   ])
 
-  const members = membersRes.data || []
-  const projects = projectsRes.data || []
+  // (members and projects already resolved above)
 
   // Task counts per member
   const { data: tasks } = await supabaseAdmin
