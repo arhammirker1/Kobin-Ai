@@ -6,6 +6,8 @@ import { READ_TOOLS, executeReadTool } from "@/lib/ai/mcp-read-tools"
 import type { ReadToolName } from "@/lib/ai/mcp-read-tools"
 import { selectModelForRequest } from "@/lib/ai/model-router"
 import { NextResponse } from "next/server"
+import { aiLogger, generateRequestId, AIPerformanceTracker } from "@/lib/ai/performance-logger"
+import { setRequestId } from "@/lib/redis"
 
 // ── Token estimation ────────────────────────────────────────────────────────
 
@@ -21,13 +23,23 @@ function isModelDecommissionedError(err: any): boolean {
 async function createCompletionWithModelFallback(
   groq: any,
   primaryModel: string,
-  payload: Record<string, any>
+  payload: Record<string, any>,
+  tracker: AIPerformanceTracker
 ) {
   try {
-    return await groq.chat.completions.create({
+    const start = performance.now()
+    const result = await groq.chat.completions.create({
       ...payload,
       model: primaryModel,
     })
+    const duration = performance.now() - start
+    
+    // Estimate tokens
+    const inputTokens = estimateTokens(JSON.stringify(payload.messages))
+    const outputTokens = estimateTokens(result.choices[0]?.message?.content || "")
+    tracker.logLLMCall(primaryModel, inputTokens, outputTokens, duration)
+    
+    return result
   } catch (err: any) {
     if (!isModelDecommissionedError(err)) throw err
     const fallbackModel = GROQ_MODEL_STD
@@ -49,7 +61,7 @@ function chatMemoKey(toolName: string, args: Record<string, any>): ChatToolMemoK
   return `${toolName}:${JSON.stringify(args)}`
 }
 
-function createChatToolMemoizer() {
+function createChatToolMemoizer(tracker: AIPerformanceTracker) {
   const memo = new Map<ChatToolMemoKey, Promise<ChatToolMemoValue>>()
 
   return {
@@ -58,9 +70,10 @@ function createChatToolMemoizer() {
       executor: () => Promise<string>
     ): Promise<string> {
       if (memo.has(key)) {
-        console.log(`[MEMO] Cache hit: ${key}`)
+        console.log(`[CHAT] 💾 MEMO HIT: ${key}`)
         return memo.get(key)!
       }
+      console.log(`[CHAT] 💾 MEMO MISS: ${key}`)
       const promise = executor()
       memo.set(key, promise)
       return promise
@@ -72,16 +85,42 @@ function createChatToolMemoizer() {
 }
 
 export async function POST(request: Request) {
+  // Generate request ID and initialize performance tracker
+  const requestId = generateRequestId()
+  const tracker = new AIPerformanceTracker(requestId)
+  setRequestId(requestId)
+
+  const overallStart = performance.now()
+  tracker.mark("Request received")
+
+  console.log("")
+  console.log("═══════════════════════════════════════════════════════════════")
+  console.log(`[${requestId}] 💬 AI CHAT START`)
+  console.log("═══════════════════════════════════════════════════════════════")
+
   try {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    if (!user) {
+      tracker.logError("Auth", "Unauthorized")
+      tracker.printSummary()
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
 
     const { message, room_id, project_id } = await request.json()
-    if (!message?.trim()) return NextResponse.json({ error: "Message required" }, { status: 400 })
+    if (!message?.trim()) {
+      tracker.logError("Validation", "Empty message")
+      tracker.printSummary()
+      return NextResponse.json({ error: "Message required" }, { status: 400 })
+    }
+
+    console.log(`[${requestId}] 👤 User: ${user.id}`)
+    console.log(`[${requestId}] 💬 Message: "${message.slice(0, 100)}${message.length > 100 ? "..." : ""}"`)
+    if (room_id) console.log(`[${requestId}] 📍 Room: ${room_id}`)
 
     // Resolve founder_id
     let founder_id = user.id
+    const profileStart = performance.now()
     const { data: profile } = await supabaseAdmin
       .from("profiles")
       .select("user_type")
@@ -97,9 +136,13 @@ export async function POST(request: Request) {
         .single()
       if (tm?.founder_id) founder_id = tm.founder_id
     }
+    tracker.mark("Auth & profile resolution", { userType: profile?.user_type, founderId: founder_id })
 
     // Build mini context
+    const miniContextStart = performance.now()
     const miniContext = await buildMiniContext(founder_id)
+    const miniContextTime = performance.now() - miniContextStart
+    console.log(`[${requestId}] 🗄️ MiniContext built (${miniContextTime.toFixed(0)}ms)`)
 
     // Get room info if in a room
     let roomContext = ""
@@ -146,20 +189,24 @@ ${miniContext}${roomContext}
       { role: "system", content: systemPrompt },
       { role: "user", content: message },
     ]
-const selectedModel = selectModelForRequest({
-    intent: "chat",
-    message,
-    historyCount: 1,
-  })
-  // chat defaults to STD tier for tool-calling quality
-  if (selectedModel.tier === "fast") selectedModel.model = GROQ_MODEL_STD
+    const selectedModel = selectModelForRequest({
+      intent: "chat",
+      message,
+      historyCount: 1,
+    })
+    // chat defaults to STD tier for tool-calling quality
+    if (selectedModel.tier === "fast") selectedModel.model = GROQ_MODEL_STD
 
     const groq = getGroqClient()
     const toolsCalled: string[] = []
 
     const systemTokens = estimateTokens(systemPrompt)
     const toolSchemaTokens = estimateTokens(JSON.stringify(READ_TOOLS))
-    console.log(`[AI-CHAT] System: ~${systemTokens} tokens | Tools schema: ~${toolSchemaTokens} tokens | Model: ${selectedModel.model} (${selectedModel.tier}/${selectedModel.reason})`)
+
+    console.log("")
+    console.log(`[${requestId}] 📤 === LLM INPUT ===`)
+    console.log(`[${requestId}] 🤖 Model: ${selectedModel.model} (${selectedModel.tier} tier)`)
+    console.log(`[${requestId}] 📊 System: ~${systemTokens} tokens | Tools schema: ~${toolSchemaTokens} tokens`)
 
     // Save placeholder message to DB
     const { data: savedMessage } = await supabaseAdmin
@@ -178,28 +225,36 @@ const selectedModel = selectModelForRequest({
     // ── Multi-step tool loop (max 3 iterations) ──────────────────────────
     for (let step = 0; step < 3; step++) {
       const inputTokens = estimateTokens(JSON.stringify(messages))
-      console.log(`[AI-CHAT] Step ${step + 1} | Input: ~${inputTokens} tokens`)
+      tracker.mark(`Step ${step + 1} started`, { inputTokens })
+
+      console.log("")
+      console.log(`[${requestId}] ═══ STEP ${step + 1} ═══`)
+      console.log(`[${requestId}] 📥 Input: ~${inputTokens} tokens`)
 
       let response: any
       try {
+        tracker.logLLMInput(messages, READ_TOOLS as any[])
+        
         response = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
           messages,
           tools: READ_TOOLS as any,
           tool_choice: "auto",
           max_tokens: 1024,
           temperature: 0.7,
-        })
+        }, tracker)
       } catch (apiError: any) {
         // Groq returns 400 when model outputs malformed tool args (e.g. string for boolean)
         const errorMessage = apiError?.message || apiError?.error?.message || ""
         if (apiError?.status === 400 && errorMessage.includes("tool_use_failed")) {
-          console.log(`[AI-CHAT] Step ${step + 1} | Groq schema error — retrying without tools`)
+          console.warn(`[${requestId}] ⚠️ LLM schema error — retrying without tools`)
           response = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
             messages,
             max_tokens: 1024,
             temperature: 0.7,
-          })
+          }, tracker)
         } else {
+          tracker.logError(`LLM call step ${step}`, apiError)
+          tracker.printSummary()
           throw apiError
         }
       }
@@ -209,12 +264,12 @@ const selectedModel = selectModelForRequest({
 
       if (!toolCalls || toolCalls.length === 0) {
         // No tools — stream final response
-        console.log(`[AI-CHAT] Step ${step + 1} | No tools → text response`)
-        console.log(`[AI-CHAT] Tools used: ${toolsCalled.length > 0 ? toolsCalled.join(", ") : "none"}`)
+        const content = choice?.message?.content || ""
+        console.log(`[${requestId}] 💭 No tools → text response (${content.length} chars)`)
+        console.log(`[${requestId}] 📊 Tools used: ${toolsCalled.length > 0 ? toolsCalled.join(", ") : "none"}`)
 
         if (step > 0) {
           // Already have tool context — use the generated response
-          const content = choice?.message?.content || ""
           // Update DB
           if (savedMessage?.id) {
             await supabaseAdmin
@@ -230,6 +285,7 @@ const selectedModel = selectModelForRequest({
                 encoder.encode(`data: ${JSON.stringify({ type: "id", message_id: savedMessage?.id })}\n\n`)
               )
               if (content) {
+                console.log(`[${requestId}] 📤 Streaming response: "${content.slice(0, 100)}..."`)
                 controller.enqueue(
                   encoder.encode(`data: ${JSON.stringify({ type: "delta", content })}\n\n`)
                 )
@@ -240,13 +296,15 @@ const selectedModel = selectModelForRequest({
               controller.close()
             },
           })
+          tracker.mark("Response streamed", { contentLength: content.length })
+          tracker.printSummary()
           return new Response(readable, {
             headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive" },
           })
         }
 
         // First step, no tools — stream directly
-        const directStream = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
+        const directStream = await groq.chat.completions.create({
           messages,
           stream: true,
           max_tokens: 1024,
@@ -255,6 +313,9 @@ const selectedModel = selectModelForRequest({
 
         const encoder = new TextEncoder()
         let fullContent = ""
+        const streamStart = performance.now()
+        let chunkCount = 0
+        
         const readable = new ReadableStream({
           async start(controller) {
             try {
@@ -265,6 +326,7 @@ const selectedModel = selectModelForRequest({
                 const delta = chunk.choices[0]?.delta?.content || ""
                 if (delta) {
                   fullContent += delta
+                  chunkCount++
                   controller.enqueue(
                     encoder.encode(`data: ${JSON.stringify({ type: "delta", content: delta })}\n\n`)
                   )
@@ -285,21 +347,26 @@ const selectedModel = selectModelForRequest({
             }
           },
         })
+        
+        console.log(`[${requestId}] 📡 Stream completed: ${chunkCount} chunks`)
+        tracker.mark("Direct stream", { chunks: chunkCount, contentLength: fullContent.length })
+        tracker.printSummary()
+        
         return new Response(readable, {
           headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive" },
         })
       }
 
       // Execute read tools
-      console.log(`[AI-CHAT] Step ${step + 1} | Tools: ${toolCalls.map((tc: any) => tc.function.name).join(", ")}`)
+      console.log(`[${requestId}] 🔧 Tools called: ${toolCalls.map((tc: any) => tc.function.name).join(", ")}`)
 
       // Initialize memoizer for this step
-      const chatMemo = createChatToolMemoizer()
+      const chatMemo = createChatToolMemoizer(tracker)
       const toolResults: Array<{ tool_call_id: string; role: "tool"; content: string }> = []
 
       // Execute ALL read tools in PARALLEL
-      const startTime = Date.now()
-      console.log(`[AI-CHAT] Executing ${toolCalls.length} read tool(s) in parallel`)
+      const toolExecStart = performance.now()
+      console.log(`[${requestId}] ⚡ Executing ${toolCalls.length} read tool(s) in PARALLEL`)
 
       const readPromises = toolCalls.map(async (toolCall: any) => {
         const toolName = toolCall.function.name as ReadToolName
@@ -313,11 +380,18 @@ const selectedModel = selectModelForRequest({
         }
 
         const key = chatMemoKey(toolName, toolArgs)
+        console.log(`[${requestId}] 🔧 → ${toolName}(${JSON.stringify(toolArgs).slice(0, 50)}...)`)
+
+        const execStart = performance.now()
         const content = await chatMemo.getOrExecute(key, async () => {
           const result = await executeReadTool(toolName, toolArgs, founder_id)
-          console.log(`[AI-CHAT] Read tool ${toolName} → ${estimateTokens(result.content)} tokens`)
+          const tokens = estimateTokens(result.content)
+          console.log(`[${requestId}] ✅ ← ${toolName} → ${tokens} tokens`)
           return result.content
         })
+        const execTime = performance.now() - execStart
+        
+        tracker.logToolCall(toolName, execTime, false)
 
         return {
           tool_call_id: toolCall.id,
@@ -329,18 +403,19 @@ const selectedModel = selectModelForRequest({
       const readResults = await Promise.all(readPromises)
       toolResults.push(...readResults)
 
-      const elapsed = Date.now() - startTime
-      console.log(`[AI-CHAT] Read tools completed in ${elapsed}ms`)
+      const elapsed = performance.now() - toolExecStart
+      console.log(`[${requestId}] ⚡ Read tools completed in ${elapsed.toFixed(0)}ms (parallel)`)
+      tracker.mark("Read tools execution", { count: toolCalls.length, time: elapsed })
 
       messages.push(choice.message)
       messages.push(...toolResults)
     }
 
     // Exhausted loop — final streaming response
-    console.log(`[AI-CHAT] Max steps reached, streaming final`)
-    console.log(`[AI-CHAT] Tools used: ${toolsCalled.join(", ")}`)
+    console.log(`[${requestId}] ⚠️ Max steps reached, streaming final`)
+    console.log(`[${requestId}] 📊 Tools used: ${toolsCalled.join(", ")}`)
 
-    const finalStream = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
+    const finalStream = await groq.chat.completions.create({
       messages,
       stream: true,
       max_tokens: 1024,
@@ -349,6 +424,9 @@ const selectedModel = selectModelForRequest({
 
     const encoder = new TextEncoder()
     let fullContent = ""
+    const streamStart = performance.now()
+    let chunkCount = 0
+    
     const readable = new ReadableStream({
       async start(controller) {
         try {
@@ -359,6 +437,7 @@ const selectedModel = selectModelForRequest({
             const delta = chunk.choices[0]?.delta?.content || ""
             if (delta) {
               fullContent += delta
+              chunkCount++
               controller.enqueue(
                 encoder.encode(`data: ${JSON.stringify({ type: "delta", content: delta })}\n\n`)
               )
@@ -379,12 +458,20 @@ const selectedModel = selectModelForRequest({
         }
       },
     })
+    
+    const streamTime = performance.now() - streamStart
+    console.log(`[${requestId}] 📡 Stream completed: ${chunkCount} chunks in ${streamTime.toFixed(0)}ms`)
+    tracker.mark("Final stream", { chunks: chunkCount, contentLength: fullContent.length })
+    tracker.printSummary()
+    
     return new Response(readable, {
       headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive" },
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : "Server error"
-    console.error("[AI-CHAT] Error:", message)
+    tracker.logError("Request failed", err)
+    console.error(`[${requestId}] ❌ ERROR: ${message}`)
+    tracker.printSummary()
     return NextResponse.json(
       {
         error: "AI chat execution failed",

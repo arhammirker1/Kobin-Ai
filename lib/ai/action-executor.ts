@@ -401,30 +401,58 @@ export async function executeAction(
   args: Record<string, any>,
   context: ActionContext
 ): Promise<ActionResult> {
-  console.log(`[ACTION] Executing ${toolName}:`, JSON.stringify(args))
+  const start = performance.now()
+  
+  // Sanitize args for logging (remove sensitive data)
+  const safeArgs = { ...args }
+  delete safeArgs.password
+  delete safeArgs.token
+  delete safeArgs.apiKey
+  
+  console.log(`[ACTION] ▶️ ${toolName}`)
+  console.log(`[ACTION]   Args: ${JSON.stringify(safeArgs).slice(0, 200)}...`)
 
+  let result: ActionResult
   switch (toolName) {
     case "create_task":
-      return executeCreateTask(args, context)
+      result = await executeCreateTask(args, context)
+      break
     case "update_task":
-      return executeUpdateTask(args, context)
+      result = await executeUpdateTask(args, context)
+      break
     case "delete_task":
-      return executeDeleteTask(args, context)
+      result = await executeDeleteTask(args, context)
+      break
     case "create_project":
-      return executeCreateProject(args, context)
+      result = await executeCreateProject(args, context)
+      break
     case "update_project":
-      return executeUpdateProject(args, context)
+      result = await executeUpdateProject(args, context)
+      break
     case "search_messages":
-      return executeSearchMessages(args, context)
+      result = await executeSearchMessages(args, context)
+      break
     case "update_deal_stage":
-      return executeUpdateDealStage(args, context)
+      result = await executeUpdateDealStage(args, context)
+      break
     case "send_message_to_room":
-      return executeSendMessageToRoom(args, context)
+      result = await executeSendMessageToRoom(args, context)
+      break
     case "analyze_workspace":
-      return executeAnalyzeWorkspace(args, context)
+      result = await executeAnalyzeWorkspace(args, context)
+      break
     default:
-      return { success: false, message: `Unknown tool: ${toolName}` }
+      result = { success: false, message: `Unknown tool: ${toolName}` }
   }
+
+  const elapsed = performance.now() - start
+  const status = result.success ? "✅" : "❌"
+  console.log(`[ACTION] ${status} ${toolName} (${elapsed.toFixed(0)}ms)`)
+  if (result.data) {
+    console.log(`[ACTION]   Result: ${JSON.stringify(result.data).slice(0, 100)}...`)
+  }
+
+  return result
 }
 
 // ── CREATE TASK ─────────────────────────────────────────────────────────────

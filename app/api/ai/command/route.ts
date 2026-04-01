@@ -9,8 +9,9 @@ import { executeAction, executeDeleteTaskConfirmed } from "@/lib/ai/action-execu
 import type { AIToolName } from "@/lib/ai/tools"
 import type { ActionContext, ActionResult } from "@/lib/ai/action-executor"
 import { selectModelForRequest } from "@/lib/ai/model-router"
-import { bust, CK } from "@/lib/redis"
+import { bust, CK, setRequestId } from "@/lib/redis"
 import { NextResponse } from "next/server"
+import { aiLogger, generateRequestId, AIPerformanceTracker } from "@/lib/ai/performance-logger"
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -76,9 +77,18 @@ function makeStream(fn: (ctrl: ReadableStreamDefaultController) => Promise<void>
   return new Response(readable, { headers: SSE_HEADERS })
 }
 
-async function groqCall(groq: any, model: string, payload: Record<string, any>) {
+async function groqCall(groq: any, model: string, payload: Record<string, any>, tracker: AIPerformanceTracker) {
   try {
-    return await groq.chat.completions.create({ ...payload, model })
+    const start = performance.now()
+    const result = await groq.chat.completions.create({ ...payload, model })
+    const duration = performance.now() - start
+    
+    // Estimate tokens
+    const inputTokens = EST(JSON.stringify(payload.messages))
+    const outputTokens = EST(result.choices[0]?.message?.content || "")
+    tracker.logLLMCall(model, inputTokens, outputTokens, duration)
+    
+    return result
   } catch (err: any) {
     if (String(err?.message || "").toLowerCase().includes("decommissioned")) {
       console.warn(`[CMD] Model ${model} decommissioned, falling back to ${GROQ_MODEL_STD}`)
@@ -97,8 +107,10 @@ function memoKey(toolName: string, args: Record<string, any>): ToolMemoKey {
   return `${toolName}:${JSON.stringify(args)}`
 }
 
-function createToolMemoizer() {
+function createToolMemoizer(tracker: AIPerformanceTracker) {
   const memo = new Map<ToolMemoKey, Promise<ToolMemoValue>>()
+  let hitCount = 0
+  let missCount = 0
   
   return {
     async getOrExecute<T extends ToolMemoValue>(
@@ -106,12 +118,18 @@ function createToolMemoizer() {
       executor: () => Promise<T>
     ): Promise<T> {
       if (memo.has(key)) {
-        console.log(`[MEMO] Cache hit: ${key}`)
+        hitCount++
+        console.log(`[CMD] 💾 MEMO HIT: ${key}`)
         return memo.get(key) as Promise<T>
       }
+      missCount++
+      console.log(`[CMD] 💾 MEMO MISS: ${key}`)
       const promise = executor()
       memo.set(key, promise as ToolMemoValue)
       return promise
+    },
+    getStats() {
+      return { hits: hitCount, misses: missCount }
     },
     clear() {
       memo.clear()
@@ -138,16 +156,42 @@ export async function DELETE(request: Request) {
 // ── Main POST handler ─────────────────────────────────────────────────────
 
 export async function POST(request: Request) {
+  // Generate request ID and initialize performance tracker
+  const requestId = generateRequestId()
+  const tracker = new AIPerformanceTracker(requestId)
+  setRequestId(requestId)
+
+  const overallStart = performance.now()
+  tracker.mark("Request received")
+
+  console.log("")
+  console.log("═══════════════════════════════════════════════════════════════")
+  console.log(`[${requestId}] 🚀 AI COMMAND START`)
+  console.log("═══════════════════════════════════════════════════════════════")
+
   try {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    if (!user) {
+      tracker.logError("Auth", "Unauthorized")
+      tracker.printSummary()
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
 
     const { message, history = [] } = await request.json()
-    if (!message?.trim()) return NextResponse.json({ error: "Message required" }, { status: 400 })
+    if (!message?.trim()) {
+      tracker.logError("Validation", "Empty message")
+      tracker.printSummary()
+      return NextResponse.json({ error: "Message required" }, { status: 400 })
+    }
+
+    console.log(`[${requestId}] 👤 User: ${user.id}`)
+    console.log(`[${requestId}] 💬 Message: "${message.slice(0, 100)}${message.length > 100 ? "..." : ""}"`)
+    console.log(`[${requestId}] 📜 History: ${history.length} messages`)
 
     // Resolve founder
     let founder_id = user.id
+    const profileStart = performance.now()
     const { data: profile } = await supabaseAdmin
       .from("profiles").select("user_type").eq("id", user.id).single()
 
@@ -157,9 +201,14 @@ export async function POST(request: Request) {
         .eq("user_id", user.id).eq("is_active", true).single()
       if (tm?.founder_id) founder_id = tm.founder_id
     }
+    tracker.mark("Auth & profile resolution", { userType: profile?.user_type, founderId: founder_id })
 
-    // Build mini context (Redis-cached 45s)
+    // Build mini context (Redis-cached)
+    const miniContextStart = performance.now()
     const miniContext = await buildMiniContext(founder_id)
+    const miniContextTime = performance.now() - miniContextStart
+    console.log(`[${requestId}] 🗄️ MiniContext built (${miniContextTime.toFixed(0)}ms)`)
+    console.log(`[${requestId}] 📊 Context preview:\n${miniContext.slice(0, 200)}...`)
 
     const actionContext: ActionContext = { founder_id, user_id: user.id, team: [], projects: [] }
 
@@ -208,35 +257,54 @@ Never send nested objects for scalar fields.`
       { role: "user", content: message },
     ]
 
+    // Log what's being poured to the model
+    console.log("")
+    console.log(`[${requestId}] 📤 === LLM INPUT ===`)
+    console.log(`[${requestId}] 🤖 Model: ${selected.model} (${selected.tier} tier)`)
+    console.log(`[${requestId}] 💬 Messages: ${messages.length} total`)
+    console.log(`[${requestId}] 📊 System prompt: ${systemPrompt.length} chars`)
+    console.log(`[${requestId}] 📊 History packed: ${cappedHistory.length} messages`)
+    console.log(`[${requestId}] 🔧 Tools available: ${ALL_TOOLS.length}`)
+
     const groq = getGroqClient()
     const actionEvents: Array<Record<string, any>> = []
     const createActionsExecuted = new Set<string>()
     let lastActionMessage = ""
-
-    console.log(`[CMD] model=${selected.model} tier=${selected.tier} history=${cappedHistory.length}`)
+    let totalToolTime = 0
 
     // ── Agentic loop (max 4 steps) ────────────────────────────────────────
     for (let step = 0; step < 4; step++) {
+      tracker.mark(`Step ${step + 1} started`)
+      console.log("")
+      console.log(`[${requestId}] ═══ STEP ${step + 1} ═══`)
 
       let response: any
+      const llmStart = performance.now()
       try {
+        tracker.logLLMInput(messages, ALL_TOOLS as any[])
+        
         response = await groqCall(groq, selected.model, {
           messages,
           tools: ALL_TOOLS as any,
           tool_choice: "auto",
           max_tokens: 1024,
           temperature: 0.2,
-        })
+        }, tracker)
       } catch (apiErr: any) {
+        const llmTime = performance.now() - llmStart
+        tracker.logError(`LLM call step ${step}`, apiErr)
         // Schema validation error from Groq — retry without tools
         const msg = apiErr?.message || ""
         if (apiErr?.status === 400 && msg.includes("tool_use_failed")) {
-          console.warn(`[CMD] step=${step} schema error — retrying no-tools`)
-          response = await groqCall(groq, selected.model, { messages, max_tokens: 800, temperature: 0 })
+          console.warn(`[${requestId}] ⚠️ LLM schema error — retrying without tools`)
+          response = await groqCall(groq, selected.model, { messages, max_tokens: 800, temperature: 0 }, tracker)
         } else {
+          tracker.printSummary()
           throw apiErr
         }
       }
+      const llmTime = performance.now() - llmStart
+      console.log(`[${requestId}] 🤖 LLM response time: ${llmTime.toFixed(0)}ms`)
 
       const choice = response.choices[0]
       const toolCalls = choice?.message?.tool_calls
@@ -244,7 +312,8 @@ Never send nested objects for scalar fields.`
       // No tool calls → text response
       if (!toolCalls || toolCalls.length === 0) {
         const content = choice?.message?.content || ""
-        console.log(`[CMD] step=${step} text response`)
+        tracker.mark("Text response", { contentLength: content.length })
+        console.log(`[${requestId}] 💭 Text response (${content.length} chars)`)
 
         return makeStream(async (ctrl) => {
           const enc = new TextEncoder()
@@ -253,6 +322,7 @@ Never send nested objects for scalar fields.`
             ctrl.enqueue(enc.encode(sseChunk({ type: "action_executed", ...ev })))
           }
           if (content) {
+            console.log(`[${requestId}] 📤 Streaming response: "${content.slice(0, 100)}..."`)
             ctrl.enqueue(enc.encode(sseChunk({ type: "delta", content })))
           }
           ctrl.enqueue(enc.encode(sseChunk({ type: "done" })))
@@ -261,7 +331,8 @@ Never send nested objects for scalar fields.`
       }
 
       // Has tool calls — execute them
-      console.log(`[CMD] step=${step} tools=${toolCalls.map((tc: any) => tc.function.name).join(",")}`)
+      console.log(`[${requestId}] 🔧 Tools called: ${toolCalls.map((tc: any) => tc.function.name).join(", ")}`)
+      tracker.mark("Tool call received", { count: toolCalls.length, tools: toolCalls.map((tc: any) => tc.function.name) })
 
       // Detect mixed read+action batch — defer action tools
       const hasRead   = toolCalls.some((tc: any) => READ_TOOL_NAMES.has(tc.function.name))
@@ -269,7 +340,7 @@ Never send nested objects for scalar fields.`
       const isMixed   = hasRead && hasAction
 
       // Initialize memoizer for this step
-      const toolMemo = createToolMemoizer()
+      const toolMemo = createToolMemoizer(tracker)
       const toolResults: Array<{ tool_call_id: string; role: "tool"; content: string }> = []
 
       // Separate read and action tool calls
@@ -278,8 +349,8 @@ Never send nested objects for scalar fields.`
 
       // ── Execute READ tools in PARALLEL ────────────────────────────────────
       if (readCalls.length > 0) {
-        console.log(`[CMD] Executing ${readCalls.length} read tool(s) in parallel`)
-        const startTime = Date.now()
+        const toolExecStart = performance.now()
+        console.log(`[${requestId}] ⚡ Executing ${readCalls.length} read tool(s) in PARALLEL`)
 
         const readPromises = readCalls.map(async (tc: any) => {
           const toolName = tc.function.name
@@ -288,13 +359,21 @@ Never send nested objects for scalar fields.`
           toolArgs = repairArgs(toolName, toolArgs)
 
           const key = memoKey(toolName, toolArgs)
+          console.log(`[${requestId}] 🔧 → ${toolName}(${JSON.stringify(toolArgs).slice(0, 50)}...)`)
+
+          const execStart = performance.now()
           const result = await toolMemo.getOrExecute(key, () =>
             executeReadTool(toolName as ReadToolName, toolArgs, founder_id)
           )
+          const execTime = performance.now() - execStart
+          totalToolTime += execTime
+          tracker.logToolCall(toolName, execTime, false)
 
           // Update actionContext with returned data
           if (result.teamData)    actionContext.team     = result.teamData
           if (result.projectData) actionContext.projects = result.projectData
+
+          console.log(`[${requestId}] ✅ ← ${toolName} (${execTime.toFixed(0)}ms, ${result.content.length} chars)`)
 
           return {
             tool_call_id: tc.id,
@@ -306,8 +385,9 @@ Never send nested objects for scalar fields.`
         const readResults = await Promise.all(readPromises)
         toolResults.push(...readResults)
 
-        const elapsed = Date.now() - startTime
-        console.log(`[CMD] Read tools completed in ${elapsed}ms`)
+        const parallelTime = performance.now() - toolExecStart
+        console.log(`[${requestId}] ⚡ Read tools completed in ${parallelTime.toFixed(0)}ms (parallel)`)
+        tracker.mark("Read tools execution", { count: readCalls.length, time: parallelTime })
       }
 
       // ── Execute ACTION tools SEQUENTIALLY (required for state mutations) ──
@@ -317,9 +397,11 @@ Never send nested objects for scalar fields.`
         try { toolArgs = JSON.parse(tc.function.arguments) } catch {}
         toolArgs = repairArgs(toolName, toolArgs)
 
+        const execStart = performance.now()
+
         if (isMixed) {
           // Defer action tools when mixed with read tools
-          console.log(`[CMD] deferred ${toolName} (mixed batch)`)
+          console.log(`[${requestId}] ⏸️ Deferred: ${toolName} (mixed batch)`)
           toolResults.push({
             tool_call_id: tc.id, role: "tool",
             content: JSON.stringify({ success: false, message: `Deferred: call ${toolName} again after read results.` }),
@@ -327,7 +409,7 @@ Never send nested objects for scalar fields.`
         } else {
           // Action tool
           if ((toolName === "create_task" || toolName === "create_project") && createActionsExecuted.has(toolName)) {
-            console.log(`[CMD] BLOCKED duplicate ${toolName}`)
+            console.log(`[${requestId}] 🚫 BLOCKED duplicate: ${toolName}`)
             toolResults.push({
               tool_call_id: tc.id, role: "tool",
               content: JSON.stringify({ success: false, message: `${toolName} already executed this request.` }),
@@ -338,7 +420,15 @@ Never send nested objects for scalar fields.`
             createActionsExecuted.add(toolName)
           }
 
+          console.log(`[${requestId}] ⚡ ACTION: ${toolName}`)
+          console.log(`[${requestId}]    Args: ${JSON.stringify(toolArgs).slice(0, 100)}...`)
+
           const result: ActionResult = await executeAction(toolName as AIToolName, toolArgs, actionContext)
+          const execTime = performance.now() - execStart
+          totalToolTime += execTime
+          tracker.logToolCall(toolName, execTime, false)
+          tracker.logAction(toolName, result.success ? "success" : "error", result.message)
+
           if (result.message) lastActionMessage = result.message
           toolResults.push({ tool_call_id: tc.id, role: "tool", content: JSON.stringify(result) })
 
@@ -350,13 +440,22 @@ Never send nested objects for scalar fields.`
               confirmation_action: result.confirmation_action,
             })
 
+            console.log(`[${requestId}] ✅ Action success: ${toolName}`)
+            if (result.data) {
+              console.log(`[${requestId}]    Result data: ${JSON.stringify(result.data).slice(0, 100)}...`)
+            }
+
             // Bust relevant caches after mutations
             if (toolName === "create_task" || toolName === "update_task") {
+              console.log(`[${requestId}] 💾 Busting cache: miniContext, teamWorkload`)
               await bust(CK.miniContext(founder_id), CK.teamWorkload(founder_id))
             }
             if (toolName === "create_project" || toolName === "update_project") {
+              console.log(`[${requestId}] 💾 Busting cache: miniContext, projects`)
               await bust(CK.miniContext(founder_id), CK.projects(founder_id))
             }
+          } else {
+            console.log(`[${requestId}] ❌ Action failed: ${toolName} - ${result.message}`)
           }
         }
       }
@@ -366,6 +465,7 @@ Never send nested objects for scalar fields.`
 
       // If we executed an action successfully, stream the result immediately
       if (actionEvents.length > 0 && !isMixed) {
+        console.log(`[${requestId}] 📤 Streaming action results (${actionEvents.length} actions)`)
         return makeStream(async (ctrl) => {
           const enc = new TextEncoder()
           for (const ev of actionEvents) {
@@ -379,23 +479,39 @@ Never send nested objects for scalar fields.`
     }
 
     // Exhausted loop — stream final response
-    console.log(`[CMD] max steps reached, streaming final`)
+    console.log(`[${requestId}] ⚠️ Max steps reached, streaming final response`)
+
     return makeStream(async (ctrl) => {
       const enc = new TextEncoder()
+      const streamStart = performance.now()
+      let chunkCount = 0
+      
       for (const ev of actionEvents) {
         ctrl.enqueue(enc.encode(sseChunk({ type: "action_executed", ...ev })))
       }
-      const stream = await groqCall(groq, selected.model, { messages, stream: true, max_tokens: 1024, temperature: 0.5 })
+      
+      const stream = await groqCall(groq, selected.model, { messages, stream: true, max_tokens: 1024, temperature: 0.5 }, tracker)
       for await (const chunk of stream) {
         const delta = chunk.choices[0]?.delta?.content || ""
-        if (delta) ctrl.enqueue(enc.encode(sseChunk({ type: "delta", content: delta })))
+        if (delta) {
+          chunkCount++
+          ctrl.enqueue(enc.encode(sseChunk({ type: "delta", content: delta })))
+        }
       }
+      
+      const streamTime = performance.now() - streamStart
+      console.log(`[${requestId}] 📡 Stream completed: ${chunkCount} chunks in ${streamTime.toFixed(0)}ms`)
+      
       ctrl.enqueue(enc.encode(sseChunk({ type: "done" })))
       ctrl.close()
     })
 
   } catch (err) {
-    console.error("[CMD] error:", err)
+    const totalTime = performance.now() - overallStart
+    tracker.logError("Request failed", err)
+    console.error(`[${requestId}] ❌ ERROR: ${err}`)
+    console.error(`[${requestId}] Total time before error: ${totalTime.toFixed(0)}ms`)
+    tracker.printSummary()
     return NextResponse.json({
       error: "AI command failed",
       user_message: "I hit a temporary issue. Please retry.",
