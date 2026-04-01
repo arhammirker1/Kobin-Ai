@@ -189,8 +189,9 @@ export const READ_TOOLS = [
       },
     },
   },
-      description:
-        "Look up a specific contact/lead/investor by name. Returns full profile, pipeline stage, deal details, upcoming meetings, and recent email threads. Use this when the user asks about a specific person.",
+  {
+    description:
+      "Look up a specific contact/lead/investor by name. Returns full profile, pipeline stage, deal details, upcoming meetings, and recent email threads. Use this when the user asks about a specific person.",
       parameters: {
         type: "object",
         properties: {
@@ -202,7 +203,6 @@ export const READ_TOOLS = [
         required: ["name"],
       },
     },
-  },
 ] as const
 
 export type ReadToolName =
