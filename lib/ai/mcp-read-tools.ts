@@ -175,7 +175,20 @@ export const READ_TOOLS = [
   {
     type: "function" as const,
     function: {
-      name: "search_contacts",
+      name: "get_task_creation_context",
+      description:
+        "Call this ONCE before creating or updating a task. Returns team members with workload, all active projects with IDs, and vault files for the specified project. Use the exact names returned here in create_task/update_task calls.",
+      parameters: {
+        type: "object",
+        properties: {
+          project_name: {
+            type: "string",
+            description: "Optional. If provided, also returns vault files for this project.",
+          },
+        },
+      },
+    },
+  },
       description:
         "Look up a specific contact/lead/investor by name. Returns full profile, pipeline stage, deal details, upcoming meetings, and recent email threads. Use this when the user asks about a specific person.",
       parameters: {
@@ -200,6 +213,7 @@ export type ReadToolName =
   | "get_crm_pipeline"
   | "get_calendar"
   | "get_vault_files"
+  | "get_task_creation_context"
   | "search_contacts"
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -234,6 +248,8 @@ export async function executeReadTool(
       return execCalendar(args, founderId)
     case "get_vault_files":
       return execVault(args, founderId)
+    case "get_task_creation_context":
+      return execTaskCreationContext(args, founderId)
     case "search_contacts":
       return execSearchContacts(args, founderId)
     default:
@@ -843,6 +859,113 @@ async function execVault(
   }
 
   return { content: lines.join("\n") }
+}
+
+async function execTaskCreationContext(
+  args: Record<string, any>,
+  founderId: string
+): Promise<ReadToolResult> {
+  const { project_name } = args
+  const now = new Date()
+
+  // Run team + projects in parallel
+  const [membersRes, projectsRes] = await Promise.all([
+    supabaseAdmin
+      .from("team_members")
+      .select("user_id, position, is_active, profile:profiles!team_members_user_id_profiles_fkey(full_name, email)")
+      .eq("founder_id", founderId)
+      .eq("is_active", true),
+    supabaseAdmin
+      .from("projects")
+      .select("id, name, status, priority")
+      .eq("founder_id", founderId)
+      .in("status", ["active", "on-hold"])
+      .order("name"),
+  ])
+
+  const members = membersRes.data || []
+  const projects = projectsRes.data || []
+
+  // Task counts per member
+  const { data: tasks } = await supabaseAdmin
+    .from("tasks")
+    .select("assigned_to, status, due_date")
+    .eq("user_id", founderId)
+    .eq("is_completed", false)
+
+  const counts: Record<string, { active: number; overdue: number; blocked: number }> = {}
+  for (const t of tasks || []) {
+    if (!t.assigned_to) continue
+    if (!counts[t.assigned_to]) counts[t.assigned_to] = { active: 0, overdue: 0, blocked: 0 }
+    counts[t.assigned_to].active++
+    if (t.status === "blocked") counts[t.assigned_to].blocked++
+    if (t.due_date && new Date(t.due_date) < now) counts[t.assigned_to].overdue++
+  }
+
+  const teamData: TeamMemberContext[] = members.map((m: any) => ({
+    user_id: m.user_id,
+    full_name: m.profile?.full_name || "Unknown",
+    position: m.position || "",
+    active_task_count: counts[m.user_id]?.active || 0,
+  }))
+
+  const projectData: ProjectContext[] = projects.map(p => ({ id: p.id, name: p.name, status: p.status }))
+
+  const lines: string[] = []
+
+  lines.push("## Team Members (use exact names in assigned_to_name)")
+  const sorted = [...teamData].sort((a, b) => a.active_task_count - b.active_task_count)
+  for (const m of sorted) {
+    const load = m.active_task_count === 0 ? "FREE" : m.active_task_count <= 3 ? "LIGHT" : m.active_task_count <= 6 ? "MODERATE" : "HEAVY"
+    lines.push(`- ${m.full_name} | ${m.position} | ${m.active_task_count} tasks [${load}]`)
+  }
+
+  lines.push("\n## Active Projects (use exact names in project_name)")
+  for (const p of projects) {
+    lines.push(`- ${p.name} | ${p.status} | ${p.priority}`)
+  }
+
+  // Vault files for specified project
+  if (project_name) {
+    const normalizedName = project_name.replace(/^project\s+/i, "").trim()
+    const matched = projects.find(p =>
+      p.name.toLowerCase().includes(normalizedName.toLowerCase())
+    )
+    if (matched) {
+      const { data: folders } = await supabaseAdmin
+        .from("vault_folders")
+        .select("id")
+        .eq("project_id", matched.id)
+        .eq("founder_id", founderId)
+
+      if (folders && folders.length > 0) {
+        const folderIds = folders.map(f => f.id)
+        const { data: items } = await supabaseAdmin
+          .from("vault_items")
+          .select("title, item_type, document_type")
+          .in("folder_id", folderIds)
+          .in("item_type", ["file", "link"])
+          .order("created_at", { ascending: false })
+          .limit(20)
+
+        if (items && items.length > 0) {
+          lines.push(`\n## Vault Files for "${matched.name}" (use exact titles in vault_file_names)`)
+          for (const v of items) {
+            lines.push(`- "${v.title}" | ${v.document_type} | ${v.item_type}`)
+          }
+        }
+      }
+    } else {
+      lines.push(`\n## Vault Files\nNo project found matching "${project_name}". Available projects listed above.`)
+    }
+  } else {
+    lines.push("\n## Vault Files\nNo project_name specified — vault files not loaded. If the task needs vault attachments, re-call with project_name.")
+  }
+
+  lines.push("\n## Instructions")
+  lines.push("Use ONLY the exact names from this output in create_task or update_task. Do NOT invent project names or team member names. If the user did not mention a project, do NOT set project_name.")
+
+  return { content: lines.join("\n"), teamData, projectData }
 }
 
 async function execSearchContacts(
