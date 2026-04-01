@@ -2,204 +2,14 @@ import { createClient } from "@/lib/supabase/server"
 import { supabaseAdmin } from "@/lib/supabase/admin"
 import { getGroqClient, GROQ_MODEL } from "@/lib/ai/groq"
 import { buildMiniContext } from "@/lib/ai/mini-context"
-import { ALL_TOOLS, READ_TOOL_NAMES } from "@/lib/ai/tools"
-import { executeReadTool } from "@/lib/ai/mcp-read-tools"
-import type { ReadToolName } from "@/lib/ai/mcp-read-tools"
-import { executeAction, executeDeleteTaskConfirmed } from "@/lib/ai/action-executor"
-import type { AIToolName } from "@/lib/ai/tools"
-import type { ActionContext, ActionResult } from "@/lib/ai/action-executor"
 import { selectModelForRequest } from "@/lib/ai/model-router"
 import { NextResponse } from "next/server"
+import { QueryEngine } from "@/lib/ai/core/QueryEngine"
+import { REGISTERED_TOOLS } from "@/lib/ai/core/RegisterTools"
+import type { ActionContext } from "@/lib/ai/action-executor"
+import { executeDeleteTaskConfirmed } from "@/lib/ai/action-executor"
 
-// ── Token estimation helper ─────────────────────────────────────────────────
-
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4)
-}
-
-function packHistoryByBudget(
-  history: Array<{ role: string; content: string }>,
-  tokenBudget: number
-): Array<{ role: "user" | "assistant"; content: string }> {
-  const packed: Array<{ role: "user" | "assistant"; content: string }> = []
-  let used = 0
-  for (const msg of [...history].reverse()) {
-    if (!msg?.content || (msg.role !== "user" && msg.role !== "assistant")) continue
-    const msgTokens = estimateTokens(msg.content)
-    if (used + msgTokens > tokenBudget) break
-    packed.push({ role: msg.role, content: msg.content })
-    used += msgTokens
-  }
-  return packed.reverse()
-}
-
-function repairToolArgs(toolName: string, args: Record<string, any>): Record<string, any> {
-  const repaired = { ...args }
-  if (toolName === "create_task" || toolName === "update_task") {
-    // Normalize common alias keys the model may emit.
-    if (!repaired.title && typeof repaired.task_name === "string") repaired.title = repaired.task_name
-    if (!repaired.notes && typeof repaired.description === "string") repaired.notes = repaired.description
-    if (!repaired.assigned_to_name && typeof repaired.assignee === "string") repaired.assigned_to_name = repaired.assignee
-    if (!repaired.deliverable_description && typeof repaired.deliverable === "string") {
-      repaired.deliverable_description = repaired.deliverable
-      repaired.deliverable_required = true
-    }
-    if (!repaired.vault_file_names && Array.isArray(repaired.files)) repaired.vault_file_names = repaired.files
-
-    if (repaired.vault_file_names && !Array.isArray(repaired.vault_file_names)) {
-      repaired.vault_file_names =
-        typeof repaired.vault_file_names === "string" ? [repaired.vault_file_names] : []
-    }
-    if (repaired.external_links && !Array.isArray(repaired.external_links)) {
-      repaired.external_links = []
-    }
-    if (typeof repaired.deliverable_required === "string") {
-      repaired.deliverable_required = repaired.deliverable_required.toLowerCase() === "true"
-    }
-    if (Array.isArray(repaired.external_links)) {
-      repaired.external_links = repaired.external_links
-        .filter((l: any) => l && typeof l.url === "string" && l.url.trim())
-        .map((l: any) => ({ url: l.url, ...(l.label ? { label: l.label } : {}) }))
-    }
-  }
-  if (toolName === "delete_task" && typeof repaired.needs_confirmation !== "boolean") {
-    if (typeof repaired.needs_confirmation === "string") {
-      repaired.needs_confirmation = repaired.needs_confirmation.toLowerCase() === "true"
-    } else {
-      repaired.needs_confirmation = true
-    }
-  }
-  return repaired
-}
-
-function isActionIntent(message: string): boolean {
-  const text = (message || "").toLowerCase()
-  return [
-    "create task",
-    "add task",
-    "new task",
-    "assign",
-    "update task",
-    "delete task",
-    "create project",
-    "update project",
-  ].some((k) => text.includes(k))
-}
-
-const CREATE_TASK_PARAM_CONTRACT = `
-When calling create_task, obey this strict parameter contract:
-- title: string
-- notes: string (optional)
-- project_name: string (optional)
-- assigned_to_name: string (optional)
-- vault_file_names: array of strings (optional)
-- deliverable_required: boolean (optional)
-- deliverable_description: string (optional)
-- bucket: string (today|this-week|delegated|backlog) (optional)
-- priority: string (low|medium|high|urgent) (optional)
-- due_date: string ISO datetime (optional)
-Never send nested objects for any scalar field.`
-
-function extractJsonObject(text: string): Record<string, any> | null {
-  if (!text) return null
-  try {
-    return JSON.parse(text)
-  } catch {}
-  const match = text.match(/\{[\s\S]*\}/)
-  if (!match) return null
-  try {
-    return JSON.parse(match[0])
-  } catch {
-    return null
-  }
-}
-
-async function recoverCreateTaskFromText(
-  groq: any,
-  model: string,
-  userMessage: string,
-  actionContext: ActionContext
-): Promise<ActionResult | null> {
-  const extraction = await createCompletionWithModelFallback(groq, model, {
-    messages: [
-      {
-        role: "system",
-        content:
-          "Extract task creation arguments from the user request. Return JSON only with primitive values. Never output nested objects. Allowed keys: title, notes, project_name, assigned_to_name, vault_file_names (array of strings), deliverable_required (boolean), deliverable_description, bucket, priority, due_date.",
-      },
-      { role: "user", content: userMessage },
-    ],
-    max_tokens: 400,
-    temperature: 0,
-  })
-
-  const content = extraction?.choices?.[0]?.message?.content || ""
-  const parsed = extractJsonObject(content)
-  if (!parsed) return null
-
-  const repaired = repairToolArgs("create_task", parsed)
-  if (!repaired.title || typeof repaired.title !== "string") return null
-
-  return await executeAction("create_task", repaired, actionContext)
-}
-
-function inferTaskTitleFromHistory(
-  userMessage: string,
-  history: Array<{ role: string; content: string }>
-): string | null {
-  const quoted = userMessage.match(/"([^"]+)"/)?.[1]
-  if (quoted) return quoted
-
-  // For references like "this task", infer from most recent task-like mention.
-  for (const msg of [...history].reverse()) {
-    if (!msg?.content) continue
-    const m = msg.content.match(/task\s+"([^"]+)"/i)
-    if (m?.[1]) return m[1]
-    if (/lead list/i.test(msg.content)) return "lead list"
-  }
-  return null
-}
-
-async function recoverDeleteTaskFromText(
-  userMessage: string,
-  history: Array<{ role: string; content: string }>,
-  actionContext: ActionContext
-): Promise<ActionResult | null> {
-  const taskTitle = inferTaskTitleFromHistory(userMessage, history)
-  if (!taskTitle) return null
-  return await executeAction(
-    "delete_task",
-    { task_title: taskTitle, needs_confirmation: true },
-    actionContext
-  )
-}
-
-function isModelDecommissionedError(err: any): boolean {
-  const msg = err?.message || err?.error?.message || ""
-  return String(msg).toLowerCase().includes("decommissioned")
-}
-
-async function createCompletionWithModelFallback(
-  groq: any,
-  primaryModel: string,
-  payload: Record<string, any>
-) {
-  try {
-    return await groq.chat.completions.create({
-      ...payload,
-      model: primaryModel,
-    })
-  } catch (err: any) {
-    if (!isModelDecommissionedError(err)) throw err
-    const fallbackModel = GROQ_MODEL
-    if (fallbackModel === primaryModel) throw err
-    console.warn(`[AI-CMD] Model ${primaryModel} is decommissioned. Falling back to ${fallbackModel}.`)
-    return await groq.chat.completions.create({
-      ...payload,
-      model: fallbackModel,
-    })
-  }
-}
+// ── API Route Handlers ──────────────────────────────────────────────────────
 
 // ── Confirmed delete endpoint ───────────────────────────────────────────────
 
@@ -230,14 +40,14 @@ const SSE_HEADERS = {
 
 function createSSEResponse(
   content: string,
-  actionEvents: Array<Record<string, any>>
+  event?: Record<string, any>
 ): Response {
   const encoder = new TextEncoder()
   const readable = new ReadableStream({
     start(controller) {
-      for (const event of actionEvents) {
+      if (event) {
         controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify({ type: "action_executed", ...event })}\n\n`)
+          encoder.encode(`data: ${JSON.stringify({ type: "event", ...event })}\n\n`)
         )
       }
       if (content) {
@@ -291,11 +101,11 @@ export async function POST(request: Request) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    const { message, history = [] } = await request.json()
+    const { message, conversationId = user.id } = await request.json()
     if (!message?.trim()) return NextResponse.json({ error: "Message required" }, { status: 400 })
 
     // Resolve founder
-    let founder_id = user.id
+    let founderId = user.id
     const { data: profile } = await supabaseAdmin
       .from("profiles")
       .select("user_type")
@@ -309,336 +119,66 @@ export async function POST(request: Request) {
         .eq("user_id", user.id)
         .eq("is_active", true)
         .single()
-      if (tm?.founder_id) founder_id = tm.founder_id
+      if (tm?.founder_id) founderId = tm.founder_id
     }
 
-    // ── Build mini context (not the full dump) ─────────────────────────────
-    const miniContext = await buildMiniContext(founder_id)
-
-    // Mutable action context — enriched by read tools as they're called
+    const miniContext = await buildMiniContext(founderId)
     const actionContext: ActionContext = {
-      founder_id,
+      founder_id: founderId,
       user_id: user.id,
       team: [],
       projects: [],
     }
 
-    const systemPrompt = `You are the AI manager for Command Center — an agency OS. You execute actions and answer questions about the workspace.
-
+    const systemPrompt = `You are the AI manager for Command Center — an agency OS.
 ${miniContext}
 
-## RULES — OBEY STRICTLY
+## RULES
+1. No narration. Execute tools silently.
+2. One sentence confirmation after actions.
+3. Be concise and professional.`
 
-### Rule 1: No narration
-Never output "Step 1", "I will now", "Let me check", or any reasoning. Execute tools silently. Only speak when you have a final result or need a clarification.
-
-### Rule 2: Task creation flow (MANDATORY)
-Before calling create_task or update_task, you MUST call get_task_creation_context first (unless the user explicitly said NO project and NO assignee). Use ONLY the exact names from that output. Never guess or invent project names.
-
-### Rule 3: Only link what was asked
-If the user did NOT mention a project, do NOT set project_name in create_task. If the user did NOT mention an assignee, do NOT set assigned_to_name. Default to null.
-
-### Rule 4: One action per request
-Call create_task exactly once per user request. Never retry or duplicate.
-
-### Rule 5: Confirm briefly
-After an action, confirm in one sentence: what was created/updated, who it was assigned to (if any), and the due date (if any). Nothing else.
-
-### Rule 6: Ambiguity
-If the user's intent is unclear, ask one focused question. Do not guess.
-
-## Strict Tool Param Types
-${CREATE_TASK_PARAM_CONTRACT}`
-
-    // ── Build conversation messages ─────────────────────────────────────────
-    // Keep as much recent history as fits in a token budget.
-    const cappedHistory = packHistoryByBudget(history, 2200)
     const selectedModel = selectModelForRequest({
       intent: "command",
       message,
-      historyCount: cappedHistory.length,
+      historyCount: 0, // Engine handles history now
     })
-    const messages: any[] = [
-      { role: "system", content: systemPrompt },
-      ...cappedHistory.map((m: { role: string; content: string }) => ({
-        role: m.role as "user" | "assistant",
-        content: m.content,
-      })),
-      { role: "user", content: message },
-    ]
 
-    const groq = getGroqClient()
-    const actionEvents: Array<Record<string, any>> = []
-    const toolsCalled: string[] = []
-    const createActionsExecuted = new Set<string>() // Dedup guard for create_task/create_project
-    const deferredActionTools = new Set<string>()
-    const requiresAction = isActionIntent(message)
-    let lastActionMessage = ""
+    const engine = new QueryEngine({
+      conversationId,
+      model: selectedModel.model || GROQ_MODEL,
+      tools: REGISTERED_TOOLS,
+      systemPrompt,
+    })
 
-    // ── Token logging ─────────────────────────────────────────────────────
-    const systemTokens = estimateTokens(systemPrompt)
-    const toolSchemaTokens = estimateTokens(JSON.stringify(ALL_TOOLS))
-    console.log(`[AI-CMD] System: ~${systemTokens} tokens | Tools schema: ~${toolSchemaTokens} tokens | History: ${cappedHistory.length} msgs | Model: ${selectedModel.model} (${selectedModel.tier}/${selectedModel.reason})`)
-
-    // ── Multi-step tool loop (max 4 iterations) ─────────────────────────────
-    // Extra iteration to accommodate: read → defer → action → response
-    for (let step = 0; step < 4; step++) {
-      const inputTokens = estimateTokens(JSON.stringify(messages))
-      console.log(`[AI-CMD] Step ${step + 1} | Input: ~${inputTokens} tokens`)
-
-      // Try ALL_TOOLS first. If Groq returns a 400 schema validation error
-      // (model tried to batch reads+actions with template placeholders),
-      // retry with read-only tools to force proper sequencing.
-
-      let response: any
-      try {
-        response = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
-          messages,
-          tools: ALL_TOOLS as any,
-          tool_choice: (requiresAction && step < 2 ? "required" : "auto") as any,
-          max_tokens: 1024,
-          temperature: 0.3,
-        })
-      } catch (apiError: any) {
-        // Groq returns 400 when the model outputs malformed tool args
-        // (e.g. string "true" for boolean, or template placeholders)
-        const errorMessage = apiError?.message || apiError?.error?.message || ""
-        if (apiError?.status === 400 && errorMessage.includes("tool_use_failed")) {
-          console.log(`[AI-CMD] Step ${step + 1} | Groq schema error — retrying with all tools @ low temperature`)
-          messages.push({
-            role: "system",
-            content: `Your previous tool call violated parameter types. ${CREATE_TASK_PARAM_CONTRACT}`,
-          })
-          try {
-            response = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
-              messages,
-              tools: ALL_TOOLS as any,
-              tool_choice: (requiresAction ? "required" : "auto") as any,
-              max_tokens: 1024,
-              temperature: 0,
-            })
-          } catch (retryErr: any) {
-            console.log(`[AI-CMD] Step ${step + 1} | All-tools retry failed — falling back to plain response`)
-            const retryMessage = retryErr?.message || retryErr?.error?.message || ""
-            if (isActionIntent(message)) {
-              let recovered: ActionResult | null = null
-              if (message.toLowerCase().includes("delete")) {
-                recovered = await recoverDeleteTaskFromText(message, history, actionContext)
-              } else if (message.toLowerCase().includes("create")) {
-                recovered = await recoverCreateTaskFromText(
-                  groq,
-                  selectedModel.model || GROQ_MODEL,
-                  message,
-                  actionContext
-                )
-              }
-              if (recovered) {
-                if (recovered.success) {
-                  actionEvents.push({
-                    tool: message.toLowerCase().includes("delete") ? "delete_task" : "create_task",
-                    ...recovered.data,
-                    needs_confirmation: recovered.needs_confirmation,
-                    confirmation_action: recovered.confirmation_action,
-                  })
-                }
-                return createSSEResponse(recovered.message, actionEvents)
-              }
-            }
-
-            messages.push({
-              role: "system",
-              content: `Tool validation failed. Use exact primitive parameter types from schema only. Error: ${retryMessage}`,
-            })
-            response = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
-              messages,
-              max_tokens: 1024,
-              temperature: 0,
-            })
-          }
-        } else {
-          throw apiError // Re-throw non-schema errors
-        }
-      }
-
-      const choice = response.choices[0]
-      const toolCalls = choice?.message?.tool_calls
-
-      // No tool calls → AI wants to respond with text
-      if (!toolCalls || toolCalls.length === 0) {
-        const content = choice?.message?.content || ""
-        console.log(`[AI-CMD] Step ${step + 1} | No tools → text response (${estimateTokens(content)} tokens)`)
-        console.log(`[AI-CMD] Tools used this request: ${toolsCalled.length > 0 ? toolsCalled.join(", ") : "none"}`)
-
-        if (requiresAction && actionEvents.length === 0 && toolsCalled.length === 0) {
-          return createSSEResponse(
-            "I couldn't execute the action due to a tool validation error. Please retry once or rephrase with fewer optional fields.",
-            actionEvents
-          )
-        }
-
-        const shouldRequireActionRetry =
-          step < 3 &&
-          actionEvents.length === 0 &&
-          toolsCalled.length > 0 &&
-          isActionIntent(message)
-
-        if (shouldRequireActionRetry) {
-          messages.push(choice.message)
-          messages.push({
-            role: "system",
-            content:
-              "The user requested an action but none was executed yet. Call exactly one appropriate action tool now using resolved names from read results.",
-          })
-          continue
-        }
-
-        // If we already have tool results in the conversation, stream a final response
-        if (step > 0) {
-          return createSSEResponse(content, actionEvents)
-        }
-
-        // First step, no tools — stream directly
-        const directStream = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
-          messages,
-          stream: true,
-          max_tokens: 1024,
-          temperature: 0.5,
-        })
-        return createStreamSSEResponse(directStream, actionEvents)
-      }
-
-      // ── Detect mixed read+action batches and defer actions ─────────────
-      const hasReadCalls = toolCalls.some((tc: any) => READ_TOOL_NAMES.has(tc.function.name))
-      const hasActionCalls = toolCalls.some((tc: any) => !READ_TOOL_NAMES.has(tc.function.name))
-      const isMixedBatch = hasReadCalls && hasActionCalls
-
-      if (isMixedBatch) {
-        console.log(`[AI-CMD] Step ${step + 1} | Mixed batch detected — deferring action tools to next step`)
-      }
-
-      // Has tool calls — execute them
-      console.log(`[AI-CMD] Step ${step + 1} | Tools: ${toolCalls.map((tc: any) => tc.function.name).join(", ")}`)
-
-      const toolResults: Array<{ tool_call_id: string; role: "tool"; content: string }> = []
-
-      for (const toolCall of toolCalls) {
-        const toolName = toolCall.function.name
-        toolsCalled.push(toolName)
-
-        let toolArgs: Record<string, any> = {}
+    const encoder = new TextEncoder()
+    const readable = new ReadableStream({
+      async start(controller) {
         try {
-          toolArgs = JSON.parse(toolCall.function.arguments)
-        } catch {
-          toolArgs = {}
-        }
-        toolArgs = repairToolArgs(toolName, toolArgs)
-
-        if (READ_TOOL_NAMES.has(toolName)) {
-          // ── Read tool ─────────────────────────────────────────────────
-          const result = await executeReadTool(toolName as ReadToolName, toolArgs, founder_id)
-          console.log(`[AI-CMD] Read tool ${toolName} → ${estimateTokens(result.content)} tokens`)
-
-          toolResults.push({
-            tool_call_id: toolCall.id,
-            role: "tool",
-            content: result.content,
-          })
-
-          // Enrich action context from read results
-          if (result.teamData) actionContext.team = result.teamData
-          if (result.projectData) actionContext.projects = result.projectData
-        } else {
-          // ── Defer action tools in mixed batches ────────────────────
-          // If the model tried to call read + action tools in the same step,
-          // skip action tools so the model re-calls them with actual data
-          if (isMixedBatch && !deferredActionTools.has(toolName)) {
-            console.log(`[AI-CMD] Deferred ${toolName} — waiting for read results first`)
-            deferredActionTools.add(toolName)
-            toolResults.push({
-              tool_call_id: toolCall.id,
-              role: "tool",
-              content: JSON.stringify({
-                success: false,
-                message: `Deferred: read tool results aren't available yet. Call ${toolName} again in the next step with the actual data from read tool results.`,
-              }),
-            })
-            continue
-          }
-
-          // ── Deduplication guard for create actions ─────────────────
-          if (toolName === "create_task" || toolName === "create_project") {
-            if (createActionsExecuted.has(toolName)) {
-              console.log(`[AI-CMD] BLOCKED duplicate ${toolName} call`)
-              toolResults.push({
-                tool_call_id: toolCall.id,
-                role: "tool",
-                content: JSON.stringify({
-                  success: false,
-                  message: `${toolName} was already executed in this request. The task/project already exists. Use update_task or update_project to modify it.`,
-                }),
-              })
-              continue
+          for await (const chunk of engine.query(message, actionContext)) {
+            if (chunk.type === "text") {
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ type: "delta", content: chunk.content })}\n\n`)
+              )
+            } else if (chunk.type === "action_needed") {
+              const { type: _type, ...eventData } = chunk
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ type: "action_needed", ...eventData })}\n\n`)
+              )
             }
-            createActionsExecuted.add(toolName)
           }
-
-          // ── Action tool ───────────────────────────────────────────────
-          const result = await executeAction(toolName as AIToolName, toolArgs, actionContext)
-          console.log(`[AI-CMD] Action tool ${toolName} → ${result.success ? "success" : "failed"}`)
-          if (result.message) lastActionMessage = result.message
-
-          toolResults.push({
-            tool_call_id: toolCall.id,
-            role: "tool",
-            content: JSON.stringify(result),
-          })
-
-          if (result.success) {
-            actionEvents.push({
-              tool: toolName,
-              ...result.data,
-              needs_confirmation: result.needs_confirmation,
-              confirmation_action: result.confirmation_action,
-            })
-          }
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`))
+          controller.close()
+        } catch (err) {
+          controller.error(err)
         }
-      }
-
-      // Append tool call exchange to conversation
-      messages.push(choice.message)
-      messages.push(...toolResults)
-
-      // For explicit action intents, once an action succeeds, return immediately
-      // instead of asking the model for another narration turn (which can re-trigger schema errors).
-      if (requiresAction && actionEvents.length > 0) {
-        return createSSEResponse(lastActionMessage || "Action completed.", actionEvents)
-      }
-    }
-
-    // ── Exhausted loop — stream final narration ─────────────────────────────
-    console.log(`[AI-CMD] Max steps reached, streaming final response`)
-    console.log(`[AI-CMD] Tools used: ${toolsCalled.join(", ")}`)
-
-    const finalStream = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
-      messages,
-      stream: true,
-      max_tokens: 1024,
-      temperature: 0.5,
+      },
     })
 
-    return createStreamSSEResponse(finalStream, actionEvents)
+    return new Response(readable, { headers: SSE_HEADERS })
   } catch (err) {
     const message = err instanceof Error ? err.message : "Server error"
     console.error("[AI-CMD] Error:", message)
-    return NextResponse.json(
-      {
-        error: "AI command execution failed",
-        detail: message,
-        degraded_mode: true,
-        user_message:
-          "I hit a temporary tool execution issue. Please retry, or split the request into smaller actions.",
-      },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
