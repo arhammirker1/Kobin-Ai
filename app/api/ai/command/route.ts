@@ -138,12 +138,21 @@ ${miniContext}
 
 ## TOOL USAGE RULES
 
-1. **Context before action**: Call get_task_creation_context ONCE before create_task or update_task unless the user explicitly said no project and no assignee.
+1. **Context before action**: Call get_task_creation_context ONCE before create_task or update_task. Then create immediately — do not ask more questions after getting context.
 2. **One action per request**: Never call create_task or create_project twice.
-3. **Only link what was asked**: Don't invent project or assignee if user didn't mention them.
+3. **Only link what was asked**: If the user did NOT mention a project, do NOT set project_name. If the user did NOT mention an assignee, do NOT set assigned_to_name.
 4. **Resolve then act**: Read tools first, action tools second. Never mix in one step.
 5. **Brief confirmation**: After an action, confirm in one sentence. No narration.
-6. **Ambiguity**: If unclear, ask one focused question. Never guess.
+6. **Max one clarifying question**: If you need info, ask ONE question covering everything you need (title, project, assignee). Never ask the same thing twice.
+7. **Act with what you have**: If you have title + project, create the task. Don't wait for optional fields.
+
+## STRICT RULES — NEVER VIOLATE
+
+- NEVER set vault_file_names unless the user explicitly named a specific file to attach.
+- NEVER set deliverable_required=true unless the user explicitly said "require a deliverable" or "they need to submit something".
+- NEVER infer vault files from context. Only use them if the user says "attach [filename]".
+- NEVER set external_links unless the user gave you a URL.
+- When in doubt about an optional field, OMIT IT entirely.
 
 ## PARAMETER TYPES
 All scalar fields (title, notes, project_name, assigned_to_name) must be plain strings.
