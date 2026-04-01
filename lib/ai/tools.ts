@@ -45,8 +45,11 @@ export const ACTION_TOOLS = [
             description: "Auto-determined if not set",
           },
           deliverable_required: {
-            type: "boolean",
-            description: "Require deliverable upload on completion",
+            anyOf: [
+              { type: "boolean" },
+              { type: "string", enum: ["true", "false"] },
+            ],
+            description: "Require deliverable upload on completion. String booleans are accepted and normalized.",
           },
           deliverable_description: {
             type: "string",

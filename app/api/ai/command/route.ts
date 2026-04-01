@@ -53,6 +53,9 @@ function repairToolArgs(toolName: string, args: Record<string, any>): Record<str
     if (repaired.external_links && !Array.isArray(repaired.external_links)) {
       repaired.external_links = []
     }
+    if (typeof repaired.deliverable_required === "string") {
+      repaired.deliverable_required = repaired.deliverable_required.toLowerCase() === "true"
+    }
     if (Array.isArray(repaired.external_links)) {
       repaired.external_links = repaired.external_links
         .filter((l: any) => l && typeof l.url === "string" && l.url.trim())
@@ -466,6 +469,13 @@ ${CREATE_TASK_PARAM_CONTRACT}`
         const content = choice?.message?.content || ""
         console.log(`[AI-CMD] Step ${step + 1} | No tools → text response (${estimateTokens(content)} tokens)`)
         console.log(`[AI-CMD] Tools used this request: ${toolsCalled.length > 0 ? toolsCalled.join(", ") : "none"}`)
+
+        if (requiresAction && actionEvents.length === 0 && toolsCalled.length === 0) {
+          return createSSEResponse(
+            "I couldn't execute the action due to a tool validation error. Please retry once or rephrase with fewer optional fields.",
+            actionEvents
+          )
+        }
 
         const shouldRequireActionRetry =
           step < 3 &&
