@@ -41,10 +41,10 @@ function isComplexRequest(message: string): boolean {
 }
 
 export function selectModelForRequest(input: ModelRoutingInput): ModelRoutingResult {
-  const fastModel = process.env.GROQ_MODEL_FAST || "meta-llama/llama-4-scout-17b-16e-instruct"
+  const fastModel = process.env.GROQ_MODEL_FAST || "llama-3.1-8b-instant"
   // Do not default to decommissioned models. If GROQ_MODEL_STRONG is not set,
   // fall back to the fast model so requests remain operational.
-  const strongModel = process.env.GROQ_MODEL_STRONG || fastModel
+  const strongModel = process.env.GROQ_MODEL_STRONG || "llama-3.3-70b-versatile"
 
   const messageTokens = estimateTokens(input.message)
   const heavyConversation = input.historyCount >= 10

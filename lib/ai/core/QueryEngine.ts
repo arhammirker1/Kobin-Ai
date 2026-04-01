@@ -92,10 +92,10 @@ export class QueryEngine {
           })
         } catch (modelErr: any) {
           const isNotFound = modelErr?.message?.includes("model") || modelErr?.code === "model_not_found"
-          if (isNotFound && this.model !== "meta-llama/llama-3.3-70b-versatile") {
+          if (isNotFound && this.model !== "llama-3.3-70b-versatile") {
             console.warn(`[QUERY-ENGINE] Model ${this.model} not found. Falling back to Llama 3.3 70B.`)
             response = await groq.chat.completions.create({
-              model: "meta-llama/llama-3.3-70b-versatile",
+              model: "llama-3.3-70b-versatile",
               messages: requestMessages as any,
               tools: toolsJson as any,
               tool_choice: "auto",
