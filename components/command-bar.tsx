@@ -38,6 +38,8 @@ interface PendingConfirmation {
   description: string
   task_id: string
   loading: boolean
+  tool: string
+  args: Record<string, any>
 }
 
 interface ChatSession {
@@ -254,38 +256,52 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
 
   // ── Confirm delete handler ──────────────────────────────────────────────────
 
-  const handleConfirmDelete = useCallback(async () => {
+  const handleConfirm = useCallback(async () => {
     if (!pendingConfirmation) return
     setPendingConfirmation(prev => prev ? { ...prev, loading: true } : null)
 
     try {
-      const res = await fetch("/api/ai/command", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ task_id: pendingConfirmation.task_id }),
-      })
-      const result = await res.json()
-
-      if (result.success) {
-        // Append confirmation message
+      if (pendingConfirmation.tool === "send_message_confirmed") {
+        const res = await fetch("/api/ai/send-message", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(pendingConfirmation.args),
+        })
+        const result = await res.json()
         setMessages(prev => [...prev, {
           role: "assistant",
-          content: "✅ Task deleted successfully.",
+          content: result.success
+            ? `✅ Message sent to ${pendingConfirmation.args.recipient_name}.`
+            : `❌ Failed to send: ${result.error || "Unknown error"}`,
           timestamp: Date.now(),
         }])
-        // Notify other components
-        window.dispatchEvent(new Event("tasks-updated"))
       } else {
-        setMessages(prev => [...prev, {
-          role: "assistant",
-          content: `❌ Failed to delete: ${result.message}`,
-          timestamp: Date.now(),
-        }])
+        // Delete task
+        const res = await fetch("/api/ai/command", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ task_id: pendingConfirmation.task_id }),
+        })
+        const result = await res.json()
+        if (result.success) {
+          setMessages(prev => [...prev, {
+            role: "assistant",
+            content: "✅ Task deleted successfully.",
+            timestamp: Date.now(),
+          }])
+          window.dispatchEvent(new Event("tasks-updated"))
+        } else {
+          setMessages(prev => [...prev, {
+            role: "assistant",
+            content: `❌ Failed to delete: ${result.message}`,
+            timestamp: Date.now(),
+          }])
+        }
       }
     } catch {
       setMessages(prev => [...prev, {
         role: "assistant",
-        content: "❌ Something went wrong while deleting.",
+        content: `❌ Something went wrong. Please try again.`,
         timestamp: Date.now(),
       }])
     } finally {
@@ -361,11 +377,13 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
                 window.dispatchEvent(new Event("projects-updated"))
               }
 
-              // Handle delete confirmation
+              // Handle confirmation (delete or send message)
               if (actionData.needs_confirmation && actionData.confirmation_action) {
                 setPendingConfirmation({
                   description: actionData.confirmation_action.description,
                   task_id: actionData.confirmation_action.resolved_id,
+                  tool: actionData.confirmation_action.tool,
+                  args: actionData.confirmation_action.args || {},
                   loading: false,
                 })
               }
@@ -640,9 +658,11 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
                                     <div className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl border border-amber-500/30 bg-amber-500/5">
                                       <AlertTriangle size={14} className="text-amber-400 shrink-0 mt-0.5" />
                                       <div className="flex-1 min-w-0">
-                                        <p className="text-xs font-medium text-amber-300">
-                                          Confirm deletion
-                                        </p>
+<p className="text-xs font-medium text-amber-300">
+                                  {action.confirmation_action?.tool === "send_message_confirmed"
+                                    ? "Confirm send"
+                                    : "Confirm deletion"}
+                                </p>
                                         <p className="text-[11px] text-[#8A8A85] mt-0.5">
                                           {action.confirmation_action?.description}
                                         </p>
@@ -705,16 +725,22 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
                 {pendingConfirmation && !isStreaming && (
                   <div className="flex items-center gap-2 ml-9">
                     <button
-                      onClick={handleConfirmDelete}
+                      onClick={handleConfirm}
                       disabled={pendingConfirmation.loading}
-                      className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50 flex items-center gap-1.5 ${
+                        pendingConfirmation.tool === "send_message_confirmed"
+                          ? "bg-violet-500/20 text-violet-400 border-violet-500/30 hover:bg-violet-500/30"
+                          : "bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/30"
+                      }`}
                     >
                       {pendingConfirmation.loading ? (
                         <Loader2 size={11} className="animate-spin" />
+                      ) : pendingConfirmation.tool === "send_message_confirmed" ? (
+                        <Send size={11} />
                       ) : (
                         <Trash2 size={11} />
                       )}
-                      Confirm Delete
+                      {pendingConfirmation.tool === "send_message_confirmed" ? "Confirm Send" : "Confirm Delete"}
                     </button>
                     <button
                       onClick={() => setPendingConfirmation(null)}
