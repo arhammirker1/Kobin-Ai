@@ -81,14 +81,11 @@ Current SQL scripts in `scripts/*.sql` do not define:
 
 No pipeline currently transforms operational content into retrievable knowledge chunks.
 
-### Limitation D — Memory schema drift risk
+### Limitation D — Schema drift between repository migrations and deployed database
 
-`lib/ai/memory.ts` expects:
+The provided full database snapshot includes `ai_memories`, expanded CRM/Gmail tables, and richer chat/task structures, while repository migration files under `scripts/` are older and incomplete relative to runtime expectations.
 
-- table: `ai_memories`
-- RPC: `increment_memory_observation`
-
-but these are not present in current migrations.
+This creates onboarding and portability risk (new environments may not match production behavior unless schema parity is restored).
 
 ### Limitation E — No evidence-grounded response contract
 
@@ -332,8 +329,8 @@ Update prompts and response shaping so factual responses rely on retrieved evide
 
 
 
-task-stub{title="Fix memory schema drift for ai_memories and increment RPC"}
-Add missing migration objects (`ai_memories` table + `increment_memory_observation` RPC), indexes, and policies so `lib/ai/memory.ts` can run reliably in all environments.
+task-stub{title="Create canonical schema baseline migration matching deployed DB"}
+Create a canonical migration set that reflects the full deployed schema (including `ai_memories`, Gmail entities, richer chat/task/client structures, and related constraints), then mark legacy migrations as superseded to prevent environment drift.
 
 
 
@@ -355,3 +352,35 @@ Implement offline eval suite for Recall@k/MRR/groundedness, runtime telemetry fo
   - https://huggingface.co/BAAI/bge-m3
   - https://huggingface.co/mixedbread-ai/mxbai-embed-large-v1
   - https://huggingface.co/nomic-ai/nomic-embed-text-v1.5
+
+
+## 13) Schema Alignment Update (Based on Provided Full DB SQL)
+
+The RAG plan has been updated to reflect your provided database snapshot. Key implications:
+
+1. **`ai_memories` already exists in deployed schema**
+   - Keep the memory feature in scope.
+   - Focus work on migration parity rather than creating net-new memory tables.
+
+2. **RAG should integrate with already-rich entities**
+   - Chat: `chat_messages`, `chat_rooms`, `chat_room_members`, `message_reactions`
+   - CRM: `relationships`, `email_analyses`, `gmail_threads`, `gmail_messages`
+   - Work management: `tasks`, `task_comments`, `projects`
+   - Knowledge: `vault_items`, `vault_folders`, `vault_notes`
+
+3. **Recommended chunk-source priority (using your actual schema)**
+   - Tier 1: `vault_items` (files/notes/links), `chat_messages`, `tasks.notes`, `relationships.pipeline_notes`
+   - Tier 2: `gmail_threads.subject/snippet`, `gmail_messages.body_text`, `email_analyses.reasoning/signals`
+   - Tier 3: meeting/event summaries from `events`, `team_meetings`
+
+4. **Metadata filters should include your real keys**
+   - Tenant scope: `founder_id`
+   - Context scope: `project_id`, `room_id`, `relationship_id`, `client_id`
+   - Source lineage: table + primary key
+   - Access scope tags aligned with founder/team/client visibility rules
+
+5. **Migration strategy should be two-track**
+   - Track A: Canonical baseline from deployed schema (authoritative).
+   - Track B: New RAG migrations (`vector`, `knowledge_chunks`, retrieval RPC, indexes, RLS).
+
+This approach prevents breaking current functionality while adding RAG capabilities safely.
