@@ -74,6 +74,10 @@ export async function postAIMessage(founderId: string, content: string): Promise
  * Generate and post the morning briefing.
  */
 export async function sendMorningBrief(founderId: string): Promise<void> {
+  const { getModeConfig } = await import("@/lib/ai/modes")
+  const config = await getModeConfig(founderId)
+  if (!config.sendMorningBrief) return
+
   const [intel, miniCtx] = await Promise.all([
     analyzeWorkspace(founderId),
     buildMiniContext(founderId),
@@ -125,6 +129,10 @@ export async function sendRiskAlert(founderId: string, riskSummary: string): Pro
  * Generate and post end-of-day summary.
  */
 export async function sendEODSummary(founderId: string): Promise<void> {
+  const { getModeConfig } = await import("@/lib/ai/modes")
+  const config = await getModeConfig(founderId)
+  if (!config.sendEODSummary) return
+
   const intel = await analyzeWorkspace(founderId)
   const groq = getGroqClient()
 

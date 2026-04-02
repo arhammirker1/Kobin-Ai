@@ -22,6 +22,7 @@ import {
   Hash,
   MessageSquare,
   Plus,
+  Sparkles,
   Send,
   Paperclip,
   X,
@@ -1374,6 +1375,16 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
   const [gmailConnected, setGmailConnected] = useState(false)
   const [loadingGmail, setLoadingGmail] = useState(false)
 
+  // Message intelligence
+  const [extractedTask, setExtractedTask] = useState<{
+    has_task: boolean
+    task_title: string | null
+    assigned_to_hint: string | null
+    urgency: string
+    message_id: string
+  } | null>(null)
+  const [creatingExtractedTask, setCreatingExtractedTask] = useState(false)
+
   // AI streaming state
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null)
   const [streamingContent, setStreamingContent] = useState<string>("")
@@ -1389,9 +1400,10 @@ const activeRoom = useMemo(
 )
 
 const groupedRooms = useMemo(() => ({
+  ai: rooms.filter((r) => r.dm_key?.startsWith("ai-room:")),
   project: rooms.filter((r) => r.type === "project"),
   group: rooms.filter((r) => r.type === "group"),
-  direct: rooms.filter((r) => r.type === "direct"),
+  direct: rooms.filter((r) => r.type === "direct" && !r.dm_key?.startsWith("ai-room:")),
 }), [rooms])
 
 const filteredRooms = useMemo(() => {
@@ -2120,9 +2132,24 @@ if (error) {
         })
       })
 
-      // Web push to all other room members
-      const { data: members } = await supabase
-        .from("chat_room_members")
+      // Message intelligence — extract tasks in background (non-blocking)
+      if (content && content.length > 15 && !editingMsg) {
+        const roomName = activeRoom?.display_name || ""
+        fetch("/api/ai/extract-task", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message_id: tempId,
+            content,
+            sender_name: currentUser?.full_name,
+            room_name: roomName,
+          }),
+        }).then(r => r.json()).then(result => {
+          if (result.has_task && result.confidence >= 0.7) {
+            setExtractedTask({ ...result, message_id: tempId })
+          }
+        }).catch(() => {})
+      }
         .select("user_id")
         .eq("room_id", activeRoomId)
         .neq("user_id", currentUser.id)
@@ -2353,6 +2380,46 @@ if (error) {
               <p className="text-xs text-muted-foreground">No conversations yet</p>
             </div>
           ) : null}
+          {/* AI Room — pinned at top */}
+          {groupedRooms.ai.length > 0 && (
+            <div className="pt-3 px-2">
+              {groupedRooms.ai.map((room) => (
+                <button
+                  key={room.id}
+                  onClick={() => { setActiveRoomId(room.id); setActiveGmailThread(null) }}
+                  className={cn(
+                    "w-full flex items-center gap-2 px-2 py-2 rounded-lg text-left transition-colors",
+                    activeRoomId === room.id
+                      ? "bg-violet-500/20 text-violet-200"
+                      : "hover:bg-violet-500/10 text-muted-foreground hover:text-violet-300"
+                  )}
+                >
+                  <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0"
+                    style={{ background: "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)" }}>
+                    <Sparkles className="h-3 w-3 text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold truncate" style={{ color: activeRoomId === room.id ? "#c4b5fd" : undefined }}>
+                        AI · Command Center
+                      </span>
+                      {room.unread_count > 0 && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold"
+                          style={{ background: "#7C3AED", color: "white" }}>
+                          {room.unread_count}
+                        </span>
+                      )}
+                    </div>
+                    {room.last_message && (
+                      <p className="text-[10px] text-muted-foreground truncate">{room.last_message}</p>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="h-px bg-border/40 mx-3 mt-2" />
+
           {/* Project Channels */}
           {groupedRooms.project.length > 0 && (
             <div className="pt-3 px-2">
@@ -2619,6 +2686,51 @@ if (error) {
                 </div>
               )}
             </div>
+            {/* Message intelligence banner */}
+            {extractedTask?.has_task && (
+              <div className="mx-4 mb-2 flex items-center gap-3 px-3 py-2.5 rounded-xl border border-violet-500/30 bg-violet-500/5">
+                <Sparkles className="h-4 w-4 text-violet-400 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-violet-300">Task detected</p>
+                  <p className="text-[11px] text-muted-foreground truncate">{extractedTask.task_title}</p>
+                </div>
+                <div className="flex gap-1.5 shrink-0">
+                  <button
+                    disabled={creatingExtractedTask}
+                    onClick={async () => {
+                      setCreatingExtractedTask(true)
+                      try {
+                        const { data: { user } } = await supabase.auth.getUser()
+                        if (!user) return
+                        await supabase.from("tasks").insert({
+                          user_id: user.id,
+                          created_by: user.id,
+                          title: extractedTask.task_title,
+                          bucket: extractedTask.urgency === "today" ? "today" : "this-week",
+                          status: "todo",
+                          priority: "medium",
+                          is_completed: false,
+                          source_message_id: extractedTask.message_id,
+                        })
+                        setExtractedTask(null)
+                        window.dispatchEvent(new Event("tasks-updated"))
+                      } catch {}
+                      setCreatingExtractedTask(false)
+                    }}
+                    className="text-[11px] px-2.5 py-1 rounded-lg font-medium transition-colors"
+                    style={{ background: "rgba(124,58,237,0.2)", color: "#c4b5fd" }}
+                  >
+                    {creatingExtractedTask ? "Creating…" : "Create task"}
+                  </button>
+                  <button
+                    onClick={() => setExtractedTask(null)}
+                    className="text-muted-foreground hover:text-foreground p-1 rounded"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Input */}
             <MessageInput

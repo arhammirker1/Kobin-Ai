@@ -10,6 +10,7 @@ import type { AIToolName } from "@/lib/ai/tools"
 import type { ActionContext, ActionResult } from "@/lib/ai/action-executor"
 import { selectModelForRequest } from "@/lib/ai/model-router"
 import { bust, CK } from "@/lib/redis"
+import { buildMemoryContext, learnFromAction } from "@/lib/ai/memory"
 import { NextResponse } from "next/server"
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -158,14 +159,18 @@ export async function POST(request: Request) {
       if (tm?.founder_id) founder_id = tm.founder_id
     }
 
-    // Build mini context (Redis-cached 45s)
-    const miniContext = await buildMiniContext(founder_id)
+    // Build mini context + memory context (both Redis-cached)
+    const [miniContext, memoryContext] = await Promise.all([
+      buildMiniContext(founder_id),
+      buildMemoryContext(founder_id),
+    ])
 
     const actionContext: ActionContext = { founder_id, user_id: user.id, team: [], projects: [] }
 
     const systemPrompt = `You are the AI manager for Command Center — an agency OS. You execute actions and answer questions about the workspace.
 
 ${miniContext}
+${memoryContext ? `\n${memoryContext}` : ""}
 
 ## TOOL USAGE RULES
 
@@ -350,9 +355,12 @@ Never send nested objects for scalar fields.`
               confirmation_action: result.confirmation_action,
             })
 
-            // Bust relevant caches after mutations
+            // Bust relevant caches after mutations + learn from actions
             if (toolName === "create_task" || toolName === "update_task") {
               await bust(CK.miniContext(founder_id), CK.teamWorkload(founder_id))
+              if (toolName === "create_task") {
+                await learnFromAction(founder_id, "task_created", result.data || {})
+              }
             }
             if (toolName === "create_project" || toolName === "update_project") {
               await bust(CK.miniContext(founder_id), CK.projects(founder_id))

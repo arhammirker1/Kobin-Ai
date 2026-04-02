@@ -197,6 +197,70 @@ function GoogleIntegrationCard({ isClient }: { isClient?: boolean }) {
   )
 }
 
+function AIModeCard() {
+  const [mode, setModeState] = useState<"quiet" | "balanced" | "aggressive">("balanced")
+  const [saving, setSaving] = useState(false)
+  const supabase = createClient()
+
+  useEffect(() => {
+    const load = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data } = await supabase.from("profiles").select("ai_mode").eq("id", user.id).single()
+      if (data?.ai_mode) setModeState(data.ai_mode as any)
+    }
+    load()
+  }, [])
+
+  const handleSave = async (newMode: "quiet" | "balanced" | "aggressive") => {
+    setSaving(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) {
+      await supabase.from("profiles").update({ ai_mode: newMode }).eq("id", user.id)
+      setModeState(newMode)
+    }
+    setSaving(false)
+  }
+
+  const modes = [
+    { id: "quiet", icon: "🔕", label: "Quiet", desc: "Critical alerts only. No briefings." },
+    { id: "balanced", icon: "⚖️", label: "Balanced", desc: "Morning briefs, EOD summaries, risk alerts." },
+    { id: "aggressive", icon: "🚀", label: "Aggressive", desc: "Maximum proactivity. All alerts." },
+  ] as const
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          ✦ AI Mode
+        </CardTitle>
+        <CardDescription>Controls how proactively the AI communicates with you</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-3 gap-3">
+          {modes.map(m => (
+            <button
+              key={m.id}
+              onClick={() => handleSave(m.id)}
+              disabled={saving}
+              className={cn(
+                "flex flex-col items-start gap-1.5 p-3 rounded-xl border text-left transition-all",
+                mode === m.id
+                  ? "border-primary bg-primary/5"
+                  : "border-border hover:border-primary/30"
+              )}
+            >
+              <span className="text-lg">{m.icon}</span>
+              <span className={cn("text-sm font-medium", mode === m.id && "text-primary")}>{m.label}</span>
+              <span className="text-[11px] text-muted-foreground leading-tight">{m.desc}</span>
+            </button>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 export function SettingsView({ isClient }: { isClient?: boolean } = {}) {
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
@@ -300,6 +364,8 @@ export function SettingsView({ isClient }: { isClient?: boolean } = {}) {
         </Card>
 
         <GoogleIntegrationCard isClient={isClient} />
+
+        {!isClient && <AIModeCard />}
       </div>
     </div>
   )

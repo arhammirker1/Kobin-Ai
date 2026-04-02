@@ -879,7 +879,7 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
       loadCommentCounts(sorted)
       return sorted
     },
-    { revalidateOnFocus: true }
+    { revalidateOnFocus: false, dedupingInterval: 10000, refreshInterval: 30000 }
   )
 
   // Listen for AI-triggered task updates (from command bar actions)
@@ -891,7 +891,7 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
     return () => window.removeEventListener("tasks-updated", handleTasksUpdated)
   }, [mutateTasks])
 
-  const { data: allTasksForStats } = useSWR("all-tasks-analytics", async () => {
+  const { data: allTasksForStats } = useSWR("all-tasks-analytics", async () => { }, { revalidateOnFocus: false, dedupingInterval: 60000, refreshInterval: 120000 })
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return []
     const founderId = permissions?.founder_id || user.id

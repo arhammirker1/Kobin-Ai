@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin"
 import { buildMiniContext } from "@/lib/ai/mini-context"
 import { analyzeWorkspace } from "@/lib/ai/intelligence"
 import { getOrCreateAIRoom } from "@/lib/ai/proactive"
+import { getMemories } from "@/lib/ai/memory"
 import { NextResponse } from "next/server"
 
 export async function POST() {
@@ -27,6 +28,7 @@ export async function POST() {
       buildMiniContext(founder_id),
       analyzeWorkspace(founder_id),
       getOrCreateAIRoom(founder_id),
+      getMemories(founder_id),
     ])
 
     return NextResponse.json({ ok: true })

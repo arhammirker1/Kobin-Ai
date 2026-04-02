@@ -419,7 +419,10 @@ export function TodayView() {
 
   useEffect(() => {
     loadAll()
-  }, [loadAll])
+    // Refresh every 2 minutes, not on every focus
+    const interval = setInterval(loadAll, 120000)
+    return () => clearInterval(interval)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Max pipeline count for bar scaling
   const maxStageCount = Math.max(...pipelineStages.map((s) => s.count), 1)
