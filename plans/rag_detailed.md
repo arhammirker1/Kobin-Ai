@@ -177,29 +177,29 @@ Use **open-source embedding models hosted on Azure infrastructure** so credits c
 
 ```mermaid
 flowchart TD
-    U[User Query] --> API[/api/ai/chat or /api/ai/command]
+    U["User Query"] --> API["AI API Route (chat or command)"]
 
-    API --> INTENT{Need factual retrieval?}
-    INTENT -- No --> TOOLS[Existing read/action tools]
-    TOOLS --> LLM[Groq Generation]
-    LLM --> OUT[Answer Streamed to UI]
+    API --> INTENT{"Need factual retrieval?"}
+    INTENT -- "No" --> TOOLS["Existing Read/Action Tools"]
+    TOOLS --> LLM["Groq Generation"]
+    LLM --> OUT["Answer Streamed to UI"]
 
-    INTENT -- Yes --> QEMB[Query Embed Service on Azure]
-    QEMB --> VS[Supabase pgvector Search]
-    VS --> RR{Rerank enabled?}
+    INTENT -- "Yes" --> QEMB["Query Embedding Service (Azure)"]
+    QEMB --> VS["Supabase pgvector Search"]
+    VS --> RR{"Rerank enabled?"}
 
-    RR -- Yes --> RERANK[Reranker]
-    RR -- No --> CTX[Top-k Retrieved Chunks]
+    RR -- "Yes" --> RERANK["Reranker"]
+    RR -- "No" --> CTX["Top-k Retrieved Chunks"]
     RERANK --> CTX
 
-    CTX --> PROMPT[Grounded Prompt Builder\nmini-context + retrieved evidence + tool data]
+    CTX --> PROMPT["Grounded Prompt Builder (mini-context + evidence + tools)"]
     PROMPT --> LLM
 
-    subgraph Ingestion Pipeline
-      SRC[Vault/Chat/CRM/Tasks/Gmail] --> EXTRACT[Extract + Normalize]
-      EXTRACT --> CHUNK[Chunk + Metadata + ACL]
-      CHUNK --> EMB[Embedding Service on Azure]
-      EMB --> STORE[knowledge_chunks table in Supabase]
+    subgraph ING["Ingestion Pipeline"]
+      SRC["Vault / Chat / CRM / Tasks / Gmail"] --> EXTRACT["Extract + Normalize"]
+      EXTRACT --> CHUNK["Chunk + Metadata + ACL"]
+      CHUNK --> EMB["Embedding Service (Azure)"]
+      EMB --> STORE["knowledge_chunks (Supabase)"]
     end
 
     STORE --> VS
