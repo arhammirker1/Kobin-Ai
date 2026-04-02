@@ -891,16 +891,20 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
     return () => window.removeEventListener("tasks-updated", handleTasksUpdated)
   }, [mutateTasks])
 
-  const { data: allTasksForStats } = useSWR("all-tasks-analytics", async () => { }, { revalidateOnFocus: false, dedupingInterval: 60000, refreshInterval: 120000 })
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return []
-    const founderId = permissions?.founder_id || user.id
-    const { data } = await supabase
-      .from("tasks")
-      .select("*")
-      .or(`user_id.eq.${founderId},created_by.eq.${founderId}`)
-    return data || []
-  })
+  const { data: allTasksForStats } = useSWR(
+    "all-tasks-analytics",
+    async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return []
+      const founderId = permissions?.founder_id || user.id
+      const { data } = await supabase
+        .from("tasks")
+        .select("*")
+        .or(`user_id.eq.${founderId},created_by.eq.${founderId}`)
+      return data || []
+    },
+    { revalidateOnFocus: false, dedupingInterval: 60000, refreshInterval: 120000 }
+  )
 
   const sortTasks = (list: Task[]) => {
     const w = { urgent: 4, high: 3, medium: 2, low: 1 }

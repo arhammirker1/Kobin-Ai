@@ -14,6 +14,7 @@ import {
 } from "lucide-react"
 import { useTheme } from "next-themes"
 import { toast } from "sonner"
+import { cn } from "@/lib/utils"
 
 function GoogleIntegrationCard({ isClient }: { isClient?: boolean }) {
   const [integration, setIntegration] = useState<{

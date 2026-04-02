@@ -2150,6 +2150,8 @@ if (error) {
           }
         }).catch(() => {})
       }
+        const { data: members } = await supabase
+        .from("chat_room_members")
         .select("user_id")
         .eq("room_id", activeRoomId)
         .neq("user_id", currentUser.id)
