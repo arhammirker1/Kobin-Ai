@@ -39,6 +39,8 @@ import {
   MoreHorizontal,
   Circle,
   Calendar as CalendarIcon,
+  Inbox,
+  Mail,
 } from "lucide-react"
 import { GmailThreadView } from "@/components/gmail-thread-view"
 
@@ -336,10 +338,10 @@ function CreateChannelDialog({
                           : "border-border text-muted-foreground hover:border-foreground/40"
                       )}
                     >
-                      <div className={cn(
-                        "w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white",
-                        style={{ background: avatarPalette(p.id).bg, color: avatarPalette(p.id).color }}
-                      )}>
+<div
+  className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold"
+  style={{ background: avatarPalette(p.id).bg, color: avatarPalette(p.id).color }}
+>
                         {avatarInitials(p.full_name)[0]}
                       </div>
                       {p.full_name.split(" ")[0]}
@@ -1217,7 +1219,8 @@ function MessageInput({
               onClick={() => selectMention(p)}
               className={cn("w-full flex items-center gap-2.5 px-3 py-2 transition-colors text-left", filteredPeople.indexOf(p) === mentionIndex ? "bg-muted" : "hover:bg-muted")}
             >
-              <div className={cn("w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0", avatarColor(p.id))}>
+              <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0"
+style={{ background: avatarPalette(p.id).bg, color: avatarPalette(p.id).color }}>
                 {avatarInitials(p.full_name)[0]}
               </div>
               <span className="text-sm">{p.full_name}</span>
@@ -1429,6 +1432,8 @@ const filteredRooms = useMemo(() => {
     r.display_name.toLowerCase().includes(sidebarSearch.toLowerCase())
   )
 }, [rooms, sidebarSearch])
+
+const [loadingGmail, setLoadingGmail] = useState(false)
 
 
 // ... rest of your hooks
@@ -2572,6 +2577,7 @@ if (error) {
           </div>
 
 </>}
+</div>
       </aside>
 
       {/* ── Main Chat Area ── */}
