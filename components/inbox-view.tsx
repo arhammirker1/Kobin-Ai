@@ -1909,9 +1909,12 @@ const { data: allUnread } = await supabase
     if (!activeRoomId || !currentUser) return
 
     // ── @AI intercept ──────────────────────────────────────────────────────
-    const isAIMessage = content.trim().toLowerCase().startsWith("@ai")
+    const isAIRoom = activeRoom?.dm_key?.startsWith("ai-room:")
+    const isAIMessage = content.trim().toLowerCase().startsWith("@ai") || isAIRoom
     if (isAIMessage && !file && !taskRef) {
-      const userMessage = content.trim().slice(3).trim() // strip @ai prefix
+      const userMessage = isAIRoom && !content.trim().toLowerCase().startsWith("@ai")
+        ? content.trim()
+        : content.trim().slice(3).trim() // strip @ai prefix
       if (!userMessage) return
 
       // 1. Save the user's message normally first
