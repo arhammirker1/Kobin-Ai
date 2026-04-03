@@ -142,23 +142,32 @@ function avatarInitials(name: string): string {
     : parts[0][0].toUpperCase()
 }
 
-const AVATAR_COLORS = [
-  "bg-blue-500", "bg-emerald-500", "bg-violet-500",
-  "bg-rose-500", "bg-amber-500", "bg-cyan-500",
+const AVATAR_PALETTES = [
+  { bg: "#B5D4F4", color: "#0C447C" },
+  { bg: "#9FE1CB", color: "#085041" },
+  { bg: "#FAC775", color: "#633806" },
+  { bg: "#F5C4B3", color: "#712B13" },
+  { bg: "#CECBF6", color: "#3C3489" },
+  { bg: "#C0DD97", color: "#27500A" },
 ]
 
-function avatarColor(userId: string): string {
+function avatarPalette(userId: string) {
   let hash = 0
   for (let i = 0; i < userId.length; i++) hash = userId.charCodeAt(i) + ((hash << 5) - hash)
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
+  return AVATAR_PALETTES[Math.abs(hash) % AVATAR_PALETTES.length]
 }
 
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 
 function Avatar({ user, size = "sm" }: { user: Profile; size?: "sm" | "md" }) {
-  const sz = size === "sm" ? "w-7 h-7 text-[10px]" : "w-9 h-9 text-xs"
+  const sz = size === "sm" ? 28 : 34
+  const p = avatarPalette(user.id)
   return (
-    <div className={cn("rounded-full flex items-center justify-center font-bold text-white flex-shrink-0", avatarColor(user.id), sz)}>
+    <div style={{
+      width: sz, height: sz, borderRadius: "50%", flexShrink: 0,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      background: p.bg, color: p.color, fontSize: size === "sm" ? 10 : 12, fontWeight: 500,
+    }}>
       {avatarInitials(user.full_name || "?")}
     </div>
   )
@@ -329,7 +338,7 @@ function CreateChannelDialog({
                     >
                       <div className={cn(
                         "w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white",
-                        avatarColor(p.id)
+                        style={{ background: avatarPalette(p.id).bg, color: avatarPalette(p.id).color }}
                       )}>
                         {avatarInitials(p.full_name)[0]}
                       </div>
@@ -802,12 +811,18 @@ const MessageBubble = React.memo(function MessageBubble({
         ) : (
         <div className={cn(
           "relative px-3.5 py-2 text-sm leading-relaxed",
-          isOwn
-            ? "text-white rounded-[20px] rounded-br-[4px]"
-            : "bg-muted text-foreground rounded-[20px] rounded-bl-[4px]",
+isOwn
+  ? "text-white rounded-[18px] rounded-br-[3px]"
+  : "text-foreground rounded-[18px] rounded-bl-[3px]",
           msg.file_url && !msg.content && "p-1 bg-transparent"
         )}
-        style={isOwn && !(msg.file_url && !msg.content) ? { background: "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)" } : undefined}
+        style={
+  isOwn && !(msg.file_url && !msg.content)
+    ? { background: "#5B5BD6" }
+    : !isOwn && !(msg.file_url && !msg.content)
+    ? { background: "#252523", border: "0.5px solid #333331" }
+    : undefined
+}
         >
           {msg.content && (
   <p className="whitespace-pre-wrap break-words">
@@ -1241,36 +1256,38 @@ function MessageInput({
         </div>
       )}
 
-      <div className="flex items-end gap-2">
-        <button type="button" onClick={() => fileRef.current?.click()}
-          className="p-2 text-muted-foreground hover:text-foreground transition-colors flex-shrink-0 mb-0.5">
-          <Paperclip className="h-5 w-5" />
-        </button>
-        <input ref={fileRef} type="file" className="hidden"
-          accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip"
-          onChange={(e) => setFile(e.target.files?.[0] || null)} />
+      <div className="flex items-end gap-2 bg-muted/30 border border-border/60 rounded-[22px] px-3 py-2 focus-within:border-border/80 transition-colors">
+  <button type="button" onClick={() => fileRef.current?.click()}
+    className="p-1 text-muted-foreground hover:text-foreground transition-colors flex-shrink-0 mb-0.5">
+    <Paperclip className="h-4 w-4" />
+  </button>
+  <input ref={fileRef} type="file" className="hidden"
+    accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip"
+    onChange={(e) => setFile(e.target.files?.[0] || null)} />
 
-        <div className="flex items-end flex-1 bg-muted/40 border border-border/60 rounded-[24px] px-4 py-2 focus-within:border-border transition-colors">
-          <textarea
-            ref={textRef} value={text} onChange={handleTextChange} onKeyDown={handleKey}
-            placeholder={disabled ? "No permission to send" : "Message… or /task to attach a task"}
-            disabled={disabled} rows={1}
-            className="flex-1 bg-transparent text-sm resize-none outline-none placeholder:text-muted-foreground/50 min-h-[20px] max-h-[120px] leading-5"
-            style={{ height: "20px" }}
-          />
-        </div>
+  <textarea
+    ref={textRef} value={text} onChange={handleTextChange} onKeyDown={handleKey}
+    placeholder={disabled ? "No permission to send" : "Message… or /task to attach a task"}
+    disabled={disabled} rows={1}
+    className="flex-1 bg-transparent text-sm resize-none outline-none placeholder:text-muted-foreground/40 min-h-[20px] max-h-[120px] leading-5"
+    style={{ height: "20px" }}
+  />
 
-        {canSend ? (
-          <button onClick={handleSend}
-            className="p-2 text-primary hover:text-primary/80 transition-colors flex-shrink-0 mb-0.5 font-semibold text-sm">
-            <Send className="h-5 w-5" />
-          </button>
-        ) : (
-          <button className="p-2 text-muted-foreground flex-shrink-0 mb-0.5">
-            <Circle className="h-5 w-5" />
-          </button>
-        )}
-      </div>
+  <button
+    onClick={canSend ? handleSend : undefined}
+    disabled={!canSend}
+    className={cn(
+      "w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mb-0.5 transition-all",
+      canSend
+        ? "bg-[#5B5BD6] hover:bg-[#4A4AC4] shadow-sm"
+        : "bg-muted-foreground/20 cursor-default"
+    )}
+  >
+    <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-white">
+      <path d="M22 2L11 13M22 2L15 22 11 13 2 9l20-7z"/>
+    </svg>
+  </button>
+</div>
     </div>
   )
 }
@@ -1373,7 +1390,7 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
   const [gmailThreads, setGmailThreads] = useState<GmailThread[]>([])
   const [activeGmailThread, setActiveGmailThread] = useState<GmailThread | null>(null)
   const [gmailConnected, setGmailConnected] = useState(false)
-  const [loadingGmail, setLoadingGmail] = useState(false)
+  const [sidebarTab, setSidebarTab] = useState<"inbox" | "gmail">("inbox")
 
   // Message intelligence
   const [extractedTask, setExtractedTask] = useState<{
@@ -2353,21 +2370,93 @@ if (error) {
 
       {/* ── Sidebar ── */}
       <aside className="w-60 flex-shrink-0 flex flex-col border-r border-border bg-muted/20 overflow-hidden">
-        {/* Header */}
-        <div className="px-3 py-3 border-b border-border">
-          <h2 className="text-sm font-bold tracking-tight">Inbox</h2>
-          <div className="relative mt-2">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-            <input
-              value={sidebarSearch}
-              onChange={(e) => setSidebarSearch(e.target.value)}
-              placeholder="Search…"
-              className="w-full pl-7 pr-2 py-1.5 text-xs bg-background border border-border rounded-lg outline-none focus:border-primary/50 transition-colors"
-            />
-          </div>
-        </div>
+{/* Tabs */}
+<div className="flex px-2 pt-2 gap-1 border-b border-border">
+  <button
+    onClick={() => setSidebarTab("inbox")}
+    className={cn(
+      "flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-medium rounded-t-md border-b-2 transition-colors",
+      sidebarTab === "inbox"
+        ? "border-primary text-foreground bg-card"
+        : "border-transparent text-muted-foreground hover:text-foreground"
+    )}
+  >
+    <Inbox className="h-3 w-3" /> Inbox
+  </button>
+  <button
+    onClick={() => setSidebarTab("gmail")}
+    className={cn(
+      "flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-medium rounded-t-md border-b-2 transition-colors",
+      sidebarTab === "gmail"
+        ? "border-primary text-foreground bg-card"
+        : "border-transparent text-muted-foreground hover:text-foreground"
+    )}
+  >
+    <Mail className="h-3 w-3" /> Gmail
+    {gmailThreads.filter(t => t.unread).length > 0 && (
+      <span className="text-[10px] bg-red-500 text-white rounded-full px-1.5 py-px font-medium leading-tight">
+        {gmailThreads.filter(t => t.unread).length}
+      </span>
+    )}
+  </button>
+</div>
+
+{/* Search */}
+<div className="px-2 py-2">
+  <div className="relative">
+    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+    <input
+      value={sidebarSearch}
+      onChange={e => setSidebarSearch(e.target.value)}
+      placeholder={sidebarTab === "gmail" ? "Search emails…" : "Search…"}
+      className="w-full pl-7 pr-2 py-1.5 text-xs bg-background border border-border rounded-lg outline-none focus:border-primary/50 transition-colors"
+    />
+  </div>
+</div>
 
         <div className="flex-1 overflow-y-auto">
+  {/* Gmail Tab */}
+  {sidebarTab === "gmail" && (
+    <div className="pb-3">
+      {!gmailConnected ? (
+        <div className="px-4 py-6 text-center text-xs text-muted-foreground">
+          Connect Google in{" "}
+          <a href="/settings" className="text-primary underline">Settings</a>{" "}
+          to see Gmail here
+        </div>
+      ) : loadingGmail ? (
+        <div className="px-4 py-4 text-xs text-muted-foreground">Loading…</div>
+      ) : gmailThreads.length === 0 ? (
+        <div className="px-4 py-4 text-xs text-muted-foreground">No inbox threads</div>
+      ) : (
+        gmailThreads.map((thread, i) => (
+          <React.Fragment key={thread.id}>
+            {i > 0 && <div className="h-px bg-border/40 mx-2" />}
+            <button
+              onClick={() => { setActiveGmailThread(thread); setActiveRoomId(null) }}
+              className={cn(
+                "w-full flex flex-col gap-0.5 px-3 py-2.5 text-left transition-colors",
+                activeGmailThread?.id === thread.id ? "bg-primary/10" : "hover:bg-muted/40"
+              )}
+            >
+              <div className="flex items-center justify-between gap-1">
+                <span className={cn("text-xs truncate flex items-center gap-1.5", thread.unread && "font-semibold text-foreground")}>
+                  {thread.unread && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" />}
+                  {thread.senderName}
+                </span>
+                <span className="text-[10px] text-muted-foreground shrink-0">{thread.date}</span>
+              </div>
+              <span className="text-[11px] text-muted-foreground truncate">{thread.subject}</span>
+              <span className="text-[11px] text-muted-foreground/60 truncate">{thread.snippet}</span>
+            </button>
+          </React.Fragment>
+        ))
+      )}
+    </div>
+  )}
+
+  {/* Inbox Tab */}
+  {sidebarTab === "inbox" && <>
             {loadingRooms ? (
             <div className="px-2 pt-3 space-y-1">
               {[...Array(4)].map((_, i) => (
@@ -2482,65 +2571,7 @@ if (error) {
             )}
           </div>
 
-          {/* Gmail section */}
-          <div className="pt-3 px-2 pb-3">
-            <div className="flex items-center justify-between px-2 mb-1">
-              <span className="text-[10px] font-semibold uppercase tracking-widest flex items-center gap-1.5" style={{ color: gmailConnected ? "var(--color-text-danger, #E24B4A)" : "var(--muted-foreground)" }}>
-                <svg width="11" height="11" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
-                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-                </svg>
-                Gmail
-              </span>
-              {gmailConnected && gmailThreads.filter(t => t.unread).length > 0 && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/20">
-                  {gmailThreads.filter(t => t.unread).length}
-                </span>
-              )}
-            </div>
-
-            {!gmailConnected ? (
-              <div className="px-2 py-2 text-[11px] text-muted-foreground">
-                Connect Google in{" "}
-                <a href="/settings" className="text-primary underline">Settings</a>{" "}
-                to see Gmail threads here
-              </div>
-            ) : loadingGmail ? (
-              <div className="px-2 py-1.5 text-[11px] text-muted-foreground">Loading…</div>
-            ) : gmailThreads.length === 0 ? (
-              <div className="px-2 py-1.5 text-[11px] text-muted-foreground">No inbox threads</div>
-            ) : (
-              gmailThreads.map((thread) => (
-                <button
-                  key={thread.id}
-                  onClick={() => {
-                    setActiveGmailThread(thread)
-                    setActiveRoomId(null)
-                  }}
-                  className={cn(
-                    "w-full flex flex-col gap-0.5 px-2 py-2 rounded-lg text-left transition-colors",
-                    activeGmailThread?.id === thread.id
-                      ? "bg-primary/10 text-foreground"
-                      : "hover:bg-muted/50 text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <div className="flex items-center justify-between gap-1">
-                    <span className={cn("text-xs truncate flex items-center gap-1", thread.unread && "font-semibold text-foreground")}>
-                      {thread.unread && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0 inline-block" />}
-                      {thread.senderName}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground shrink-0">
-                      {thread.messageCount > 1 ? `${thread.messageCount}` : ""}
-                    </span>
-                  </div>
-                  <span className="text-[10px] text-muted-foreground truncate">{thread.snippet}</span>
-                </button>
-              ))
-            )}
-          </div>
-        </div>
+</>}
       </aside>
 
       {/* ── Main Chat Area ── */}
@@ -2812,50 +2843,53 @@ if (error) {
 
 // ─── Room Button (sidebar item) ───────────────────────────────────────────────
 
-function RoomButton({
-  room,
-  active,
-  onClick,
-}: {
-  room: ChatRoom
-  active: boolean
-  onClick: () => void
-}) {
+function RoomButton({ room, active, onClick }: { room: ChatRoom; active: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
       className={cn(
-        "w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-colors group",
-        active ? "bg-primary/10 text-foreground" : "hover:bg-muted/50 text-muted-foreground hover:text-foreground"
+        "w-full flex items-center gap-2 px-2 py-2 rounded-lg text-left transition-colors",
+        active
+          ? "bg-card border border-border/60 text-foreground"
+          : "hover:bg-card/60 text-muted-foreground hover:text-foreground"
       )}
     >
       <div className="flex-shrink-0">
         {room.type === "direct" && room.other_user ? (
           <Avatar user={room.other_user} size="sm" />
         ) : room.type === "project" ? (
-          <div className="w-5 h-5 flex items-center justify-center">
-            <FolderOpen className="h-3.5 w-3.5 text-emerald-500" />
+          <div className="w-7 h-7 rounded-full flex items-center justify-center text-sm"
+            style={{ background: "#C0DD97", color: "#27500A" }}>
+            ⬡
           </div>
         ) : (
-          <div className="w-5 h-5 flex items-center justify-center">
-            <Hash className="h-3.5 w-3.5" />
+          <div className="w-7 h-7 rounded-full flex items-center justify-center border border-border text-muted-foreground text-sm"
+            style={{ background: "var(--background)" }}>
+            #
           </div>
         )}
       </div>
 
       <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between">
-          <span className={cn("text-xs font-medium truncate", active && "text-foreground font-semibold")}>
+        <div className="flex items-center justify-between gap-1">
+          <span className={cn("text-xs font-medium truncate", active && "font-semibold text-foreground")}>
             {room.display_name}
           </span>
-          {room.unread_count > 0 && (
-            <Badge className="h-4 min-w-4 px-1 text-[9px] bg-primary text-primary-foreground rounded-full ml-1">
-              {room.unread_count > 99 ? "99+" : room.unread_count}
-            </Badge>
-          )}
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            {room.last_message_at && (
+              <span className="text-[10px] text-muted-foreground">
+                {formatMessageDate(room.last_message_at)}
+              </span>
+            )}
+            {room.unread_count > 0 && (
+              <span className="text-[10px] bg-[#5B5BD6] text-white rounded-full px-1.5 py-px font-medium leading-tight">
+                {room.unread_count > 99 ? "99+" : room.unread_count}
+              </span>
+            )}
+          </div>
         </div>
         {room.last_message && (
-          <p className="text-[10px] text-muted-foreground truncate leading-tight">
+          <p className="text-[10px] text-muted-foreground truncate leading-tight mt-0.5">
             {room.last_message}
           </p>
         )}
