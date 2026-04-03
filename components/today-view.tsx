@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, useMemo, useCallback } from "react"
+import useSWR from "swr"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -220,191 +221,123 @@ function MeetingRow({ event }: { event: MeetingEvent }) {
 export function TodayView() {
   const supabase = useMemo(() => createClient(), [])
 
-  const [loading, setLoading] = useState(true)
-  const [userName, setUserName] = useState("there")
-  const [pulse, setPulse] = useState<PulseData>({
-    tasksDueToday: 0,
-    overdueCount: 0,
-    meetingsToday: 0,
-    nextMeetingIn: null,
-    pipelineValue: 0,
-    activeDeals: 0,
-    staleContacts: 0,
-  })
-  const [actionItems, setActionItems] = useState<ActionItem[]>([])
-  const [meetings, setMeetings] = useState<MeetingEvent[]>([])
-  const [pipelineStages, setPipelineStages] = useState<PipelineStageCount[]>([])
-  const [staleContacts, setStaleContacts] = useState<StaleContact[]>([])
-  const [clock, setClock] = useState(() => format(new Date(), "h:mm a"))
+const [userName, setUserName] = useState("there")
+const [pulse, setPulse] = useState<PulseData>({
+  tasksDueToday: 0,
+  overdueCount: 0,
+  meetingsToday: 0,
+  nextMeetingIn: null,
+  pipelineValue: 0,
+  activeDeals: 0,
+  staleContacts: 0,
+})
+const [actionItems, setActionItems] = useState<ActionItem[]>([])
+const [meetings, setMeetings] = useState<MeetingEvent[]>([])
+const [pipelineStages, setPipelineStages] = useState<PipelineStageCount[]>([])
+const [staleContacts, setStaleContacts] = useState<StaleContact[]>([])
+const [clock, setClock] = useState(() => format(new Date(), "h:mm a"))
 
-  // Live clock
-  useEffect(() => {
-    const t = setInterval(() => setClock(format(new Date(), "h:mm a")), 30000)
-    return () => clearInterval(t)
-  }, [])
+// Live clock
+useEffect(() => {
+  const t = setInterval(() => setClock(format(new Date(), "h:mm a")), 30000)
+  return () => clearInterval(t)
+}, [])
 
-  const loadAll = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
+// Pure data fetcher — returns data instead of setting state, so SWR can cache it
+const fetchDashboardData = useCallback(async () => {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
 
-    const now = new Date()
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0)
-    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
-    const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
+  const now = new Date()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0)
+  const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
+  const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
 
-    // Single Promise.all — all queries in parallel
-    const [
-      profileRes,
-      eventsRes,
-      tasksDueRes,
-      allTasksRes,
-      relationshipsRes,
-      staleRes,
-    ] = await Promise.all([
-      supabase.from("profiles").select("full_name").eq("id", user.id).single(),
+  const [profileRes, eventsRes, tasksDueRes, allTasksRes, relationshipsRes, staleRes] = await Promise.all([
+    supabase.from("profiles").select("full_name").eq("id", user.id).single(),
+    supabase.from("events")
+      .select("id, title, start_time, end_time, meeting_link, purpose, type, relationship_id")
+      .eq("user_id", user.id)
+      .gte("start_time", todayStart.toISOString())
+      .lte("start_time", todayEnd.toISOString())
+      .order("start_time", { ascending: true }),
+    supabase.from("tasks")
+      .select("id, title, priority, status, due_date, bucket")
+      .eq("user_id", user.id)
+      .neq("status", "completed")
+      .lte("due_date", todayEnd.toISOString())
+      .order("due_date", { ascending: true })
+      .limit(10),
+    supabase.from("tasks").select("status").eq("user_id", user.id),
+    supabase.from("relationships")
+      .select("id, full_name, company, pipeline_stage, deal_value, stage_entered_at")
+      .eq("user_id", user.id)
+      .eq("status", "active")
+      .not("pipeline_stage", "in", '("closed_won","closed_lost")'),
+    supabase.from("relationships")
+      .select("id, full_name, company, stage_entered_at")
+      .eq("user_id", user.id)
+      .eq("status", "active")
+      .not("pipeline_stage", "in", '("closed_won","closed_lost")')
+      .lt("stage_entered_at", fourteenDaysAgo.toISOString())
+      .order("stage_entered_at", { ascending: true })
+      .limit(5),
+  ])
 
-      // Today's meetings
-      supabase
-        .from("events")
-        .select("id, title, start_time, end_time, meeting_link, purpose, type, relationship_id")
-        .eq("user_id", user.id)
-        .gte("start_time", todayStart.toISOString())
-        .lte("start_time", todayEnd.toISOString())
-        .order("start_time", { ascending: true }),
+  const firstName = profileRes.data?.full_name?.split(" ")[0] || "there"
 
-      // Tasks with due_date today or overdue and not completed
-      supabase
-        .from("tasks")
-        .select("id, title, priority, status, due_date, bucket")
-        .eq("user_id", user.id)
-        .neq("status", "completed")
-        .lte("due_date", todayEnd.toISOString())
-        .order("due_date", { ascending: true })
-        .limit(10),
+  const eventsData = eventsRes.data || []
+  let contactMap: Record<string, string> = {}
+  const relIds = [...new Set(eventsData.map((e) => e.relationship_id).filter(Boolean))] as string[]
+  if (relIds.length > 0) {
+    const { data: contacts } = await supabase.from("relationships").select("id, full_name").in("id", relIds)
+    if (contacts) contactMap = Object.fromEntries(contacts.map((c) => [c.id, c.full_name]))
+  }
+  const enrichedEvents: MeetingEvent[] = eventsData.map((e) => ({
+    ...e,
+    contact_name: e.relationship_id ? contactMap[e.relationship_id] ?? null : null,
+  }))
+  const futureMeetings = enrichedEvents.filter((e) => new Date(e.end_time || e.start_time) >= now)
+  const nextMeeting = futureMeetings[0]
+  const nextMins = nextMeeting ? minutesUntil(nextMeeting.start_time) : null
+  const nextMeetingLabel = nextMins !== null
+    ? nextMins <= 0 ? "happening now" : nextMins < 60 ? `in ${nextMins} min` : `in ${Math.round(nextMins / 60)}h`
+    : null
 
-      // All task statuses for stats
-      supabase
-        .from("tasks")
-        .select("status")
-        .eq("user_id", user.id),
+  const tasksDue = tasksDueRes.data || []
+  const overdueCount = tasksDue.filter((t) => t.due_date && isPast(new Date(t.due_date))).length
+  const taskActions: ActionItem[] = tasksDue.slice(0, 4).map((t) => ({
+    id: t.id,
+    title: t.title,
+    source: `Tasks · ${t.priority} priority`,
+    urgency: getUrgency(t.due_date, t.priority),
+    badge: t.due_date && isPast(new Date(t.due_date)) ? "Overdue" : isToday(new Date(t.due_date!)) ? "Today" : "Soon",
+  }))
 
-      // Pipeline: active relationships with deal_value + stage
-      supabase
-        .from("relationships")
-        .select("id, full_name, company, pipeline_stage, deal_value, stage_entered_at")
-        .eq("user_id", user.id)
-        .eq("status", "active")
-        .not("pipeline_stage", "in", '("closed_won","closed_lost")'),
+  const relData = relationshipsRes.data || []
+  const pipelineValue = relData.reduce((sum, r) => sum + (r.deal_value ?? 0), 0)
+  const STAGE_CONFIG = [
+    { stage: "new_lead", label: "New lead", color: "#B4B2A9" },
+    { stage: "contacted", label: "Contacted", color: "#85B7EB" },
+    { stage: "meeting_booked", label: "Meeting booked", color: "#AFA9EC" },
+    { stage: "proposal", label: "Proposal sent", color: "#EF9F27" },
+    { stage: "negotiating", label: "Negotiating", color: "#D85A30" },
+  ]
+  const stageCounts: PipelineStageCount[] = STAGE_CONFIG.map((s) => ({
+    ...s,
+    count: relData.filter((r) => r.pipeline_stage === s.stage).length,
+  }))
 
-      // Stale: contacts not moved in 14+ days
-      supabase
-        .from("relationships")
-        .select("id, full_name, company, stage_entered_at")
-        .eq("user_id", user.id)
-        .eq("status", "active")
-        .not("pipeline_stage", "in", '("closed_won","closed_lost")')
-        .lt("stage_entered_at", fourteenDaysAgo.toISOString())
-        .order("stage_entered_at", { ascending: true })
-        .limit(5),
-    ])
+  const staleData = (staleRes.data || []).map((r) => ({
+    id: r.id,
+    full_name: r.full_name,
+    company: r.company,
+    days: r.stage_entered_at ? differenceInDays(now, new Date(r.stage_entered_at)) : 0,
+  }))
 
-    // ── Profile ──────────────────────────────────────────────────────────────
-    if (profileRes.data?.full_name) {
-      const firstName = profileRes.data.full_name.split(" ")[0]
-      setUserName(firstName)
-    }
-
-    // ── Meetings ─────────────────────────────────────────────────────────────
-    const eventsData = eventsRes.data || []
-
-    // Bulk fetch contact names for meetings that have relationship_id
-    let contactMap: Record<string, string> = {}
-    const relIds = [...new Set(eventsData.map((e) => e.relationship_id).filter(Boolean))] as string[]
-    if (relIds.length > 0) {
-      const { data: contacts } = await supabase
-        .from("relationships")
-        .select("id, full_name")
-        .in("id", relIds)
-      if (contacts) {
-        contactMap = Object.fromEntries(contacts.map((c) => [c.id, c.full_name]))
-      }
-    }
-
-    const enrichedEvents: MeetingEvent[] = eventsData.map((e) => ({
-      ...e,
-      contact_name: e.relationship_id ? contactMap[e.relationship_id] ?? null : null,
-    }))
-
-    // Only show future + in-progress meetings
-    const futureMeetings = enrichedEvents.filter(
-      (e) => new Date(e.end_time || e.start_time) >= now,
-    )
-    setMeetings(futureMeetings)
-
-    // Next meeting countdown
-    const nextMeeting = futureMeetings[0]
-    const nextMins = nextMeeting ? minutesUntil(nextMeeting.start_time) : null
-    const nextMeetingLabel =
-      nextMins !== null
-        ? nextMins <= 0
-          ? "happening now"
-          : nextMins < 60
-          ? `in ${nextMins} min`
-          : `in ${Math.round(nextMins / 60)}h`
-        : null
-
-    // ── Tasks ────────────────────────────────────────────────────────────────
-    const tasksDue = tasksDueRes.data || []
-    const overdueCount = tasksDue.filter(
-      (t) => t.due_date && isPast(new Date(t.due_date)),
-    ).length
-
-    // Build action items from due tasks
-    const taskActions: ActionItem[] = tasksDue.slice(0, 4).map((t) => ({
-      id: t.id,
-      title: t.title,
-      source: `Tasks · ${t.priority} priority`,
-      urgency: getUrgency(t.due_date, t.priority),
-      badge: t.due_date && isPast(new Date(t.due_date))
-        ? "Overdue"
-        : isToday(new Date(t.due_date!))
-        ? "Today"
-        : "Soon",
-    }))
-
-    setActionItems(taskActions)
-
-    // ── Pipeline ─────────────────────────────────────────────────────────────
-    const relData = relationshipsRes.data || []
-    const pipelineValue = relData.reduce((sum, r) => sum + (r.deal_value ?? 0), 0)
-
-    const STAGE_CONFIG = [
-      { stage: "new_lead", label: "New lead", color: "#B4B2A9" },
-      { stage: "contacted", label: "Contacted", color: "#85B7EB" },
-      { stage: "meeting_booked", label: "Meeting booked", color: "#AFA9EC" },
-      { stage: "proposal", label: "Proposal sent", color: "#EF9F27" },
-      { stage: "negotiating", label: "Negotiating", color: "#D85A30" },
-    ]
-
-    const stageCounts: PipelineStageCount[] = STAGE_CONFIG.map((s) => ({
-      ...s,
-      count: relData.filter((r) => r.pipeline_stage === s.stage).length,
-    }))
-    setPipelineStages(stageCounts)
-
-    // ── Stale contacts ───────────────────────────────────────────────────────
-    const staleData = (staleRes.data || []).map((r) => ({
-      id: r.id,
-      full_name: r.full_name,
-      company: r.company,
-      days: r.stage_entered_at
-        ? differenceInDays(now, new Date(r.stage_entered_at))
-        : 0,
-    }))
-    setStaleContacts(staleData)
-
-    // ── Pulse summary ────────────────────────────────────────────────────────
-    setPulse({
+  return {
+    userName: firstName,
+    pulse: {
       tasksDueToday: tasksDue.length,
       overdueCount,
       meetingsToday: eventsData.length,
@@ -412,17 +345,36 @@ export function TodayView() {
       pipelineValue,
       activeDeals: relData.length,
       staleContacts: staleData.length,
-    })
+    },
+    actionItems: taskActions,
+    meetings: futureMeetings,
+    pipelineStages: stageCounts,
+    staleContacts: staleData,
+  }
+}, [supabase])
 
-    setLoading(false)
-  }, [supabase])
+// SWR caches the result — on remount it returns cached data instantly
+// then revalidates in background every 2 minutes
+const { data: dashData, isLoading: loading } = useSWR(
+  "today-dashboard",
+  fetchDashboardData,
+  {
+    revalidateOnFocus: false,
+    dedupingInterval: 60_000,
+    refreshInterval: 120_000,
+  }
+)
 
-  useEffect(() => {
-    loadAll()
-    // Refresh every 2 minutes, not on every focus
-    const interval = setInterval(loadAll, 120000)
-    return () => clearInterval(interval)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+// Sync SWR data into state (fires immediately from cache on remount)
+useEffect(() => {
+  if (!dashData) return
+  setUserName(dashData.userName)
+  setPulse(dashData.pulse)
+  setActionItems(dashData.actionItems)
+  setMeetings(dashData.meetings)
+  setPipelineStages(dashData.pipelineStages)
+  setStaleContacts(dashData.staleContacts)
+}, [dashData])
 
   // Max pipeline count for bar scaling
   const maxStageCount = Math.max(...pipelineStages.map((s) => s.count), 1)

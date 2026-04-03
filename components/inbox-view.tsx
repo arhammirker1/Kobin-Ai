@@ -1,5 +1,11 @@
 "use client"
 
+// Module-level rooms cache — persists across remounts within the same page session
+// This gives instant room list restore when user navigates away and back
+let _roomsCache: any[] | null = null
+let _roomsCacheTime = 0
+const ROOMS_CACHE_TTL = 60_000 // 1 minute
+
 import React, {
   useEffect,
   useState,
@@ -1479,7 +1485,19 @@ const [loadingGmail, setLoadingGmail] = useState(false)
   // ── Load rooms ─────────────────────────────────────────────────────────────
   const loadRooms = useCallback(async (userId: string) => {
   // Single query for memberships
+    // If we have a fresh cache, restore immediately for instant render
+  // The full fetch still continues in background to get fresh data
+  const hasFreshCache = _roomsCache && Date.now() - _roomsCacheTime < ROOMS_CACHE_TTL
+  if (hasFreshCache) {
+    setRooms(_roomsCache as ChatRoom[])
+    setLoadingRooms(false)
+    if (!activeRoomId && (_roomsCache as ChatRoom[]).length > 0) {
+      setActiveRoomId((_roomsCache as ChatRoom[])[0].id)
+    }
+  } else {
     setLoadingRooms(true)
+  }
+
   const { data: memberships } = await supabase
     .from("chat_room_members")
     .select("room_id, last_read_at")
@@ -1592,6 +1610,10 @@ const { data: allUnread } = await supabase
     const bTime = b.last_message_at ? new Date(b.last_message_at).getTime() : new Date(b.created_at).getTime()
     return bTime - aTime
   })
+
+  // Save fresh data to module cache for next remount
+  _roomsCache = sorted
+  _roomsCacheTime = Date.now()
 
   setRooms(sorted)
 
