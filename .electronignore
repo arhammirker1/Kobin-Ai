@@ -1,0 +1,6 @@
+.git
+.next/cache
+node_modules/.cache
+*.log
+.env.local
+.env*.local
