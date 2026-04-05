@@ -1,8 +1,9 @@
 // electron/preload.js
-const { contextBridge } = require('electron')
+const { contextBridge, ipcRenderer } = require('electron')
 
-// Expose safe APIs to the renderer if needed in the future
 contextBridge.exposeInMainWorld('electron', {
   platform: process.platform,
   isDesktop: true,
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
 })
