@@ -65,12 +65,14 @@ export function ClientPortalSidebar({
 
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader className="h-16 flex items-center px-6">
-        <div className="flex items-center gap-2 font-semibold">
-          <div className="size-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground">
-            <LayoutDashboard size={20} />
+      <SidebarHeader className="h-16 flex items-center px-4 border-b">
+        <div className="flex items-center gap-3 font-semibold">
+          <div className="size-9 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-md shrink-0">
+            <LayoutDashboard size={18} />
           </div>
-          <span className="group-data-[collapsible=icon]:hidden">Client Portal</span>
+          <div className="flex flex-col group-data-[collapsible=icon]:hidden">
+            <span className="text-sm font-semibold leading-tight">Client Portal</span>
+          </div>
         </div>
       </SidebarHeader>
       <SidebarContent>
