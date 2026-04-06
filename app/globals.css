@@ -42,8 +42,28 @@
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: #DDD9D0;
   --sidebar-accent-foreground: #0D0D0C;
-  --sidebar-border: #D4CFC5;
+  --sidebar-border: #C8C3B8;
   --sidebar-ring: #5B4FE8;
+
+  --background: #F0EDE6;
+  --foreground: #0D0D0C;
+  --card: #E8E4DB;
+  --card-foreground: #0D0D0C;
+  --popover: #EAE7DF;
+  --popover-foreground: #0D0D0C;
+  --primary: #0D0D0C;
+  --primary-foreground: #F0EDE6;
+  --secondary: #E2DED5;
+  --secondary-foreground: #0D0D0C;
+  --muted: #E2DED5;
+  --muted-foreground: #6B6759;
+  --accent: #DDD9D0;
+  --accent-foreground: #0D0D0C;
+  --destructive: #E5534B;
+  --destructive-foreground: #ffffff;
+  --border: #C8C3B8;
+  --input: #E2DED5;
+  --ring: #5B4FE8;
 
   /* Semantic status colors */
   --color-done: #3DD68C;

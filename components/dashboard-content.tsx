@@ -84,164 +84,186 @@ function SidebarInner({
 
   useEffect(() => { setMounted(true) }, [])
 
-  // Use "dark" as fallback before mount to avoid hydration flash
   const currentTheme = mounted ? theme : "dark"
 
   return (
     <Sidebar collapsible="icon">
-      {/* Toggle arrow — uses sidebar tokens so it matches both themes */}
-      <button
-        onClick={toggleSidebar}
-        className={cn(
-          "absolute -right-3 top-6 z-50 flex size-6 items-center justify-center rounded-full",
-          "border border-sidebar-border bg-sidebar shadow-md transition-transform duration-200",
-          collapsed ? "rotate-180" : ""
-        )}
-      >
-        <ChevronRight className="size-3 text-sidebar-foreground/50" />
-      </button>
-
       {/* Header */}
-      <SidebarHeader className="border-b border-sidebar-border pb-3 shrink-0">
-        <div className="flex items-center gap-3 px-3 pt-3">
-          <div className="size-9 rounded-xl bg-[#5B4FE8] flex items-center justify-center shrink-0 shadow-md">
-            <LayoutDashboard className="size-5 text-white" />
+      <SidebarHeader className="border-b border-sidebar-border shrink-0 px-3 py-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div
+            className="size-8 rounded-lg bg-[#5B4FE8] flex items-center justify-center shrink-0 shadow-sm cursor-pointer"
+            onClick={toggleSidebar}
+          >
+            <LayoutDashboard className="size-4 text-white" />
           </div>
-          <div className={cn("flex flex-col min-w-0 transition-all duration-200", collapsed && "hidden")}>
-            <span className="text-sm font-semibold truncate leading-tight text-sidebar-foreground">Command Center</span>
-            <span className="text-[11px] text-sidebar-foreground/50 truncate">{userEmail}</span>
-          </div>
+          {!collapsed && (
+            <div className="flex flex-col min-w-0 flex-1">
+              <span className="text-sm font-semibold truncate leading-tight text-sidebar-foreground">Command Center</span>
+              <span className="text-[10px] text-sidebar-foreground/50 truncate">{userEmail}</span>
+            </div>
+          )}
         </div>
       </SidebarHeader>
 
-      {/* overflow-y-auto prevents footer from cutting off items */}
-      <SidebarContent className="py-2 overflow-y-auto">
+      <SidebarContent className="py-2 overflow-y-auto overflow-x-hidden">
         {/* Workspace group */}
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/40 px-3 mb-1">
-            Workspace
-          </SidebarGroupLabel>
+        <SidebarGroup className="px-2">
+          {!collapsed && (
+            <SidebarGroupLabel className="text-[10px] font-semibold uppercase tracking-widest text-sidebar-foreground/40 px-2 mb-1">
+              Workspace
+            </SidebarGroupLabel>
+          )}
           <SidebarGroupContent>
-            <SidebarMenu>
-              {mainNav.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    tooltip={item.title}
-                    isActive={activeTab === item.title}
-                    onClick={() => setActiveTab(item.title)}
-                    className={cn(
-                      "mx-1 rounded-lg h-9 px-3 text-sm font-medium transition-all",
-                      activeTab === item.title
-                        ? "bg-[#5B4FE8] text-white hover:bg-[#4D43CC] hover:text-white"
-                        : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
-                    )}
-                  >
-                    <item.icon
+            <SidebarMenu className="gap-0.5">
+              {mainNav.map((item) => {
+                const isActive = activeTab === item.title
+                return (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      tooltip={item.title}
+                      isActive={isActive}
+                      onClick={() => setActiveTab(item.title)}
                       className={cn(
-                        "size-4 shrink-0",
-                        activeTab === item.title ? "text-white" : "text-sidebar-foreground/60"
+                        "rounded-lg h-9 text-sm font-medium transition-all w-full",
+                        collapsed ? "justify-center px-0" : "px-2.5",
+                        isActive
+                          ? "bg-[#5B4FE8] text-white hover:bg-[#4D43CC] hover:text-white"
+                          : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
                       )}
-                    />
-                    <span className="flex-1">{item.title}</span>
-                    {item.badge && !collapsed && (
-                      <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-[#5B4FE8] px-1.5 text-[10px] font-semibold text-white">
-                        {item.badge}
-                      </span>
-                    )}
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+                    >
+                      <item.icon
+                        className={cn(
+                          "size-4 shrink-0",
+                          isActive ? "text-white" : "text-sidebar-foreground/60"
+                        )}
+                      />
+                      {!collapsed && (
+                        <>
+                          <span className="flex-1 truncate">{item.title}</span>
+                          {item.badge && (
+                            <span className="ml-auto flex h-4.5 min-w-[18px] items-center justify-center rounded-full bg-[#5B4FE8] px-1.5 text-[10px] font-semibold text-white">
+                              {item.badge}
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )
+              })}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
 
+        {/* Divider */}
+        <div className="mx-3 my-2 h-px bg-sidebar-border/60" />
+
         {/* Management group */}
-        <SidebarGroup className="mt-2">
-          <SidebarGroupLabel className="text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/40 px-3 mb-1">
-            Management
-          </SidebarGroupLabel>
+        <SidebarGroup className="px-2">
+          {!collapsed && (
+            <SidebarGroupLabel className="text-[10px] font-semibold uppercase tracking-widest text-sidebar-foreground/40 px-2 mb-1">
+              Management
+            </SidebarGroupLabel>
+          )}
           <SidebarGroupContent>
-            <SidebarMenu>
-              {extraNav.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    tooltip={item.title}
-                    isActive={activeTab === item.title}
-                    onClick={() => setActiveTab(item.title)}
-                    className={cn(
-                      "mx-1 rounded-lg h-9 px-3 text-sm font-medium transition-all",
-                      activeTab === item.title
-                        ? "bg-[#5B4FE8] text-white hover:bg-[#4D43CC] hover:text-white"
-                        : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
-                    )}
-                  >
-                    <item.icon
+            <SidebarMenu className="gap-0.5">
+              {extraNav.map((item) => {
+                const isActive = activeTab === item.title
+                return (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      tooltip={item.title}
+                      isActive={isActive}
+                      onClick={() => setActiveTab(item.title)}
                       className={cn(
-                        "size-4 shrink-0",
-                        activeTab === item.title ? "text-white" : "text-sidebar-foreground/60"
+                        "rounded-lg h-9 text-sm font-medium transition-all w-full",
+                        collapsed ? "justify-center px-0" : "px-2.5",
+                        isActive
+                          ? "bg-[#5B4FE8] text-white hover:bg-[#4D43CC] hover:text-white"
+                          : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
                       )}
-                    />
-                    <span className="flex-1">{item.title}</span>
-                    {item.badge && !collapsed && (
-                      <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-[#5B4FE8] px-1.5 text-[10px] font-semibold text-white">
-                        {item.badge}
-                      </span>
-                    )}
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+                    >
+                      <item.icon
+                        className={cn(
+                          "size-4 shrink-0",
+                          isActive ? "text-white" : "text-sidebar-foreground/60"
+                        )}
+                      />
+                      {!collapsed && (
+                        <>
+                          <span className="flex-1 truncate">{item.title}</span>
+                          {item.badge && (
+                            <span className="ml-auto flex h-4.5 min-w-[18px] items-center justify-center rounded-full bg-[#5B4FE8] px-1.5 text-[10px] font-semibold text-white">
+                              {item.badge}
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )
+              })}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="border-t border-sidebar-border pt-3 pb-3 space-y-2 shrink-0">
-        {/* Light/Dark toggle — wired to next-themes, hidden when collapsed */}
-        {!collapsed && mounted && (
-          <div className="mx-3 flex items-center rounded-full border border-sidebar-border bg-sidebar-accent/50 p-1">
+      <SidebarFooter className="border-t border-sidebar-border pt-2 pb-3 shrink-0 px-2">
+        {/* Light/Dark toggle */}
+        {mounted && (
+          collapsed ? (
             <button
-              onClick={() => setTheme("light")}
-              className={cn(
-                "flex flex-1 items-center justify-center gap-1.5 rounded-full py-1.5 text-xs font-medium transition-all",
-                currentTheme === "light"
-                  ? "bg-[#5B4FE8] text-white shadow-sm"
-                  : "text-sidebar-foreground/60 hover:text-sidebar-foreground"
-              )}
+              onClick={() => setTheme(currentTheme === "dark" ? "light" : "dark")}
+              className="w-full flex items-center justify-center h-9 rounded-lg text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-all"
             >
-              <Sun className="size-3" />
-              Light
+              {currentTheme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
             </button>
-            <button
-              onClick={() => setTheme("dark")}
-              className={cn(
-                "flex flex-1 items-center justify-center gap-1.5 rounded-full py-1.5 text-xs font-medium transition-all",
-                currentTheme === "dark"
-                  ? "bg-[#5B4FE8] text-white shadow-sm"
-                  : "text-sidebar-foreground/60 hover:text-sidebar-foreground"
-              )}
-            >
-              <Moon className="size-3" />
-              Dark
-            </button>
-          </div>
+          ) : (
+            <div className="flex items-center rounded-lg border border-sidebar-border bg-sidebar-accent/40 p-1 mb-1">
+              <button
+                onClick={() => setTheme("light")}
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 text-xs font-medium transition-all",
+                  currentTheme === "light"
+                    ? "bg-[#5B4FE8] text-white shadow-sm"
+                    : "text-sidebar-foreground/60 hover:text-sidebar-foreground"
+                )}
+              >
+                <Sun className="size-3" />
+                Light
+              </button>
+              <button
+                onClick={() => setTheme("dark")}
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 text-xs font-medium transition-all",
+                  currentTheme === "dark"
+                    ? "bg-[#5B4FE8] text-white shadow-sm"
+                    : "text-sidebar-foreground/60 hover:text-sidebar-foreground"
+                )}
+              >
+                <Moon className="size-3" />
+                Dark
+              </button>
+            </div>
+          )
         )}
 
-        {/* User profile row */}
-        <button className={cn(
-          "mx-1 flex w-[calc(100%-0.5rem)] items-center gap-3 rounded-lg px-3 py-2 transition-all hover:bg-sidebar-accent",
-          collapsed && "justify-center"
-        )}>
-          <div className="size-8 rounded-full bg-gradient-to-br from-[#5B4FE8] to-[#7C3AED] flex items-center justify-center text-white text-xs font-bold shrink-0">
+        {/* User profile */}
+        <button
+          className={cn(
+            "flex items-center gap-2.5 rounded-lg px-2 py-2 w-full transition-all hover:bg-sidebar-accent",
+            collapsed && "justify-center px-0"
+          )}
+        >
+          <div className="size-7 rounded-full bg-gradient-to-br from-[#5B4FE8] to-[#7C3AED] flex items-center justify-center text-white text-[11px] font-bold shrink-0">
             {userInitials}
           </div>
           {!collapsed && (
-            <>
-              <div className="flex flex-col min-w-0 text-left">
-                <span className="text-sm font-medium truncate leading-tight text-sidebar-foreground">{userName}</span>
-                <span className="text-[11px] text-sidebar-foreground/50 truncate">{userEmail}</span>
-              </div>
-              <ChevronRight className="ml-auto size-4 text-sidebar-foreground/40 shrink-0" />
-            </>
+            <div className="flex flex-col min-w-0 text-left flex-1">
+              <span className="text-xs font-medium truncate leading-tight text-sidebar-foreground">{userName}</span>
+              <span className="text-[10px] text-sidebar-foreground/50 truncate">{userEmail}</span>
+            </div>
           )}
         </button>
       </SidebarFooter>
