@@ -2871,53 +2871,80 @@ if (error) {
 
 // ─── Room Button (sidebar item) ───────────────────────────────────────────────
 
-function RoomButton({ room, active, onClick }: { room: ChatRoom; active: boolean; onClick: () => void }) {
+function RoomButton({
+  room,
+  active,
+  onClick,
+}: {
+  room: ChatRoom
+  active: boolean
+  onClick: () => void
+}) {
+  const isAIRoom = room.dm_key?.startsWith("ai-assistant:")
+
   return (
     <button
       onClick={onClick}
       className={cn(
-        "w-full flex items-center gap-2 px-2 py-2 rounded-lg text-left transition-colors",
-        active
-          ? "bg-card border border-border/60 text-foreground"
-          : "hover:bg-card/60 text-muted-foreground hover:text-foreground"
+        "w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-colors group",
+        active ? "bg-primary/10 text-foreground" : "hover:bg-muted/50 text-muted-foreground hover:text-foreground"
       )}
     >
       <div className="flex-shrink-0">
-        {room.type === "direct" && room.other_user ? (
+        {isAIRoom ? (
+          <div
+            className="w-6 h-6 rounded-full flex items-center justify-center"
+            style={{ background: "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)" }}
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+                stroke="white"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
+        ) : room.type === "direct" && room.other_user ? (
           <Avatar user={room.other_user} size="sm" />
         ) : room.type === "project" ? (
-          <div className="w-7 h-7 rounded-full flex items-center justify-center text-sm"
-            style={{ background: "#C0DD97", color: "#27500A" }}>
-            ⬡
+          <div className="w-5 h-5 flex items-center justify-center">
+            <FolderOpen className="h-3.5 w-3.5 text-emerald-500" />
           </div>
         ) : (
-          <div className="w-7 h-7 rounded-full flex items-center justify-center border border-border text-muted-foreground text-sm"
-            style={{ background: "var(--background)" }}>
-            #
+          <div className="w-5 h-5 flex items-center justify-center">
+            <Hash className="h-3.5 w-3.5" />
           </div>
         )}
       </div>
 
       <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between gap-1">
-          <span className={cn("text-xs font-medium truncate", active && "font-semibold text-foreground")}>
-            {room.display_name}
+        <div className="flex items-center justify-between">
+          <span
+            className={cn(
+              "text-xs font-medium truncate",
+              active && "text-foreground font-semibold",
+              isAIRoom && "text-violet-400"
+            )}
+          >
+            {isAIRoom ? "✦ AI Assistant" : room.display_name}
           </span>
-          <div className="flex flex-col items-end gap-1 shrink-0">
-            {room.last_message_at && (
-              <span className="text-[10px] text-muted-foreground">
-                {formatMessageDate(room.last_message_at)}
-              </span>
-            )}
-            {room.unread_count > 0 && (
-              <span className="text-[10px] bg-[#5B5BD6] text-white rounded-full px-1.5 py-px font-medium leading-tight">
-                {room.unread_count > 99 ? "99+" : room.unread_count}
-              </span>
-            )}
-          </div>
+          {room.unread_count > 0 && (
+            <Badge
+              className={cn(
+                "h-4 min-w-4 px-1 text-[9px] rounded-full ml-1",
+                isAIRoom
+                  ? "bg-violet-500 text-white"
+                  : "bg-primary text-primary-foreground"
+              )}
+            >
+              {room.unread_count > 99 ? "99+" : room.unread_count}
+            </Badge>
+          )}
         </div>
         {room.last_message && (
-          <p className="text-[10px] text-muted-foreground truncate leading-tight mt-0.5">
+          <p className="text-[10px] text-muted-foreground truncate leading-tight">
             {room.last_message}
           </p>
         )}
