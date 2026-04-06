@@ -4,8 +4,7 @@ import { useState, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { SidebarProvider } from "@/components/ui/sidebar"
-import { DashboardSidebar } from "@/components/dashboard-sidebar"
-import { DashboardContent } from "@/components/dashboard-content"
+import { DashboardSidebar, DashboardContent } from "@/components/dashboard-content"
 import { CommandBar } from "@/components/command-bar"
 
 const AUTH_TIMEOUT_MS = 8000
