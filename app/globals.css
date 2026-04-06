@@ -3,52 +3,63 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ── Light theme (brand: Cream · Ink · Violet) ── */
 :root {
-  --background: #1C1C1A;
-  --foreground: #F0EFEC;
-  --card: #252523;
-  --card-foreground: #F0EFEC;
-  --popover: #252523;
-  --popover-foreground: #F0EFEC;
-  --primary: #F0EFEC;
-  --primary-foreground: #1C1C1A;
-  --secondary: #2E2E2C;
-  --secondary-foreground: #F0EFEC;
-  --muted: #2E2E2C;
-  --muted-foreground: #8A8A85;
-  --accent: #2E2E2C;
-  --accent-foreground: #F0EFEC;
+  --background: #F0EDE6;
+  --foreground: #0D0D0C;
+  --card: #E8E4DB;
+  --card-foreground: #0D0D0C;
+  --popover: #EAE7DF;
+  --popover-foreground: #0D0D0C;
+  --primary: #0D0D0C;
+  --primary-foreground: #F0EDE6;
+  --secondary: #E2DED5;
+  --secondary-foreground: #0D0D0C;
+  --muted: #E2DED5;
+  --muted-foreground: #6B6759;
+  --accent: #DDD9D0;
+  --accent-foreground: #0D0D0C;
   --destructive: #E5534B;
   --destructive-foreground: #ffffff;
-  --border: #333331;
-  --input: #2E2E2C;
-  --ring: #555552;
+  --border: #D4CFC5;
+  --input: #E2DED5;
+  --ring: #5B4FE8;
   --radius: 0.5rem;
 
-  --sidebar: #161614;
-  --sidebar-foreground: #F0EFEC;
-  --sidebar-primary: #F0EFEC;
-  --sidebar-primary-foreground: #1C1C1A;
-  --sidebar-accent: #252523;
-  --sidebar-accent-foreground: #F0EFEC;
-  --sidebar-border: #2E2E2C;
-  --sidebar-ring: #555552;
+  /* Brand violet token (used explicitly for active states, badges, etc.) */
+  --brand-violet: #5B4FE8;
+  --brand-violet-dark: #4D43CC;
+
+  --chart-1: #5B4FE8;
+  --chart-2: #3DD68C;
+  --chart-3: #F5A623;
+  --chart-4: #6B6759;
+  --chart-5: #E5534B;
+
+  --sidebar: #E8E4DB;
+  --sidebar-foreground: #0D0D0C;
+  --sidebar-primary: #5B4FE8;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #DDD9D0;
+  --sidebar-accent-foreground: #0D0D0C;
+  --sidebar-border: #D4CFC5;
+  --sidebar-ring: #5B4FE8;
 
   /* Semantic status colors */
   --color-done: #3DD68C;
-  --color-active: #4A90D9;
+  --color-active: #5B4FE8;
   --color-blocked: #E5534B;
-  --color-backlog: #6B6B68;
+  --color-backlog: #6B6759;
   --color-urgent: #E5534B;
   --color-high: #F5A623;
-  --color-medium: #8A8A85;
-  --color-low: #6B6B68;
+  --color-medium: #6B6759;
+  --color-low: #9B9589;
 
   /* Brand accents */
-  --accent-blue: #4A90D9;
-  --accent-blue-dark: #2A5A8A;
+  --accent-violet: #5B4FE8;
+  --accent-violet-dark: #3D34B0;
   --warning: #F5A623;
-  --neutral: #8A8A85;
+  --neutral: #6B6759;
 }
 
 .dark {
@@ -81,11 +92,19 @@
   --sidebar-border: #2E2E2C;
   --sidebar-ring: #555552;
 
-  --chart-1: #4A90D9;
+  --chart-1: #5B4FE8;
   --chart-2: #3DD68C;
   --chart-3: #F5A623;
   --chart-4: #8A8A85;
   --chart-5: #E5534B;
+
+  /* Brand */
+  --brand-violet: #5B4FE8;
+  --brand-violet-dark: #4D43CC;
+
+  /* Sidebar — dark mode uses violet for primary active state */
+  --sidebar-primary: #5B4FE8;
+  --sidebar-primary-foreground: #ffffff;
 }
 
 @theme inline {
@@ -127,6 +146,9 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  /* Brand violet as a Tailwind utility */
+  --color-brand-violet: var(--brand-violet);
+  --color-brand-violet-dark: var(--brand-violet-dark);
 }
 
 @layer base {
@@ -135,10 +157,13 @@
   }
   body {
     @apply bg-background text-foreground font-sans;
-    background-color: #1C1C1A;
   }
+  /* Light-mode scrollbar */
   ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: #56544C; border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: #6B6E65; }
+  ::-webkit-scrollbar-thumb { background: #C9C4B8; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #B8B2A5; }
+  /* Dark-mode scrollbar */
+  .dark ::-webkit-scrollbar-thumb { background: #56544C; }
+  .dark ::-webkit-scrollbar-thumb:hover { background: #6B6E65; }
 }
