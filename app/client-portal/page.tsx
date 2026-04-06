@@ -74,7 +74,7 @@ export default function ClientPortalPage() {
   }
 
   return (
-    <SidebarProvider>
+    <SidebarProvider defaultOpen={false}>
       <div className="flex min-h-screen w-full bg-background">
         <ClientPortalSidebar activeTab={activeTab} setActiveTab={setActiveTab} clientData={clientData} />
         <main className="flex-1 overflow-y-auto">

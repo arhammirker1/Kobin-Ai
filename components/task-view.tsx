@@ -130,7 +130,7 @@ function StatusBadge({ status }: { status: string }) {
     completed: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20",
     "in-progress": "bg-blue-500/15 text-blue-400 border-blue-500/20",
     blocked: "bg-red-500/15 text-red-400 border-red-500/20",
-    todo: "bg-zinc-500/10 text-zinc-400 border-zinc-500/15",
+    todo: "bg-zinc-500/10 text-muted-foreground border-zinc-500/15",
   }
   return (
     <span className={cn(
@@ -156,7 +156,7 @@ function DeadlinePill({ due_date }: { due_date: string }) {
     </span>
   )
   return (
-    <span className="text-[10px] px-2 py-0.5 rounded-full border font-medium whitespace-nowrap bg-zinc-500/10 text-zinc-400 border-zinc-500/15 flex items-center gap-1">
+    <span className="text-[10px] px-2 py-0.5 rounded-full border font-medium whitespace-nowrap bg-zinc-500/10 text-muted-foreground border-zinc-500/15 flex items-center gap-1">
       <Clock size={9} />{format(new Date(due_date), "MMM d")}
     </span>
   )
@@ -202,26 +202,26 @@ function InlineComments({ taskId, currentUserId }: { taskId: string; currentUser
       <ScrollArea className="flex-1 pr-1">
         <div className="space-y-3">
           {loaded && comments.length === 0 && (
-            <p className="text-xs text-zinc-500 py-4 text-center">No comments yet</p>
+            <p className="text-xs text-muted-foreground/60 py-4 text-center">No comments yet</p>
           )}
           {comments.map((c) => (
             <div key={c.id} className="flex gap-2 group">
               <Avatar className="size-6 shrink-0 mt-0.5">
-                <AvatarFallback className="text-[9px] bg-zinc-800 text-zinc-300">
+                <AvatarFallback className="text-[9px] bg-muted text-foreground/80">
                   {getInitials(c.profile?.full_name || "U")}
                 </AvatarFallback>
               </Avatar>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-0.5">
-                  <span className="text-[11px] font-medium text-zinc-200">{c.profile?.full_name || "User"}</span>
-                  <span className="text-[10px] text-zinc-600">{format(new Date(c.created_at), "MMM d, h:mm a")}</span>
+                  <span className="text-[11px] font-medium text-foreground/90">{c.profile?.full_name || "User"}</span>
+                  <span className="text-[10px] text-muted-foreground/40">{format(new Date(c.created_at), "MMM d, h:mm a")}</span>
                 </div>
-                <p className="text-xs text-zinc-400 leading-relaxed break-words">{c.content}</p>
+                <p className="text-xs text-muted-foreground leading-relaxed break-words">{c.content}</p>
               </div>
               {currentUserId === c.user_id && (
                 <button
                   onClick={() => handleDelete(c.id)}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity text-zinc-600 hover:text-red-400 mt-0.5"
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground/40 hover:text-red-400 mt-0.5"
                 >
                   <X size={11} />
                 </button>
@@ -230,21 +230,21 @@ function InlineComments({ taskId, currentUserId }: { taskId: string; currentUser
           ))}
         </div>
       </ScrollArea>
-      <div className="flex gap-2 pt-3 border-t border-zinc-800 mt-3">
+      <div className="flex gap-2 pt-3 border-t border-border mt-3">
         <Input
           placeholder="Add a comment…"
           value={newComment}
           onChange={e => setNewComment(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit() } }}
           disabled={isSubmitting}
-          className="flex-1 h-7 text-xs bg-[#252523] border-[#333331] text-[#F0EFEC] placeholder:text-[#555552]"
+          className="flex-1 h-7 text-xs bg-muted/50 border-border text-foreground placeholder:text-muted-foreground/60"
         />
         <button
           onClick={handleSubmit}
           disabled={isSubmitting || !newComment.trim()}
           className="w-7 h-7 rounded bg-zinc-700 hover:bg-zinc-600 disabled:opacity-40 flex items-center justify-center shrink-0 transition-colors"
         >
-          <Send size={11} className="text-zinc-200" />
+          <Send size={11} className="text-foreground/90" />
         </button>
       </div>
     </div>
@@ -270,9 +270,9 @@ function DetailPanel({
   const [activeTab, setActiveTab] = useState<"details" | "comments">("details")
 
   return (
-    <div className="flex flex-col h-full bg-[#1C1C1A] border-l border-[#333331]">
+    <div className="flex flex-col h-full bg-background border-l border-border">
       {/* Panel header */}
-      <div className="px-4 pt-4 pb-3 border-b border-[#333331]">
+      <div className="px-4 pt-4 pb-3 border-b border-border">
         <div className="flex items-start gap-2 mb-3">
           {/* Complete toggle */}
           <button
@@ -287,12 +287,12 @@ function DetailPanel({
             {task.is_completed && <CheckCircle2 size={10} className="text-white" />}
           </button>
           <h2 className={cn(
-            "text-sm font-medium leading-snug flex-1 text-zinc-100",
-            task.is_completed && "line-through text-zinc-500"
+            "text-sm font-medium leading-snug flex-1 text-foreground",
+            task.is_completed && "line-through text-muted-foreground/60"
           )}>
             {task.title}
           </h2>
-          <button onClick={onClose} className="text-zinc-600 hover:text-zinc-300 transition-colors shrink-0">
+          <button onClick={onClose} className="text-muted-foreground/40 hover:text-foreground/80 transition-colors shrink-0">
             <X size={14} />
           </button>
         </div>
@@ -301,7 +301,7 @@ function DetailPanel({
         <div className="flex flex-wrap gap-1.5 mb-2">
           <div className="flex items-center gap-1">
             {priorityDot(task.priority)}
-            <span className="text-[10px] text-zinc-500 capitalize">{task.priority}</span>
+            <span className="text-[10px] text-muted-foreground/60 capitalize">{task.priority}</span>
           </div>
           <StatusBadge status={task.status} />
           {task.due_date && <DeadlinePill due_date={task.due_date} />}
@@ -315,20 +315,20 @@ function DetailPanel({
         {/* Chips */}
         <div className="flex flex-wrap gap-1.5">
           {task.assigned_to && (
-            <div className="flex items-center gap-1 text-[11px] bg-[#252523] border border-[#333331] rounded-full px-2 py-0.5 text-[#8A8A85]">
-              <div className="w-3.5 h-3.5 rounded-full bg-[#333331] flex items-center justify-center text-[8px] text-[#F0EFEC]">
+            <div className="flex items-center gap-1 text-[11px] bg-muted/50 border border-border rounded-full px-2 py-0.5 text-muted-foreground">
+              <div className="w-3.5 h-3.5 rounded-full bg-[#333331] flex items-center justify-center text-[8px] text-foreground">
                 {(getAssigneeName(task.assigned_to) || "?")[0]?.toUpperCase()}
               </div>
               {getAssigneeName(task.assigned_to) || "Assigned"}
             </div>
           )}
           {task.project_id && (
-            <div className="text-[11px] bg-[#252523] border border-[#333331] rounded-full px-2 py-0.5 text-[#8A8A85]">
+            <div className="text-[11px] bg-muted/50 border border-border rounded-full px-2 py-0.5 text-muted-foreground">
               <ProjectNameDisplay projectId={task.project_id} />
             </div>
           )}
           {task.due_date && (
-            <div className="flex items-center gap-1 text-[11px] bg-[#252523] border border-[#333331] rounded-full px-2 py-0.5 text-[#8A8A85]">
+            <div className="flex items-center gap-1 text-[11px] bg-muted/50 border border-border rounded-full px-2 py-0.5 text-muted-foreground">
               <Calendar size={10} />
               {format(new Date(task.due_date), "MMM d, yyyy")}
             </div>
@@ -337,7 +337,7 @@ function DetailPanel({
       </div>
 
       {/* Tab bar */}
-      <div className="flex border-b border-[#333331] px-4">
+      <div className="flex border-b border-border px-4">
         {(["details", "comments"] as const).map(tab => (
           <button
             key={tab}
@@ -345,8 +345,8 @@ function DetailPanel({
             className={cn(
               "text-xs py-2.5 mr-4 border-b-2 capitalize transition-colors",
               activeTab === tab
-                ? "border-zinc-300 text-zinc-200 font-medium"
-                : "border-transparent text-zinc-500 hover:text-zinc-300"
+                ? "border-zinc-300 text-foreground/90 font-medium"
+                : "border-transparent text-muted-foreground/60 hover:text-foreground/80"
             )}
           >
             {tab}
@@ -360,8 +360,8 @@ function DetailPanel({
           <>
             {task.notes && (
               <div>
-                <p className="text-[10px] uppercase tracking-widest font-medium text-[#555552] mb-2">Notes</p>
-                <p className="text-xs text-[#8A8A85] leading-relaxed bg-[#252523] rounded-lg p-3 border border-[#333331]">
+                <p className="text-[10px] uppercase tracking-widest font-medium text-muted-foreground/60 mb-2">Notes</p>
+                <p className="text-xs text-muted-foreground leading-relaxed bg-muted/50 rounded-lg p-3 border border-border">
                   {task.notes}
                 </p>
               </div>
@@ -369,7 +369,7 @@ function DetailPanel({
 
             {task.vault_attachments && task.vault_attachments.length > 0 && (
               <div>
-                <p className="text-[10px] uppercase tracking-widest font-medium text-[#555552] mb-2">Vault attachments</p>
+                <p className="text-[10px] uppercase tracking-widest font-medium text-muted-foreground/60 mb-2">Vault attachments</p>
                 <div className="flex flex-col gap-2">
                   {task.vault_attachments.map((a) => (
                     <a
@@ -377,16 +377,16 @@ function DetailPanel({
                       href={a.drive_file_url || a.link_url || "#"}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center gap-2.5 p-2.5 bg-[#252523] border border-[#333331] rounded-lg hover:border-[#444442] transition-colors group"
+                      className="flex items-center gap-2.5 p-2.5 bg-muted/50 border border-border rounded-lg hover:border-border transition-colors group"
                     >
                       <div className="w-7 h-7 rounded bg-blue-500/20 flex items-center justify-center shrink-0">
                         <Paperclip size={12} className="text-blue-400" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-[#F0EFEC] truncate">{a.title}</p>
-                        <p className="text-[10px] text-[#555552]">Vault file</p>
+                        <p className="text-xs font-medium text-foreground truncate">{a.title}</p>
+                        <p className="text-[10px] text-muted-foreground/60">Vault file</p>
                       </div>
-                      <ChevronRight size={12} className="text-[#555552] group-hover:text-[#8A8A85] transition-colors" />
+                      <ChevronRight size={12} className="text-muted-foreground/60 group-hover:text-muted-foreground transition-colors" />
                     </a>
                   ))}
                 </div>
@@ -395,7 +395,7 @@ function DetailPanel({
 
             {task.resources && task.resources.length > 0 && (
               <div>
-                <p className="text-[10px] uppercase tracking-widest font-medium text-[#555552] mb-2">Links</p>
+                <p className="text-[10px] uppercase tracking-widest font-medium text-muted-foreground/60 mb-2">Links</p>
                 <div className="flex flex-wrap gap-1.5">
                   {task.resources.map((r, i) => (
                     <a
@@ -403,7 +403,7 @@ function DetailPanel({
                       href={r.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-[11px] px-2.5 py-1 bg-[#252523] border border-[#333331] rounded-md text-[#8A8A85] hover:text-[#F0EFEC] hover:border-[#444442] transition-colors"
+                      className="text-[11px] px-2.5 py-1 bg-muted/50 border border-border rounded-md text-muted-foreground hover:text-foreground hover:border-border transition-colors"
                     >
                       {r.title || r.url}
                     </a>
@@ -414,7 +414,7 @@ function DetailPanel({
 
             {task.deliverable_required && (
               <div>
-                <p className="text-[10px] uppercase tracking-widest font-medium text-zinc-600 mb-2">Deliverable</p>
+                <p className="text-[10px] uppercase tracking-widest font-medium text-muted-foreground/40 mb-2">Deliverable</p>
                 <div className={cn(
                   "p-3 rounded-lg border",
                   task.deliverable_vault_item_id
@@ -428,7 +428,7 @@ function DetailPanel({
                     {task.deliverable_vault_item_id ? "✓ Deliverable submitted" : "Awaiting submission"}
                   </p>
                   {task.deliverable_description && (
-                    <p className="text-[11px] text-zinc-500">{task.deliverable_description}</p>
+                    <p className="text-[11px] text-muted-foreground/60">{task.deliverable_description}</p>
                   )}
                 </div>
               </div>
@@ -436,7 +436,7 @@ function DetailPanel({
 
             {/* Status quick-change */}
             <div>
-              <p className="text-[10px] uppercase tracking-widest font-medium text-[#555552] mb-2">Status</p>
+              <p className="text-[10px] uppercase tracking-widest font-medium text-muted-foreground/60 mb-2">Status</p>
               <div className="flex flex-wrap gap-1.5">
                 {STATUSES.map(s => (
                   <button
@@ -445,8 +445,8 @@ function DetailPanel({
                     className={cn(
                       "text-[11px] px-2.5 py-1 rounded-full border capitalize transition-colors",
                       task.status === s
-                        ? "bg-[#F0EFEC] text-[#1C1C1A] border-[#F0EFEC] font-medium"
-                        : "bg-transparent text-[#555552] border-[#333331] hover:border-[#444442] hover:text-[#F0EFEC]"
+                        ? "bg-[#F0EFEC] text-background border-[#F0EFEC] font-medium"
+                        : "bg-transparent text-muted-foreground/60 border-border hover:border-border hover:text-foreground"
                     )}
                   >
                     {s.replace("-", " ")}
@@ -464,10 +464,10 @@ function DetailPanel({
 
       {/* Footer */}
       {canEditOrDelete && (
-        <div className="px-4 py-3 border-t border-[#333331] flex gap-2">
+        <div className="px-4 py-3 border-t border-border flex gap-2">
           <button
             onClick={() => onEdit(task)}
-            className="flex-1 h-8 text-xs font-medium rounded-md bg-[#252523] hover:bg-[#2E2E2C] text-[#F0EFEC] transition-colors flex items-center justify-center gap-1.5"
+            className="flex-1 h-8 text-xs font-medium rounded-md bg-muted/50 hover:bg-muted text-foreground transition-colors flex items-center justify-center gap-1.5"
           >
             <Pencil size={11} />Edit
           </button>
@@ -543,17 +543,17 @@ function AnalyticsBar({ tasks, teamMembers }: {
   }
 
   return (
-    <div className="border-b border-[#333331] bg-[#1C1C1A]">
+    <div className="border-b border-border bg-background">
       {/* Row 1: primary metrics */}
       <div className="grid grid-cols-4 divide-x divide-[#333331]">
         {/* Completion rate */}
         <div className="px-4 py-3">
-          <p className="text-[10px] uppercase tracking-widest text-zinc-600 mb-1.5">Completion rate</p>
+          <p className="text-[10px] uppercase tracking-widest text-muted-foreground/40 mb-1.5">Completion rate</p>
           <div className="flex items-baseline gap-2 mb-2">
             <span className="text-xl font-medium text-emerald-400">{completionRate}%</span>
-            <span className="text-xs text-zinc-600">this period</span>
+            <span className="text-xs text-muted-foreground/40">this period</span>
           </div>
-          <div className="h-1 bg-zinc-800 rounded-full overflow-hidden">
+          <div className="h-1 bg-muted rounded-full overflow-hidden">
             <div
               className="h-full bg-emerald-500 rounded-full transition-all duration-500"
               style={{ width: `${completionRate}%` }}
@@ -563,16 +563,16 @@ function AnalyticsBar({ tasks, teamMembers }: {
 
         {/* Created vs completed */}
         <div className="px-4 py-3">
-          <p className="text-[10px] uppercase tracking-widest text-zinc-600 mb-1.5">Volume</p>
+          <p className="text-[10px] uppercase tracking-widest text-muted-foreground/40 mb-1.5">Volume</p>
           <div className="flex items-baseline gap-3">
             <div>
-              <span className="text-xl font-medium text-zinc-200">{allStats.createdThisWeek}</span>
-              <span className="text-[10px] text-zinc-600 ml-1">created</span>
+              <span className="text-xl font-medium text-foreground/90">{allStats.createdThisWeek}</span>
+              <span className="text-[10px] text-muted-foreground/40 ml-1">created</span>
             </div>
-            <span className="text-zinc-700">·</span>
+            <span className="text-muted-foreground/30">·</span>
             <div>
               <span className="text-xl font-medium text-emerald-400">{allStats.completed}</span>
-              <span className="text-[10px] text-zinc-600 ml-1">done</span>
+              <span className="text-[10px] text-muted-foreground/40 ml-1">done</span>
             </div>
           </div>
         </div>
@@ -580,14 +580,14 @@ function AnalyticsBar({ tasks, teamMembers }: {
         {/* Overdue — clickable */}
         <button
           onClick={() => setShowOverdue(v => !v)}
-          className="px-4 py-3 text-left hover:bg-zinc-900 transition-colors"
+          className="px-4 py-3 text-left hover:bg-muted/80 transition-colors"
         >
-          <p className="text-[10px] uppercase tracking-widest text-zinc-600 mb-1.5">Overdue</p>
+          <p className="text-[10px] uppercase tracking-widest text-muted-foreground/40 mb-1.5">Overdue</p>
           <div className="flex items-baseline gap-2">
-            <span className={cn("text-xl font-medium", allStats.overdue > 0 ? "text-red-400" : "text-zinc-400")}>
+            <span className={cn("text-xl font-medium", allStats.overdue > 0 ? "text-red-400" : "text-muted-foreground")}>
               {allStats.overdue}
             </span>
-            <span className="text-xs text-zinc-600">tasks</span>
+            <span className="text-xs text-muted-foreground/40">tasks</span>
           </div>
           {allStats.overdue > 0 && (
             <p className="text-[10px] text-red-500/70 mt-0.5 flex items-center gap-1">
@@ -598,19 +598,19 @@ function AnalyticsBar({ tasks, teamMembers }: {
 
         {/* Blocked */}
         <div className="px-4 py-3">
-          <p className="text-[10px] uppercase tracking-widest text-zinc-600 mb-1.5">Blocked</p>
+          <p className="text-[10px] uppercase tracking-widest text-muted-foreground/40 mb-1.5">Blocked</p>
           <div className="flex items-baseline gap-2">
-            <span className={cn("text-xl font-medium", allStats.blocked > 0 ? "text-amber-400" : "text-zinc-400")}>
+            <span className={cn("text-xl font-medium", allStats.blocked > 0 ? "text-amber-400" : "text-muted-foreground")}>
               {allStats.blocked}
             </span>
-            <span className="text-xs text-zinc-600">tasks</span>
+            <span className="text-xs text-muted-foreground/40">tasks</span>
           </div>
         </div>
       </div>
 
       {/* Overdue panel */}
       {showOverdue && overdueTasks.length > 0 && (
-        <div className="px-4 py-3 border-t border-[#333331] bg-red-900/10">
+        <div className="px-4 py-3 border-t border-border bg-destructive/5">
           <p className="text-[10px] uppercase tracking-widest text-red-500 mb-2 font-medium">{overdueTasks.length} overdue tasks</p>
           <div className="flex flex-col gap-1.5">
             {overdueTasks.slice(0, 5).map(t => (
@@ -630,10 +630,10 @@ function AnalyticsBar({ tasks, teamMembers }: {
       )}
 
       {/* Row 2: status dist + workload + priority */}
-      <div className="grid grid-cols-3 divide-x divide-[#333331] border-t border-[#333331]">
+      <div className="grid grid-cols-3 divide-x divide-[#333331] border-t border-border">
         {/* Status distribution */}
         <div className="px-4 py-3">
-          <p className="text-[10px] uppercase tracking-widest text-zinc-600 mb-2">Status breakdown</p>
+          <p className="text-[10px] uppercase tracking-widest text-muted-foreground/40 mb-2">Status breakdown</p>
           <div className="flex h-1.5 rounded-full overflow-hidden gap-px mb-2">
             {statusOrder.map(s => {
               const count = statusCounts[s]
@@ -649,7 +649,7 @@ function AnalyticsBar({ tasks, teamMembers }: {
           </div>
           <div className="flex flex-wrap gap-x-3 gap-y-1">
             {statusOrder.map(s => (
-              <span key={s} className="flex items-center gap-1 text-[10px] text-zinc-500">
+              <span key={s} className="flex items-center gap-1 text-[10px] text-muted-foreground/60">
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: statusColors[s], display: "inline-block" }} />
                 {s.replace("-", " ")} {statusCounts[s]}
               </span>
@@ -659,33 +659,33 @@ function AnalyticsBar({ tasks, teamMembers }: {
 
         {/* Team workload */}
         <div className="px-4 py-3">
-          <p className="text-[10px] uppercase tracking-widest text-zinc-600 mb-2">Workload</p>
+          <p className="text-[10px] uppercase tracking-widest text-muted-foreground/40 mb-2">Workload</p>
           <div className="flex flex-col gap-1.5">
             {Object.entries(workload).slice(0, 4).map(([uid, count]) => {
               const member = teamMembers.find(m => m.user_id === uid)
               const name = member?.profile?.full_name || uid.slice(0, 8)
               return (
                 <div key={uid} className="flex items-center gap-2">
-                  <span className="text-[11px] text-zinc-500 w-16 truncate shrink-0">{name.split(" ")[0]}</span>
-                  <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                  <span className="text-[11px] text-muted-foreground/60 w-16 truncate shrink-0">{name.split(" ")[0]}</span>
+                  <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
                     <div
                       className="h-full bg-blue-500 rounded-full transition-all duration-500"
                       style={{ width: `${(count / maxWorkload) * 100}%` }}
                     />
                   </div>
-                  <span className="text-[10px] text-zinc-600 w-4 text-right shrink-0">{count}</span>
+                  <span className="text-[10px] text-muted-foreground/40 w-4 text-right shrink-0">{count}</span>
                 </div>
               )
             })}
             {Object.keys(workload).length === 0 && (
-              <p className="text-[11px] text-zinc-700">No assigned tasks</p>
+              <p className="text-[11px] text-muted-foreground/30">No assigned tasks</p>
             )}
           </div>
         </div>
 
         {/* Priority breakdown */}
         <div className="px-4 py-3">
-          <p className="text-[10px] uppercase tracking-widest text-zinc-600 mb-2">By priority</p>
+          <p className="text-[10px] uppercase tracking-widest text-muted-foreground/40 mb-2">By priority</p>
           <div className="flex flex-col gap-1">
             {[
               { key: "urgent", color: "#E24B4A", label: "Urgent" },
@@ -694,11 +694,11 @@ function AnalyticsBar({ tasks, teamMembers }: {
               { key: "low", color: "#B4B2A9", label: "Low" },
             ].map(({ key, color, label }) => (
               <div key={key} className="flex items-center justify-between text-[11px]">
-                <span className="flex items-center gap-1.5 text-zinc-500">
+                <span className="flex items-center gap-1.5 text-muted-foreground/60">
                   <span style={{ width: 6, height: 6, borderRadius: "50%", background: color, display: "inline-block" }} />
                   {label}
                 </span>
-                <span className="text-zinc-400 font-medium">{priBreakdown[key] || 0}</span>
+                <span className="text-muted-foreground font-medium">{priBreakdown[key] || 0}</span>
               </div>
             ))}
           </div>
@@ -731,8 +731,8 @@ function TaskRow({
         "flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer group transition-all",
         "border",
         selected
-          ? "bg-[#252523] border-[#444442]"
-          : "bg-[#1C1C1A] border-transparent hover:bg-[#252523]/80 hover:border-[#333331]",
+          ? "bg-muted/50 border-border"
+          : "bg-background border-transparent hover:bg-muted/40 hover:border-border",
         task.is_completed && "opacity-40"
       )}
       onClick={onSelect}
@@ -744,7 +744,7 @@ function TaskRow({
           "w-4 h-4 rounded-full border flex items-center justify-center shrink-0 transition-all",
           task.is_completed
             ? "bg-emerald-500 border-emerald-500"
-            : "border-zinc-700 hover:border-emerald-500/60"
+            : "border-border/80 hover:border-emerald-500/60"
         )}
       >
         {task.is_completed && (
@@ -759,8 +759,8 @@ function TaskRow({
 
       {/* Title */}
       <span className={cn(
-        "flex-1 min-w-0 text-sm text-zinc-200 truncate",
-        task.is_completed && "line-through text-zinc-600"
+        "flex-1 min-w-0 text-sm text-foreground/90 truncate",
+        task.is_completed && "line-through text-muted-foreground/40"
       )}>
         {task.title}
       </span>
@@ -771,13 +771,13 @@ function TaskRow({
           <Paperclip size={11} className="text-blue-500/60" />
         )}
         {commentCount > 0 && (
-          <span className="flex items-center gap-0.5 text-[10px] text-zinc-600">
+          <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground/40">
             <MessageSquare size={10} />{commentCount}
           </span>
         )}
         {task.due_date && <DeadlinePill due_date={task.due_date} />}
         {task.assigned_to && (
-          <div className="w-5 h-5 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-[9px] text-zinc-300 font-medium">
+          <div className="w-5 h-5 rounded-full bg-muted border border-border/80 flex items-center justify-center text-[9px] text-foreground/80 font-medium">
             {(getAssigneeName(task.assigned_to) || "?")[0]?.toUpperCase()}
           </div>
         )}
@@ -790,13 +790,13 @@ function TaskRow({
           <>
             <button
               onClick={e => { e.stopPropagation(); onEdit(task) }}
-              className="w-6 h-6 rounded flex items-center justify-center text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+              className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground/40 hover:text-foreground/80 hover:bg-muted transition-colors"
             >
               <Pencil size={11} />
             </button>
             <button
               onClick={e => { e.stopPropagation(); onDelete(task.id) }}
-              className="w-6 h-6 rounded flex items-center justify-center text-zinc-700 hover:text-red-400 hover:bg-zinc-800 transition-colors"
+              className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground/30 hover:text-red-400 hover:bg-muted transition-colors"
             >
               <Trash2 size={11} />
             </button>
@@ -1116,14 +1116,14 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
 
   return (
     <div
-      className="flex flex-col rounded-xl overflow-hidden border border-zinc-800"
-      style={{ fontFamily: "'DM Sans', sans-serif", background: "#1C1C1A" }}
+className="flex flex-col rounded-xl overflow-hidden border border-border bg-background"
+  style={{ fontFamily: "'DM Sans', sans-serif" }}
     >
       {/* ── Page header ── */}
-      <div className="flex items-start justify-between px-5 pt-5 pb-4 border-b border-[#333331] bg-[#1C1C1A]">
+      <div className="flex items-start justify-between px-5 pt-5 pb-4 border-b border-border bg-background">
         <div>
-          <h1 className="text-lg font-semibold text-zinc-100 tracking-tight">Tasks & Execution</h1>
-          <p className="text-xs text-zinc-600 mt-0.5">Founder-first task management — no complexity, just momentum.</p>
+          <h1 className="text-lg font-semibold text-foreground tracking-tight">Tasks & Execution</h1>
+          <p className="text-xs text-muted-foreground/40 mt-0.5">Founder-first task management — no complexity, just momentum.</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -1131,8 +1131,8 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
             className={cn(
               "h-8 px-3 text-xs rounded-md border transition-colors flex items-center gap-1.5",
               showAnalytics
-                ? "bg-[#2E2E2C] border-[#444442] text-[#F0EFEC]"
-                : "bg-transparent border-[#333331] text-[#8A8A85] hover:text-[#F0EFEC]"
+                ? "bg-muted border-border text-foreground"
+                : "bg-transparent border-border text-muted-foreground hover:text-foreground"
             )}
           >
             <BarChart2 size={12} />Analytics
@@ -1145,14 +1145,14 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
               <DialogTrigger asChild>
                 <button
                   onClick={() => fetchTeamMembers()}
-                  className="h-8 px-3 text-xs font-medium rounded-md bg-[#F0EFEC] hover:bg-white text-[#1C1C1A] transition-colors flex items-center gap-1.5"
+                  className="h-8 px-3 text-xs font-medium rounded-md bg-[#F0EFEC] hover:bg-foreground/90 text-background transition-colors flex items-center gap-1.5"
                 >
                   <Plus size={13} />Add task
                 </button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-[580px] bg-[#1C1C1A] border-[#333331] text-[#F0EFEC]">
+              <DialogContent className="sm:max-w-[580px]">
                 <DialogHeader>
-                  <DialogTitle className="text-[#F0EFEC]">Add New Task</DialogTitle>
+                  <DialogTitle className="text-foreground">Add New Task</DialogTitle>
                 </DialogHeader>
                 <TaskForm
                   task={newTask} onTaskChange={setNewTask} teamMembers={teamMembers}
@@ -1160,8 +1160,8 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
                   newResourceTitle={newResourceTitle} setNewResourceTitle={setNewResourceTitle}
                 />
                 <DialogFooter>
-                  <Button variant="outline" onClick={() => setIsDialogOpen(false)} className="border-[#444442] text-[#8A8A85] bg-transparent hover:bg-[#252523]">Cancel</Button>
-                  <Button onClick={handleAddTask} className="bg-[#F0EFEC] text-[#1C1C1A] hover:bg-white">Create Task</Button>
+                  <Button variant="outline" onClick={() => setIsDialogOpen(false)} className="border-border text-muted-foreground bg-transparent hover:bg-muted/40">Cancel</Button>
+                  <Button onClick={handleAddTask} className="bg-foreground text-background hover:bg-foreground/90">Create Task</Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
@@ -1176,14 +1176,14 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
 
       {/* ── Project filter ── */}
       {projects.length > 0 && (
-        <div className="flex items-center gap-1.5 px-4 py-2.5 border-b border-[#333331] bg-[#1C1C1A] overflow-x-auto scrollbar-hide">
+        <div className="flex items-center gap-1.5 px-4 py-2.5 border-b border-border bg-background overflow-x-auto scrollbar-hide">
           <button
             onClick={() => setFilterProject("all")}
             className={cn(
               "shrink-0 px-3 py-1 rounded-full text-xs transition-colors border",
               filterProject === "all"
                 ? "bg-zinc-200 text-zinc-900 border-zinc-200 font-medium"
-                : "border-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300"
+                : "border-border text-muted-foreground/60 hover:border-zinc-600 hover:text-foreground/80"
             )}
           >All projects</button>
           {projects.map(p => (
@@ -1194,7 +1194,7 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
                 "shrink-0 px-3 py-1 rounded-full text-xs transition-colors border",
                 filterProject === p.id
                   ? "bg-zinc-200 text-zinc-900 border-zinc-200 font-medium"
-                  : "border-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300"
+                  : "border-border text-muted-foreground/60 hover:border-zinc-600 hover:text-foreground/80"
               )}
             >{p.name}</button>
           ))}
@@ -1202,7 +1202,7 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
       )}
 
       {/* ── Toolbar ── */}
-      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[#333331] bg-[#1C1C1A]">
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-background">
         <div className="flex items-center gap-1.5">
           {BUCKETS.map(b => (
             <button
@@ -1211,8 +1211,8 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
               className={cn(
                 "px-3 py-1.5 rounded-md text-xs transition-colors",
                 activeBucket === b
-                  ? "bg-zinc-800 text-zinc-200 font-medium"
-                  : "text-zinc-500 hover:text-zinc-300"
+                  ? "bg-muted text-foreground/90 font-medium"
+                  : "text-muted-foreground/60 hover:text-foreground/80"
               )}
             >
               {b.charAt(0).toUpperCase() + b.slice(1).replace("-", " ")}
@@ -1221,18 +1221,18 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
         </div>
         <div className="flex items-center gap-2 ml-auto">
           <div className="relative">
-            <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600" />
+            <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/40" />
             <input
               placeholder="Search tasks…"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="h-7 pl-7 pr-3 text-xs bg-[#252523] border border-[#333331] rounded-md text-[#F0EFEC] placeholder:text-[#555552] outline-none focus:border-[#555552] w-44"
+              className="h-7 pl-7 pr-3 text-xs bg-muted/50 border border-border rounded-md text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-ring w-44"
             />
           </div>
           <select
             value={filterPriority}
             onChange={e => setFilterPriority(e.target.value)}
-            className="h-7 px-2 text-xs bg-[#252523] border border-[#333331] rounded-md text-[#8A8A85] outline-none focus:border-[#555552]"
+            className="h-7 px-2 text-xs bg-muted/50 border border-border rounded-md text-muted-foreground outline-none focus:border-ring"
           >
             <option value="all">All priorities</option>
             {PRIORITIES.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
@@ -1244,13 +1244,13 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
       <div className="flex min-h-[440px] max-h-[680px]">
         {/* Task list */}
         <div className={cn("flex flex-col min-w-0 overflow-y-auto", detailTask ? "flex-[3]" : "flex-1")}>
-          <div className="px-3 py-2 flex flex-col gap-0.5 bg-[#1C1C1A]">
+          <div className="px-3 py-2 flex flex-col gap-0.5 bg-background">
             {/* Active section */}
             {activeTasks.length > 0 && (
               <>
                 <div className="flex items-center gap-1.5 px-1 py-1.5 mb-0.5">
-                  <span className="text-[10px] uppercase tracking-widest text-zinc-600 font-medium">Active</span>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-800 text-zinc-600">{activeTasks.length}</span>
+                  <span className="text-[10px] uppercase tracking-widest text-muted-foreground/40 font-medium">Active</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground/40">{activeTasks.length}</span>
                 </div>
                 {activeTasks.map(task => (
                   <TaskRow
@@ -1277,9 +1277,9 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
                   onClick={() => setCompletedOpen(v => !v)}
                   className="flex items-center gap-1.5 px-1 py-1.5 mb-0.5 w-full text-left"
                 >
-                  {completedOpen ? <ChevronDown size={12} className="text-zinc-600" /> : <ChevronRight size={12} className="text-zinc-600" />}
-                  <span className="text-[10px] uppercase tracking-widest text-zinc-600 font-medium">Completed</span>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-800 text-zinc-600">{completedTasks.length}</span>
+                  {completedOpen ? <ChevronDown size={12} className="text-muted-foreground/40" /> : <ChevronRight size={12} className="text-muted-foreground/40" />}
+                  <span className="text-[10px] uppercase tracking-widest text-muted-foreground/40 font-medium">Completed</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground/40">{completedTasks.length}</span>
                 </button>
                 {completedOpen && completedTasks.map(task => (
                   <TaskRow
@@ -1302,12 +1302,12 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
             {/* Empty state */}
             {filteredTasks.length === 0 && (
               <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
-                <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center">
-                  <CheckCircle2 size={18} className="text-zinc-700" />
+                <div className="w-10 h-10 rounded-xl bg-muted/80 border border-border flex items-center justify-center">
+                  <CheckCircle2 size={18} className="text-muted-foreground/30" />
                 </div>
                 <div>
-                  <p className="text-sm text-zinc-500 font-medium">No tasks here</p>
-                  <p className="text-xs text-zinc-700 mt-0.5">
+                  <p className="text-sm text-muted-foreground/60 font-medium">No tasks here</p>
+                  <p className="text-xs text-muted-foreground/30 mt-0.5">
                     {searchQuery ? "Try a different search" : "Add a task to get started"}
                   </p>
                 </div>
@@ -1339,9 +1339,9 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
         setIsEditOpen(open)
         if (!open) { setEditingTask(null); setNewTask(INITIAL_TASK_STATE) }
       }}>
-        <DialogContent className="sm:max-w-[580px] bg-[#1C1C1A] border-[#333331] text-[#F0EFEC]">
+        <DialogContent className="sm:max-w-[580px]">
           <DialogHeader>
-            <DialogTitle className="text-[#F0EFEC]">Edit Task</DialogTitle>
+            <DialogTitle className="text-foreground">Edit Task</DialogTitle>
           </DialogHeader>
           <TaskForm
             task={newTask} onTaskChange={setNewTask} teamMembers={teamMembers}
@@ -1349,21 +1349,21 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
             newResourceTitle={newResourceTitle} setNewResourceTitle={setNewResourceTitle}
           />
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditOpen(false)} className="border-[#444442] text-[#8A8A85] bg-transparent hover:bg-[#252523]">Cancel</Button>
-            <Button onClick={handleUpdateTask} className="bg-[#F0EFEC] text-[#1C1C1A] hover:bg-white">Save Changes</Button>
+            <Button variant="outline" onClick={() => setIsEditOpen(false)} className="border-border text-muted-foreground bg-transparent hover:bg-muted/40">Cancel</Button>
+            <Button onClick={handleUpdateTask} className="bg-foreground text-background hover:bg-foreground/90">Save Changes</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* ── Delete dialog ── */}
       <AlertDialog open={isDeleteModalOpen} onOpenChange={setIsDeleteModalOpen}>
-        <AlertDialogContent className="bg-[#1C1C1A] border-[#333331]">
+        <AlertDialogContent className="bg-background border-border">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-[#F0EFEC]">Delete Task</AlertDialogTitle>
-            <AlertDialogDescription className="text-[#555552]">This action cannot be undone.</AlertDialogDescription>
+            <AlertDialogTitle className="text-foreground">Delete Task</AlertDialogTitle>
+            <AlertDialogDescription className="text-muted-foreground/60">This action cannot be undone.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="border-[#444442] text-[#8A8A85] bg-transparent hover:bg-[#252523]">Cancel</AlertDialogCancel>
+            <AlertDialogCancel className="border-border text-muted-foreground bg-transparent hover:bg-muted/40">Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteTask} className="bg-red-600 hover:bg-red-500 text-white border-none">Delete</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1371,33 +1371,33 @@ export function TaskView({ permissions, userType }: TaskViewProps = {}) {
 
       {/* ── Deliverable modal ── */}
       <Dialog open={!!deliverableModal} onOpenChange={v => { if (!v) { setDeliverableModal(null); setDeliverableForm({ title: "", description: "", linkUrl: "" }); setDeliverableFile(null) } }}>
-        <DialogContent className="sm:max-w-[460px] bg-[#1C1C1A] border-[#333331]">
+        <DialogContent className="sm:max-w-[460px]">
           <DialogHeader>
-            <DialogTitle className="text-[#F0EFEC]">Submit Deliverable</DialogTitle>
-            <p className="text-xs text-[#555552]">Will be saved to the project's Deliverables folder in the Vault.</p>
+            <DialogTitle className="text-foreground">Submit Deliverable</DialogTitle>
+            <p className="text-xs text-muted-foreground/60">Will be saved to the project's Deliverables folder in the Vault.</p>
           </DialogHeader>
           <div className="space-y-3 py-1">
             <div className="space-y-1.5">
-              <Label className="text-xs text-[#8A8A85]">Title <span className="text-red-400">*</span></Label>
-              <Input placeholder="e.g. Final design files" value={deliverableForm.title} onChange={e => setDeliverableForm(p => ({ ...p, title: e.target.value }))} className="bg-[#252523] border-[#333331] text-[#F0EFEC] placeholder:text-[#555552]" />
+              <Label className="text-xs text-muted-foreground">Title <span className="text-red-400">*</span></Label>
+              <Input placeholder="e.g. Final design files" value={deliverableForm.title} onChange={e => setDeliverableForm(p => ({ ...p, title: e.target.value }))} className="" />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs text-[#8A8A85]">Description</Label>
-              <Input placeholder="What's included…" value={deliverableForm.description} onChange={e => setDeliverableForm(p => ({ ...p, description: e.target.value }))} className="bg-[#252523] border-[#333331] text-[#F0EFEC] placeholder:text-[#555552]" />
+              <Label className="text-xs text-muted-foreground">Description</Label>
+              <Input placeholder="What's included…" value={deliverableForm.description} onChange={e => setDeliverableForm(p => ({ ...p, description: e.target.value }))} className="" />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs text-[#8A8A85]">Upload file</Label>
-              <input type="file" onChange={e => setDeliverableFile(e.target.files?.[0] || null)} className="text-xs text-[#8A8A85] w-full" />
+              <Label className="text-xs text-muted-foreground">Upload file</Label>
+              <input type="file" onChange={e => setDeliverableFile(e.target.files?.[0] || null)} className="text-xs text-muted-foreground w-full" />
             </div>
-            <div className="flex items-center gap-2"><div className="flex-1 h-px bg-[#333331]" /><span className="text-xs text-[#444442]">or</span><div className="flex-1 h-px bg-[#333331]" /></div>
+            <div className="flex items-center gap-2"><div className="flex-1 h-px bg-[#333331]" /><span className="text-xs text-muted-foreground/40">or</span><div className="flex-1 h-px bg-[#333331]" /></div>
             <div className="space-y-1.5">
-              <Label className="text-xs text-[#8A8A85]">Paste a link</Label>
-              <Input placeholder="https://…" value={deliverableForm.linkUrl} onChange={e => setDeliverableForm(p => ({ ...p, linkUrl: e.target.value }))} className="bg-[#252523] border-[#333331] text-[#F0EFEC] placeholder:text-[#555552]" />
+              <Label className="text-xs text-muted-foreground">Paste a link</Label>
+              <Input placeholder="https://…" value={deliverableForm.linkUrl} onChange={e => setDeliverableForm(p => ({ ...p, linkUrl: e.target.value }))} className="" />
             </div>
           </div>
           <div className="flex gap-2 justify-end pt-1">
-            <Button variant="outline" onClick={() => handleSubmitDeliverable(true)} disabled={submittingDeliverable} className="border-[#444442] text-[#8A8A85] bg-transparent hover:bg-[#252523]">Skip & complete</Button>
-            <Button onClick={() => handleSubmitDeliverable(false)} disabled={submittingDeliverable} className="bg-[#F0EFEC] text-[#1C1C1A] hover:bg-white">{submittingDeliverable ? "Submitting…" : "Submit & complete"}</Button>
+            <Button variant="outline" onClick={() => handleSubmitDeliverable(true)} disabled={submittingDeliverable} className="border-border text-muted-foreground bg-transparent hover:bg-muted/40">Skip & complete</Button>
+            <Button onClick={() => handleSubmitDeliverable(false)} disabled={submittingDeliverable} className="bg-foreground text-background hover:bg-foreground/90">{submittingDeliverable ? "Submitting…" : "Submit & complete"}</Button>
           </div>
         </DialogContent>
       </Dialog>

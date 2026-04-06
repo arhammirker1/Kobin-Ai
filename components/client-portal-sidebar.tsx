@@ -75,7 +75,7 @@ export function ClientPortalSidebar({
           </div>
         </div>
       </SidebarHeader>
-      <SidebarContent>
+      <SidebarContent className="[&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         <SidebarGroup>
           <SidebarGroupLabel className="px-6">Menu</SidebarGroupLabel>
           <SidebarGroupContent>

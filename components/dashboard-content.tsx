@@ -55,11 +55,11 @@ const mainNav = [
   { title: "LinkedIn", icon: Linkedin },
   { title: "Relationships", icon: Users },
   { title: "Vault", icon: FileText },
-  { title: "Inbox", icon: Inbox, badge: "4" },
+  { title: "Inbox", icon: Inbox },
 ]
 
 const extraNav = [
-  { title: "Team", icon: Users2, badge: "9+" },
+  { title: "Team", icon: Users2 },
   { title: "Clients", icon: UserCircle },
   { title: "Settings", icon: Settings },
 ]
@@ -70,12 +70,16 @@ function SidebarInner({
   userName,
   userEmail,
   userInitials,
+  inboxUnread,
+  teamCount,
 }: {
   activeTab: string
   setActiveTab: (tab: string) => void
   userName: string
   userEmail: string
   userInitials: string
+  inboxUnread: number
+  teamCount: number
 }) {
   const { state, toggleSidebar } = useSidebar()
   const collapsed = state === "collapsed"
@@ -106,7 +110,7 @@ function SidebarInner({
         </div>
       </SidebarHeader>
 
-      <SidebarContent className="py-2 overflow-y-auto overflow-x-hidden">
+      <SidebarContent className="py-2 overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         {/* Workspace group */}
         <SidebarGroup className="px-2">
           {!collapsed && (
@@ -138,16 +142,16 @@ function SidebarInner({
                           isActive ? "text-white" : "text-sidebar-foreground/60"
                         )}
                       />
-                      {!collapsed && (
-                        <>
-                          <span className="flex-1 truncate">{item.title}</span>
-                          {item.badge && (
-                            <span className="ml-auto flex h-4.5 min-w-[18px] items-center justify-center rounded-full bg-[#5B4FE8] px-1.5 text-[10px] font-semibold text-white">
-                              {item.badge}
-                            </span>
-                          )}
-                        </>
-                      )}
+{!collapsed && (
+  <>
+    <span className="flex-1 truncate">{item.title}</span>
+    {item.title === "Team" && teamCount > 0 && (
+      <span className="ml-auto flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#5B4FE8] px-1.5 text-[10px] font-semibold text-white">
+        {teamCount > 99 ? "99+" : teamCount}
+      </span>
+    )}
+  </>
+)}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 )
@@ -190,16 +194,16 @@ function SidebarInner({
                           isActive ? "text-white" : "text-sidebar-foreground/60"
                         )}
                       />
-                      {!collapsed && (
-                        <>
-                          <span className="flex-1 truncate">{item.title}</span>
-                          {item.badge && (
-                            <span className="ml-auto flex h-4.5 min-w-[18px] items-center justify-center rounded-full bg-[#5B4FE8] px-1.5 text-[10px] font-semibold text-white">
-                              {item.badge}
-                            </span>
-                          )}
-                        </>
-                      )}
+{!collapsed && (
+  <>
+    <span className="flex-1 truncate">{item.title}</span>
+    {item.title === "Inbox" && inboxUnread > 0 && (
+      <span className="ml-auto flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#5B4FE8] px-1.5 text-[10px] font-semibold text-white">
+        {inboxUnread > 99 ? "99+" : inboxUnread}
+      </span>
+    )}
+  </>
+)}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 )
@@ -283,32 +287,71 @@ export function DashboardSidebar({
   const [userName, setUserName] = useState<string>("User")
   const [userEmail, setUserEmail] = useState<string>("")
   const [userInitials, setUserInitials] = useState<string>("U")
+  const [inboxUnread, setInboxUnread] = useState(0)
+  const [teamCount, setTeamCount] = useState(0)
   const supabase = useMemo(() => createClient(), [])
 
   useEffect(() => {
     const getUserData = async () => {
       try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser()
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) return
 
-        if (user) {
-          setUserEmail(user.email ?? "")
-          const { data: profile } = await supabase
-            .from("profiles")
-            .select("full_name")
-            .eq("id", user.id)
-            .single()
+        setUserEmail(user.email ?? "")
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("full_name, user_type")
+          .eq("id", user.id)
+          .single()
 
-          if (profile?.full_name) {
-            setUserName(profile.full_name)
-            const parts = profile.full_name.trim().split(" ")
-            setUserInitials(
-              parts.length >= 2
-                ? `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
-                : parts[0][0].toUpperCase()
-            )
+        if (profile?.full_name) {
+          setUserName(profile.full_name)
+          const parts = profile.full_name.trim().split(" ")
+          setUserInitials(
+            parts.length >= 2
+              ? `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
+              : parts[0][0].toUpperCase()
+          )
+        }
+
+        // Fetch real inbox unread count
+        try {
+          const { data: memberships } = await supabase
+            .from("chat_room_members")
+            .select("room_id, last_read_at")
+            .eq("user_id", user.id)
+
+          if (memberships?.length) {
+            const roomIds = memberships.map(m => m.room_id)
+            const lastReadMap: Record<string, string> = {}
+            memberships.forEach(m => { lastReadMap[m.room_id] = m.last_read_at || "1970-01-01" })
+
+            const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+            const { data: recentMsgs } = await supabase
+              .from("chat_messages")
+              .select("room_id, created_at, sender_id")
+              .in("room_id", roomIds)
+              .neq("sender_id", user.id)
+              .gte("created_at", thirtyDaysAgo)
+
+            let unread = 0
+            for (const msg of recentMsgs || []) {
+              if (msg.created_at > (lastReadMap[msg.room_id] || "1970-01-01")) unread++
+            }
+            setInboxUnread(Math.min(unread, 99))
           }
+        } catch { /* non-critical */ }
+
+        // Fetch real team member count (founders only)
+        if (profile?.user_type === "founder") {
+          try {
+            const { count } = await supabase
+              .from("team_members")
+              .select("id", { count: "exact", head: true })
+              .eq("founder_id", user.id)
+              .eq("is_active", true)
+            setTeamCount(count || 0)
+          } catch { /* non-critical */ }
         }
       } catch {
         // silently ignore — non-critical
@@ -325,6 +368,8 @@ export function DashboardSidebar({
       userName={userName}
       userEmail={userEmail}
       userInitials={userInitials}
+      inboxUnread={inboxUnread}
+      teamCount={teamCount}
     />
   )
 }

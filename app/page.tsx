@@ -120,7 +120,7 @@ export default function Page() {
   if (!isAuthenticated) return null
 
   return (
-    <SidebarProvider>
+    <SidebarProvider defaultOpen={false}>
       <div className="flex min-h-screen w-full bg-background">
         <DashboardSidebar activeTab={activeTab} setActiveTab={setActiveTab} />
         <main className="flex-1 overflow-y-auto">

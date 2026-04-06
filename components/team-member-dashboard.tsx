@@ -190,7 +190,7 @@ export function TeamMemberDashboard({ permissions }: { permissions: TeamMemberPe
   }
 
   return (
-    <SidebarProvider>
+    <SidebarProvider defaultOpen={false}>
       <div className="flex min-h-screen w-full bg-background">
         <Sidebar collapsible="icon">
           <SidebarHeader className="h-16 flex items-center px-6">
