@@ -33,6 +33,19 @@ import {
 import { useEffect, useState, useMemo } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
+// Add these imports at the top of dashboard-content.tsx
+import { TodayView } from "@/components/today-view"
+import { CalendarView } from "@/components/calendar-view"
+import { TaskView } from "@/components/task-view"
+import { ProjectsView } from "@/components/projects-view"
+import { LinkedinView } from "@/components/linkedin-view"
+import { CrmView } from "@/components/crm-view"
+import { VaultView } from "@/components/vault-view"
+import { InboxView } from "@/components/inbox-view"
+import { TeamView } from "@/components/team-view"
+import { ClientsView } from "@/components/clients-view"
+import { SettingsView } from "@/components/settings-view"
+import { Header } from "@/components/header"
 
 const mainNav = [
   { title: "Home", icon: Home },
@@ -292,5 +305,32 @@ export function DashboardSidebar({
       userEmail={userEmail}
       userInitials={userInitials}
     />
+  )
+}
+
+
+
+export function DashboardContent({ activeTab, userType }: { activeTab: string; userType: string }) {
+  return (
+    <main className="flex-1 overflow-y-auto">
+      {activeTab !== "Inbox" && <Header />}
+      <div className={activeTab === "Inbox" ? "flex flex-col h-screen" : "p-6 max-w-[1400px] mx-auto"}>
+        {activeTab === "Home" && <TodayView />}
+        {activeTab === "Calendar" && <CalendarView />}
+        {activeTab === "Tasks" && <TaskView userType={userType} />}
+        {activeTab === "Projects" && <ProjectsView />}
+        {activeTab === "LinkedIn" && <LinkedinView />}
+        {activeTab === "Relationships" && <CrmView />}
+        {activeTab === "Vault" && <VaultView />}
+        {activeTab === "Inbox" && (
+          <div className="flex-1 min-h-0 p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto w-full">
+            <InboxView canSendMessages={true} />
+          </div>
+        )}
+        {activeTab === "Team" && <TeamView />}
+        {activeTab === "Clients" && <ClientsView />}
+        {activeTab === "Settings" && <SettingsView />}
+      </div>
+    </main>
   )
 }
