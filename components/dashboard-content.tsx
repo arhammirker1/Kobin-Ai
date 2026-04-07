@@ -13,8 +13,6 @@ import {
   Inbox,
   Sun,
   Moon,
-  ChevronRight,
-  LayoutDashboard,
 } from "lucide-react"
 import {
   Sidebar,
@@ -92,14 +90,38 @@ function SidebarInner({
 
   return (
     <Sidebar collapsible="icon">
-      {/* Header */}
-      <SidebarHeader className="border-b border-sidebar-border shrink-0 px-3 py-3">
+      {/* Header — h-16 matches the main top header exactly */}
+      <SidebarHeader className="border-b border-sidebar-border shrink-0 px-3 h-16 flex flex-row items-center">
         <div className="flex items-center gap-2.5 min-w-0">
+          {/* Kobin AI logo */}
           <div
-            className="size-8 rounded-lg bg-[#5B4FE8] flex items-center justify-center shrink-0 shadow-sm cursor-pointer"
+            className="size-8 rounded-xl overflow-hidden shrink-0 cursor-pointer shadow-sm"
             onClick={toggleSidebar}
+            title="Toggle sidebar"
           >
-            <LayoutDashboard className="size-4 text-white" />
+            <svg viewBox="0 0 100 100" width="32" height="32" xmlns="http://www.w3.org/2000/svg">
+              <rect width="100" height="100" rx="22" fill="#0D0D0D" />
+              {/* Left vertical stem of K */}
+              <rect x="28" y="18" width="14" height="64" rx="7" fill="#E8E4D9" />
+              {/* Upper-right arm of K */}
+              <rect
+                x="36" y="28"
+                width="36" height="14"
+                rx="7"
+                transform="rotate(38 36 28)"
+                fill="#E8E4D9"
+              />
+              {/* Lower-right arm of K */}
+              <rect
+                x="36" y="58"
+                width="36" height="14"
+                rx="7"
+                transform="rotate(-38 36 72)"
+                fill="#E8E4D9"
+              />
+              {/* Blue dot at K junction */}
+              <circle cx="47" cy="50" r="9" fill="#5B4FE8" />
+            </svg>
           </div>
           {!collapsed && (
             <div className="flex flex-col min-w-0 flex-1">
