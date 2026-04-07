@@ -36,9 +36,9 @@ One platform for tasks, clients, calendar, team, relationships, vault, and real-
 
 <br/>
 
-## ✦ What is Command Center?
+## ✦ What is Kobin Ai?
 
-Command Center is a **full-stack founder productivity platform** — a single workspace that replaces five different tools. Built for founders who need clarity, not complexity.
+Kobin Ai is a **full-stack founder productivity platform** — a single workspace that replaces five different tools. Built for founders who need clarity, not complexity.
 
 | | |
 |---|---|

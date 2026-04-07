@@ -1,4 +1,4 @@
-# Founder Command Center - Integration & Customization Guide
+# Founder Kobin Ai - Integration & Customization Guide
 
 ## Table of Contents
 1. [Project Overview](#project-overview)
@@ -13,7 +13,7 @@
 
 ## Project Overview
 
-The Founder Command Center is a comprehensive dashboard for founders to manage:
+The Founder Kobin Ai is a comprehensive dashboard for founders to manage:
 - **Tasks** - Organize work by buckets (Today, This Week, Delegated, Backlog)
 - **Calendar** - Schedule and manage events
 - **LinkedIn** - Draft and schedule posts

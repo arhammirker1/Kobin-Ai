@@ -103,7 +103,7 @@ function SidebarInner({
           </div>
           {!collapsed && (
             <div className="flex flex-col min-w-0 flex-1">
-              <span className="text-sm font-semibold truncate leading-tight text-sidebar-foreground">Command Center</span>
+              <span className="text-sm font-semibold truncate leading-tight text-sidebar-foreground">Kobin Ai</span>
               <span className="text-[10px] text-sidebar-foreground/50 truncate">{userEmail}</span>
             </div>
           )}

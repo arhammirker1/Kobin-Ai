@@ -23,7 +23,7 @@ export async function getOrCreateAIRoom(founderId: string): Promise<string> {
   const { data: newRoom } = await supabaseAdmin
     .from("chat_rooms")
     .insert({
-      name: "AI · Command Center",
+      name: "AI · Kobin Ai",
       type: "direct",
       founder_id: founderId,
       created_by: founderId,
@@ -62,7 +62,7 @@ export async function postAIMessage(founderId: string, content: string): Promise
   // Push notification
   await pushToUser(founderId, {
     type: "inbox_message",
-    title: "AI · Command Center",
+    title: "AI · Kobin Ai",
     body: content.slice(0, 120),
     room_id: roomId,
     sender_name: "AI",
@@ -91,7 +91,7 @@ export async function sendMorningBrief(founderId: string): Promise<void> {
     messages: [
       {
         role: "system",
-        content: `You are the AI chief of staff for Command Center. Write a sharp morning briefing. 
+        content: `You are the AI chief of staff for Kobin Ai. Write a sharp morning briefing. 
 Be direct, no fluff. Use this format:
 
 Good morning — here's what matters today:

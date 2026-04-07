@@ -14,7 +14,7 @@ const geist = Geist({ subsets: ["latin"], variable: "--font-geist" })
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" })
 
 export const metadata: Metadata = {
-  title: "Command Center",
+  title: "Kobin Ai",
   description: "Your personal assistant",
   generator: "Arham Mirkar",
   icons: {

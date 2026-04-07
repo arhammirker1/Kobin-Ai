@@ -632,7 +632,7 @@ function AIMessageBubble({ content, isStreaming }: { content: string; isStreamin
         {/* AI label */}
         <span className="text-[10px] font-semibold mb-0.5 px-1"
           style={{ color: "#7C3AED" }}>
-          AI · Command Center
+          AI · Kobin Ai
         </span>
 
         {/* Bubble */}
@@ -1186,7 +1186,7 @@ function MessageInput({
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs font-semibold" style={{ color: "#7C3AED" }}>
-                AI · Command Center
+                AI · Kobin Ai
               </p>
               <p className="text-[10px] text-muted-foreground mt-0.5">
                 Type your question after <span className="font-mono">@ai</span> and press Enter
@@ -2522,7 +2522,7 @@ if (error) {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold truncate" style={{ color: activeRoomId === room.id ? "#c4b5fd" : undefined }}>
-                        AI · Command Center
+                        AI · Kobin Ai
                       </span>
                       {room.unread_count > 0 && (
                         <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold"

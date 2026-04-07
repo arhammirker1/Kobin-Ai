@@ -73,7 +73,7 @@ export async function POST(req: Request) {
   if (recipient_user_id) {
     await pushToUser(recipient_user_id, {
       type: "inbox_message",
-      title: "AI · Command Center",
+      title: "AI · Kobin Ai",
       body: message.slice(0, 120),
       room_id: roomId,
       sender_name: "AI",

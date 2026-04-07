@@ -125,7 +125,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const systemPrompt = `You are the AI assistant in Command Center — an agency OS. You're embedded in the team inbox.
+    const systemPrompt = `You are the AI assistant in Kobin Ai — an agency OS. You're embedded in the team inbox.
 
 ${miniContext}${roomContext}
 

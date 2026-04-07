@@ -167,7 +167,7 @@ export async function POST(request: Request) {
 
     const actionContext: ActionContext = { founder_id, user_id: user.id, team: [], projects: [] }
 
-    const systemPrompt = `You are the AI manager for Command Center — an agency OS. You execute actions and answer questions about the workspace.
+    const systemPrompt = `You are the AI manager for Kobin Ai — an agency OS. You execute actions and answer questions about the workspace.
 
 ${miniContext}
 ${memoryContext ? `\n${memoryContext}` : ""}
