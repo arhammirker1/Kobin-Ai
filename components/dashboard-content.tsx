@@ -99,7 +99,7 @@ function SidebarInner({
             onClick={toggleSidebar}
             title="Toggle sidebar"
           >
-            <svg viewBox="0 0 100 100" width="32" height="32" xmlns="http://www.w3.org/2000/svg">
+            <svg viewBox="0 0 100 100" width="32" height="32" xmlns="/og-image.png">
               <rect width="100" height="100" rx="22" fill="#0D0D0D" />
               {/* Left vertical stem of K */}
               <rect x="28" y="18" width="14" height="64" rx="7" fill="#E8E4D9" />
@@ -164,16 +164,16 @@ function SidebarInner({
                           isActive ? "text-white" : "text-sidebar-foreground/60"
                         )}
                       />
-{!collapsed && (
-  <>
-    <span className="flex-1 truncate">{item.title}</span>
-    {item.title === "Team" && teamCount > 0 && (
-      <span className="ml-auto flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#5B4FE8] px-1.5 text-[10px] font-semibold text-white">
-        {teamCount > 99 ? "99+" : teamCount}
-      </span>
-    )}
-  </>
-)}
+                      {!collapsed && (
+                        <>
+                          <span className="flex-1 truncate">{item.title}</span>
+                          {item.title === "Team" && teamCount > 0 && (
+                            <span className="ml-auto flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#5B4FE8] px-1.5 text-[10px] font-semibold text-white">
+                              {teamCount > 99 ? "99+" : teamCount}
+                            </span>
+                          )}
+                        </>
+                      )}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 )
@@ -216,16 +216,16 @@ function SidebarInner({
                           isActive ? "text-white" : "text-sidebar-foreground/60"
                         )}
                       />
-{!collapsed && (
-  <>
-    <span className="flex-1 truncate">{item.title}</span>
-    {item.title === "Inbox" && inboxUnread > 0 && (
-      <span className="ml-auto flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#5B4FE8] px-1.5 text-[10px] font-semibold text-white">
-        {inboxUnread > 99 ? "99+" : inboxUnread}
-      </span>
-    )}
-  </>
-)}
+                      {!collapsed && (
+                        <>
+                          <span className="flex-1 truncate">{item.title}</span>
+                          {item.title === "Inbox" && inboxUnread > 0 && (
+                            <span className="ml-auto flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#5B4FE8] px-1.5 text-[10px] font-semibold text-white">
+                              {inboxUnread > 99 ? "99+" : inboxUnread}
+                            </span>
+                          )}
+                        </>
+                      )}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 )
