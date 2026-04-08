@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import React, { useState, useEffect, useRef, useCallback } from "react"
 import { cn } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/client"
 import {
@@ -88,59 +88,140 @@ const SUGGESTED = [
 
 // ── Markdown-lite renderer ─────────────────────────────────────────────────────
 
+function renderInline(text: string): React.ReactNode {
+  // Handle <br> and <br/> tags
+  const withBr = text.split(/<br\s*\/?>/gi)
+  if (withBr.length > 1) {
+    return (
+      <>
+        {withBr.map((segment, idx) => (
+          <React.Fragment key={idx}>
+            {renderInlineBold(segment)}
+            {idx < withBr.length - 1 && <br />}
+          </React.Fragment>
+        ))}
+      </>
+    )
+  }
+  return renderInlineBold(text)
+}
+
+function renderInlineBold(text: string): React.ReactNode {
+  const parts = text.split(/\*\*(.+?)\*\*/g)
+  if (parts.length === 1) return text
+  return (
+    <>
+      {parts.map((part, j) =>
+        j % 2 === 1
+          ? <strong key={j} className="text-foreground dark:text-[#F0EFEC] font-semibold">{part}</strong>
+          : part
+      )}
+    </>
+  )
+}
+
 function renderMarkdown(text: string) {
-  const lines = text.split("\n")
+  // Pre-process: replace literal \n with newlines, normalize <br> to newlines for table detection
+  const normalized = text.replace(/\\n/g, "\n")
+  const lines = normalized.split("\n")
   const elements: React.ReactNode[] = []
   let i = 0
 
   while (i < lines.length) {
     const line = lines[i]
 
+    // Detect markdown table: line with | chars and next line is separator |---|
+    if (line.includes("|") && lines[i + 1]?.match(/^\|[\s\-|:]+\|$/)) {
+      // Collect table rows
+      const tableLines: string[] = []
+      while (i < lines.length && lines[i].includes("|")) {
+        tableLines.push(lines[i])
+        i++
+      }
+
+      const parseRow = (row: string) =>
+        row.split("|").map(c => c.trim()).filter((_, idx, arr) => idx > 0 && idx < arr.length - 1)
+
+      const headerRow = parseRow(tableLines[0])
+      // tableLines[1] is separator, skip it
+      const bodyRows = tableLines.slice(2).map(parseRow)
+
+      elements.push(
+        <div key={`table-${i}`} className="overflow-x-auto my-3 rounded-xl border border-border dark:border-[#2E2E2C]">
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="bg-muted dark:bg-[#252523]">
+                {headerRow.map((cell, ci) => (
+                  <th key={ci} className="px-3 py-2 text-left font-semibold text-foreground dark:text-[#F0EFEC] border-b border-border dark:border-[#2E2E2C] whitespace-nowrap">
+                    {renderInline(cell)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {bodyRows.map((row, ri) => (
+                <tr key={ri} className={ri % 2 === 0 ? "" : "bg-muted/40 dark:bg-[#1C1C1A]/60"}>
+                  {row.map((cell, ci) => (
+                    <td key={ci} className="px-3 py-2 text-muted-foreground dark:text-[#B4B2A9] border-b border-border/50 dark:border-[#2E2E2C]/50 last:border-b-0">
+                      {renderInline(cell)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )
+      continue
+    }
+
     if (line.startsWith("### ")) {
       elements.push(
-        <p key={i} className="text-xs font-bold text-[#F0EFEC] mt-3 mb-1 uppercase tracking-widest">
+        <p key={i} className="text-xs font-bold text-foreground dark:text-[#F0EFEC] mt-3 mb-1 uppercase tracking-widest">
           {line.slice(4)}
         </p>
       )
     } else if (line.startsWith("## ")) {
       elements.push(
-        <p key={i} className="text-sm font-bold text-[#F0EFEC] mt-3 mb-1">
+        <p key={i} className="text-sm font-bold text-foreground dark:text-[#F0EFEC] mt-3 mb-1">
           {line.slice(3)}
         </p>
       )
-    } else if (line.startsWith("**") && line.endsWith("**")) {
+    } else if (line.startsWith("# ")) {
       elements.push(
-        <p key={i} className="text-sm font-semibold text-[#F0EFEC] mt-2">
+        <p key={i} className="text-base font-bold text-foreground dark:text-[#F0EFEC] mt-3 mb-1">
+          {line.slice(2)}
+        </p>
+      )
+    } else if (line.startsWith("**") && line.endsWith("**") && !line.slice(2, -2).includes("**")) {
+      elements.push(
+        <p key={i} className="text-sm font-semibold text-foreground dark:text-[#F0EFEC] mt-2">
           {line.slice(2, -2)}
         </p>
       )
     } else if (line.startsWith("- ") || line.startsWith("• ")) {
       elements.push(
         <div key={i} className="flex items-start gap-2 py-0.5">
-          <span className="text-[#555552] mt-1 shrink-0 text-xs">•</span>
-          <span className="text-sm text-[#B4B2A9] leading-relaxed">{line.slice(2)}</span>
+          <span className="text-muted-foreground/50 dark:text-[#555552] mt-1 shrink-0 text-xs">•</span>
+          <span className="text-sm text-muted-foreground dark:text-[#B4B2A9] leading-relaxed">{renderInline(line.slice(2))}</span>
         </div>
       )
     } else if (/^\d+\.\s/.test(line)) {
       const num = line.match(/^(\d+)\./)?.[1]
       elements.push(
         <div key={i} className="flex items-start gap-2 py-0.5">
-          <span className="text-[#555552] text-xs mt-1 shrink-0 w-4">{num}.</span>
-          <span className="text-sm text-[#B4B2A9] leading-relaxed">{line.replace(/^\d+\.\s/, "")}</span>
+          <span className="text-muted-foreground/50 dark:text-[#555552] text-xs mt-1 shrink-0 w-4">{num}.</span>
+          <span className="text-sm text-muted-foreground dark:text-[#B4B2A9] leading-relaxed">{renderInline(line.replace(/^\d+\.\s/, ""))}</span>
         </div>
       )
     } else if (line.startsWith("---") || line.startsWith("___")) {
-      elements.push(<div key={i} className="border-t border-[#333331] my-2" />)
+      elements.push(<div key={i} className="border-t border-border dark:border-[#333331] my-2" />)
     } else if (line.trim() === "") {
       elements.push(<div key={i} className="h-1" />)
     } else {
-      // Inline bold
-      const parts = line.split(/\*\*(.+?)\*\*/g)
       elements.push(
-        <p key={i} className="text-sm text-[#B4B2A9] leading-relaxed">
-          {parts.map((part, j) =>
-            j % 2 === 1 ? <strong key={j} className="text-[#F0EFEC] font-semibold">{part}</strong> : part
-          )}
+        <p key={i} className="text-sm text-muted-foreground dark:text-[#B4B2A9] leading-relaxed">
+          {renderInline(line)}
         </p>
       )
     }
@@ -543,7 +624,7 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
                 )}
                 <div className={cn("max-w-[80%]", msg.role === "user" && "items-end flex flex-col")}>
                   {msg.role === "user" ? (
-                    <div className="px-3.5 py-2.5 rounded-2xl rounded-tr-sm text-sm text-foreground bg-accent dark:bg-[#2E2E2C] border border-border dark:border-[#333331]">
+                    <div className="px-3.5 py-2.5 rounded-2xl rounded-tr-sm text-sm text-foreground dark:text-[#F0EFEC] bg-accent dark:bg-[#2A2A28] border border-border dark:border-[#3A3A38] shadow-sm">
                       {msg.content}
                     </div>
                   ) : (
