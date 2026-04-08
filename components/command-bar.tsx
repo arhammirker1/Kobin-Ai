@@ -197,16 +197,24 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
     }
   }, [supabase])
 
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
   useEffect(() => {
     if (open) {
-      loadSessions()
-      setView("list")
+      setSidebarOpen(false)
       setActiveSession(null)
       setMessages([])
       setInput("")
+      setView("list")
       setTimeout(() => inputRef.current?.focus(), 100)
     }
   }, [open])
+
+  useEffect(() => {
+    if (sidebarOpen) {
+      loadSessions()
+    }
+  }, [sidebarOpen])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -446,6 +454,7 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
     setMessages([])
     setInput("")
     setView("list")
+    setSidebarOpen(false)
   }
 
   // ── Delete session ─────────────────────────────────────────────────────────
@@ -471,347 +480,320 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
 
   if (!open) return null
 
+  const isDark = typeof document !== "undefined" && document.documentElement.classList.contains("dark")
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
+      className="fixed inset-0 z-50 flex flex-col items-center justify-end pb-8"
       onClick={onClose}
     >
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+      {/* Backdrop - only when chat is expanded */}
+      {view === "chat" && (
+        <div className="absolute inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-sm transition-opacity" />
+      )}
 
-      {/* Panel */}
-      <div
-        className="relative flex overflow-hidden rounded-2xl border border-[#2E2E2C] shadow-2xl"
-        style={{
-          width: 780,
-          height: 560,
-          background: "#161614",
-        }}
-        onClick={e => e.stopPropagation()}
-      >
-
-        {/* ── Left sidebar: session list ── */}
+      {/* Chat panel - expands upward when in chat mode */}
+      {view === "chat" && (
         <div
-          className="flex flex-col border-r border-[#252523] shrink-0"
-          style={{ width: 220, background: "#1C1C1A" }}
+          className="relative mb-3 rounded-2xl border shadow-2xl overflow-hidden flex flex-col
+            border-border dark:border-[#2E2E2C]
+            bg-card dark:bg-[#161614]"
+          style={{ width: 680, height: 420 }}
+          onClick={e => e.stopPropagation()}
         >
-          {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3.5 border-b border-[#252523]">
+          {/* Chat panel header */}
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-border dark:border-[#252523] shrink-0">
             <div className="flex items-center gap-2">
-              <div
-                className="w-5 h-5 rounded-md flex items-center justify-center"
-                style={{ background: "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)" }}
+              <button
+                onClick={() => { setView("list"); setActiveSession(null); setMessages([]) }}
+                className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent dark:hover:bg-[#252523] transition-colors"
               >
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
-                  <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
-                    stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </div>
-              <span className="text-xs font-semibold text-[#F0EFEC]">AI Command</span>
-            </div>
-            <button
-              onClick={newChat}
-              className="w-6 h-6 rounded-md flex items-center justify-center text-[#555552] hover:text-[#F0EFEC] hover:bg-[#252523] transition-colors"
-              title="New chat"
-            >
-              <Plus size={13} />
-            </button>
-          </div>
-
-          {/* Session list */}
-          <div className="flex-1 overflow-y-auto py-1">
-            {loadingSessions ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 size={14} className="animate-spin text-[#555552]" />
-              </div>
-            ) : sessions.length === 0 ? (
-              <div className="px-4 py-6 text-center">
-                <MessageSquare size={20} className="text-[#333331] mx-auto mb-2" />
-                <p className="text-[11px] text-[#555552]">No chats yet</p>
-              </div>
-            ) : (
-              sessions.map(session => (
-                <button
-                  key={session.id}
-                  onClick={() => openSession(session)}
-                  className={cn(
-                    "w-full text-left px-3 py-2.5 mx-1 rounded-lg transition-colors group relative",
-                    "hover:bg-[#252523]",
-                    activeSession?.id === session.id && "bg-[#252523]"
-                  )}
-                  style={{ width: "calc(100% - 8px)" }}
-                >
-                  <div className="flex items-start justify-between gap-1">
-                    <p className={cn(
-                      "text-[12px] leading-snug truncate flex-1",
-                      activeSession?.id === session.id ? "text-[#F0EFEC]" : "text-[#8A8A85]"
-                    )}>
-                      {session.title}
-                    </p>
-                    <button
-                      onClick={(e) => deleteSession(session.id, e)}
-                      className="opacity-0 group-hover:opacity-100 text-[#444442] hover:text-red-400 transition-all shrink-0 mt-0.5"
-                    >
-                      <Trash2 size={10} />
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-1 mt-1">
-                    <Clock size={9} className="text-[#444442]" />
-                    <p className="text-[10px] text-[#444442]">{formatTime(session.updated_at)}</p>
-                  </div>
-                </button>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* ── Right: chat area ── */}
-        <div className="flex flex-col flex-1 min-w-0">
-
-          {/* Chat header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-[#252523]">
-            <div className="flex items-center gap-2">
-              {view === "chat" && (
-                <button
-                  onClick={newChat}
-                  className="w-6 h-6 rounded flex items-center justify-center text-[#555552] hover:text-[#F0EFEC] hover:bg-[#252523] transition-colors"
-                >
-                  <ChevronLeft size={14} />
-                </button>
-              )}
-              <p className="text-xs text-[#8A8A85]">
-                {view === "chat" && activeSession
-                  ? activeSession.title
-                  : "Full workspace context"}
+                <ChevronLeft size={14} />
+              </button>
+              <p className="text-xs text-muted-foreground truncate max-w-[400px]">
+                {activeSession?.title || "New conversation"}
               </p>
             </div>
             <button
               onClick={onClose}
-              className="w-6 h-6 rounded flex items-center justify-center text-[#555552] hover:text-[#F0EFEC] hover:bg-[#252523] transition-colors"
+              className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent dark:hover:bg-[#252523] transition-colors"
             >
               <X size={13} />
             </button>
           </div>
 
-          {/* Messages or suggestions */}
-          <div className="flex-1 overflow-y-auto">
-            {view === "list" ? (
-              /* Suggestions */
-              <div className="px-4 py-4">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-[#444442] mb-3">
-                  Try asking
-                </p>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {SUGGESTED.map((s, i) => (
-                    <button
-                      key={i}
-                      onClick={() => sendMessage(s)}
-                      className="text-left px-3 py-2.5 rounded-xl border border-[#252523] bg-[#1C1C1A] hover:bg-[#252523] hover:border-[#333331] transition-all group"
-                    >
-                      <p className="text-[12px] text-[#8A8A85] group-hover:text-[#F0EFEC] leading-snug transition-colors">
-                        {s}
-                      </p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              /* Chat messages */
-              <div className="px-5 py-4 space-y-5">
-                {messages.map((msg, i) => (
-                  <div key={i} className={cn("flex gap-3", msg.role === "user" && "flex-row-reverse")}>
-                    {/* Avatar */}
-                    {msg.role === "assistant" ? (
-                      <div
-                        className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0 mt-0.5"
-                        style={{ background: "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)" }}
-                      >
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
-                          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
-                            stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      </div>
-                    ) : (
-                      <div className="w-6 h-6 rounded-lg bg-[#2E2E2C] border border-[#333331] flex items-center justify-center text-[10px] font-semibold text-[#F0EFEC] shrink-0 mt-0.5">
-                        Y
-                      </div>
-                    )}
-
-                    {/* Bubble */}
-                    <div className={cn("max-w-[80%]", msg.role === "user" && "items-end flex flex-col")}>
-                      {msg.role === "user" ? (
-                        <div
-                          className="px-3.5 py-2.5 rounded-2xl rounded-tr-sm text-sm text-[#F0EFEC]"
-                          style={{ background: "linear-gradient(135deg, #2E2E2C 0%, #333331 100%)" }}
-                        >
-                          {msg.content}
-                        </div>
-                      ) : (
-                        <div>
-                          {/* Action event cards */}
-                          {msg.actionEvents && msg.actionEvents.length > 0 && (
-                            <div className="flex flex-col gap-2 mb-3">
-                              {msg.actionEvents.map((action, ai) => (
-                                <div key={ai}>
-                                  {action.needs_confirmation ? (
-                                    /* Delete confirmation card */
-                                    <div className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl border border-amber-500/30 bg-amber-500/5">
-                                      <AlertTriangle size={14} className="text-amber-400 shrink-0 mt-0.5" />
-                                      <div className="flex-1 min-w-0">
-<p className="text-xs font-medium text-amber-300">
-                                  {action.confirmation_action?.tool === "send_message_confirmed"
-                                    ? "Confirm send"
-                                    : "Confirm deletion"}
-                                </p>
-                                        <p className="text-[11px] text-[#8A8A85] mt-0.5">
-                                          {action.confirmation_action?.description}
-                                        </p>
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    /* Success action card */
-                                    <div className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/5">
-                                      <CheckCircle2 size={14} className="text-emerald-400 shrink-0 mt-0.5" />
-                                      <div className="flex-1 min-w-0">
-                                        <p className="text-xs font-medium text-emerald-300">
-                                          {action.tool === "create_task" && "Task created"}
-                                          {action.tool === "update_task" && "Task updated"}
-                                          {action.tool === "create_project" && "Project created"}
-                                          {action.tool === "update_project" && "Project updated"}
-                                        </p>
-                                        {action.summary && (
-                                          <p className="text-[11px] text-[#8A8A85] mt-0.5 truncate">{action.summary}</p>
-                                        )}
-                                        {action.changes && action.changes.length > 0 && (
-                                          <p className="text-[11px] text-[#8A8A85] mt-0.5 truncate">{action.changes.join(" · ")}</p>
-                                        )}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-
-                          {msg.content ? (
-                            renderMarkdown(msg.content)
-                          ) : (
-                            <div className="flex items-center gap-1.5 py-2">
-                              {[0, 1, 2].map(j => (
-                                <span
-                                  key={j}
-                                  className="w-1.5 h-1.5 rounded-full animate-bounce"
-                                  style={{
-                                    background: "#7C3AED",
-                                    animationDelay: `${j * 150}ms`
-                                  }}
-                                />
-                              ))}
-                            </div>
-                          )}
-                          {i === messages.length - 1 && isStreaming && msg.content && (
-                            <span
-                              className="inline-block w-0.5 h-3.5 ml-0.5 align-middle animate-pulse rounded-full"
-                              style={{ background: "#7C3AED" }}
-                            />
-                          )}
-                        </div>
-                      )}
-                    </div>
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+            {messages.map((msg, i) => (
+              <div key={i} className={cn("flex gap-3", msg.role === "user" && "flex-row-reverse")}>
+                {msg.role === "assistant" ? (
+                  <div
+                    className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0 mt-0.5"
+                    style={{ background: "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)" }}
+                  >
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+                      <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+                        stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
                   </div>
-                ))}
-
-                {/* Pending delete confirmation buttons */}
-                {pendingConfirmation && !isStreaming && (
-                  <div className="flex items-center gap-2 ml-9">
-                    <button
-                      onClick={handleConfirm}
-                      disabled={pendingConfirmation.loading}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50 flex items-center gap-1.5 ${
-                        pendingConfirmation.tool === "send_message_confirmed"
-                          ? "bg-violet-500/20 text-violet-400 border-violet-500/30 hover:bg-violet-500/30"
-                          : "bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/30"
-                      }`}
-                    >
-                      {pendingConfirmation.loading ? (
-                        <Loader2 size={11} className="animate-spin" />
-                      ) : pendingConfirmation.tool === "send_message_confirmed" ? (
-                        <Send size={11} />
-                      ) : (
-                        <Trash2 size={11} />
-                      )}
-                      {pendingConfirmation.tool === "send_message_confirmed" ? "Confirm Send" : "Confirm Delete"}
-                    </button>
-                    <button
-                      onClick={() => setPendingConfirmation(null)}
-                      disabled={pendingConfirmation.loading}
-                      className="px-3 py-1.5 rounded-lg text-xs text-[#8A8A85] border border-[#333331] hover:bg-[#252523] transition-colors disabled:opacity-50"
-                    >
-                      Cancel
-                    </button>
+                ) : (
+                  <div className="w-6 h-6 rounded-lg bg-accent dark:bg-[#2E2E2C] border border-border dark:border-[#333331] flex items-center justify-center text-[10px] font-semibold text-foreground shrink-0 mt-0.5">
+                    Y
                   </div>
                 )}
+                <div className={cn("max-w-[80%]", msg.role === "user" && "items-end flex flex-col")}>
+                  {msg.role === "user" ? (
+                    <div className="px-3.5 py-2.5 rounded-2xl rounded-tr-sm text-sm text-foreground bg-accent dark:bg-[#2E2E2C] border border-border dark:border-[#333331]">
+                      {msg.content}
+                    </div>
+                  ) : (
+                    <div>
+                      {msg.actionEvents && msg.actionEvents.length > 0 && (
+                        <div className="flex flex-col gap-2 mb-3">
+                          {msg.actionEvents.map((action, ai) => (
+                            <div key={ai}>
+                              {action.needs_confirmation ? (
+                                <div className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl border border-amber-500/30 bg-amber-500/5">
+                                  <AlertTriangle size={14} className="text-amber-400 shrink-0 mt-0.5" />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-medium text-amber-600 dark:text-amber-300">
+                                      {action.confirmation_action?.tool === "send_message_confirmed" ? "Confirm send" : "Confirm deletion"}
+                                    </p>
+                                    <p className="text-[11px] text-muted-foreground mt-0.5">{action.confirmation_action?.description}</p>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/5">
+                                  <CheckCircle2 size={14} className="text-emerald-500 shrink-0 mt-0.5" />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-medium text-emerald-600 dark:text-emerald-300">
+                                      {action.tool === "create_task" && "Task created"}
+                                      {action.tool === "update_task" && "Task updated"}
+                                      {action.tool === "create_project" && "Project created"}
+                                      {action.tool === "update_project" && "Project updated"}
+                                    </p>
+                                    {action.summary && <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{action.summary}</p>}
+                                    {action.changes && action.changes.length > 0 && (
+                                      <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{action.changes.join(" · ")}</p>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {msg.content ? renderMarkdown(msg.content) : (
+                        <div className="flex items-center gap-1.5 py-2">
+                          {[0, 1, 2].map(j => (
+                            <span key={j} className="w-1.5 h-1.5 rounded-full animate-bounce"
+                              style={{ background: "#7C3AED", animationDelay: `${j * 150}ms` }} />
+                          ))}
+                        </div>
+                      )}
+                      {i === messages.length - 1 && isStreaming && msg.content && (
+                        <span className="inline-block w-0.5 h-3.5 ml-0.5 align-middle animate-pulse rounded-full" style={{ background: "#7C3AED" }} />
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
 
-                <div ref={messagesEndRef} />
+            {pendingConfirmation && !isStreaming && (
+              <div className="flex items-center gap-2 ml-9">
+                <button
+                  onClick={handleConfirm}
+                  disabled={pendingConfirmation.loading}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50 flex items-center gap-1.5 ${
+                    pendingConfirmation.tool === "send_message_confirmed"
+                      ? "bg-violet-500/20 text-violet-400 border-violet-500/30 hover:bg-violet-500/30"
+                      : "bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/30"
+                  }`}
+                >
+                  {pendingConfirmation.loading ? <Loader2 size={11} className="animate-spin" />
+                    : pendingConfirmation.tool === "send_message_confirmed" ? <Send size={11} /> : <Trash2 size={11} />}
+                  {pendingConfirmation.tool === "send_message_confirmed" ? "Confirm Send" : "Confirm Delete"}
+                </button>
+                <button
+                  onClick={() => setPendingConfirmation(null)}
+                  disabled={pendingConfirmation.loading}
+                  className="px-3 py-1.5 rounded-lg text-xs text-muted-foreground border border-border hover:bg-accent dark:hover:bg-[#252523] transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+        </div>
+      )}
+
+      {/* Collapsible history panel - slides in from left above the bar */}
+      {sidebarOpen && (
+        <div
+          className="relative mb-2 rounded-2xl border shadow-xl overflow-hidden flex flex-col
+            border-border dark:border-[#2E2E2C]
+            bg-card dark:bg-[#1C1C1A]"
+          style={{ width: 680, maxHeight: 280 }}
+          onClick={e => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-border dark:border-[#252523] shrink-0">
+            <div className="flex items-center gap-2">
+              <MessageSquare size={12} className="text-muted-foreground" />
+              <span className="text-xs font-medium text-foreground">Recent chats</span>
+            </div>
+            <button
+              onClick={newChat}
+              className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent dark:hover:bg-[#252523] transition-colors"
+              title="New chat"
+            >
+              <Plus size={12} />
+            </button>
+          </div>
+          <div className="overflow-y-auto py-1">
+            {loadingSessions ? (
+              <div className="flex items-center justify-center py-6">
+                <Loader2 size={14} className="animate-spin text-muted-foreground" />
+              </div>
+            ) : sessions.length === 0 ? (
+              <div className="px-4 py-5 text-center">
+                <p className="text-[11px] text-muted-foreground">No chats yet</p>
+              </div>
+            ) : (
+              <div className="px-2 py-1 grid grid-cols-2 gap-1">
+                {sessions.map(session => (
+                  <button
+                    key={session.id}
+                    onClick={() => { openSession(session); setSidebarOpen(false) }}
+                    className={cn(
+                      "text-left px-3 py-2 rounded-lg transition-colors group relative flex items-center justify-between gap-2",
+                      "hover:bg-accent dark:hover:bg-[#252523]",
+                      activeSession?.id === session.id && "bg-accent dark:bg-[#252523]"
+                    )}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className={cn(
+                        "text-[12px] leading-snug truncate",
+                        activeSession?.id === session.id ? "text-foreground" : "text-muted-foreground"
+                      )}>
+                        {session.title}
+                      </p>
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <Clock size={9} className="text-muted-foreground/50" />
+                        <p className="text-[10px] text-muted-foreground/50">{formatTime(session.updated_at)}</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={(e) => deleteSession(session.id, e)}
+                      className="opacity-0 group-hover:opacity-100 text-muted-foreground/40 hover:text-destructive transition-all shrink-0"
+                    >
+                      <Trash2 size={10} />
+                    </button>
+                  </button>
+                ))}
               </div>
             )}
           </div>
+        </div>
+      )}
 
-          {/* Input area */}
-          <div className="px-4 pb-4 pt-2 border-t border-[#252523]">
-            <div className="flex items-end gap-2 px-3 py-2.5 rounded-xl border border-[#2E2E2C] bg-[#1C1C1A] focus-within:border-[#444442] transition-colors">
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={e => setInput(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault()
-                    sendMessage()
-                  }
-                }}
-                placeholder="Ask anything about your workspace…"
-                rows={1}
-                disabled={isStreaming}
-                className="flex-1 bg-transparent text-sm text-[#F0EFEC] placeholder:text-[#444442] outline-none resize-none leading-5 max-h-24 disabled:opacity-50"
-                style={{ minHeight: 20 }}
-                onInput={e => {
-                  const el = e.currentTarget
-                  el.style.height = "20px"
-                  el.style.height = Math.min(el.scrollHeight, 96) + "px"
-                }}
-              />
-              <button
-                onClick={() => sendMessage()}
-                disabled={!input.trim() || isStreaming}
-                className={cn(
-                  "w-7 h-7 rounded-lg flex items-center justify-center transition-all shrink-0",
-                  input.trim() && !isStreaming
-                    ? "opacity-100 cursor-pointer"
-                    : "opacity-30 cursor-not-allowed"
-                )}
-                style={{
-                  background: input.trim() && !isStreaming
-                    ? "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)"
-                    : "#2E2E2C"
-                }}
-              >
-                {isStreaming
-                  ? <Loader2 size={13} className="animate-spin text-white" />
-                  : <Send size={12} className="text-white" />
-                }
-              </button>
-            </div>
-            <div className="flex items-center justify-between mt-2 px-1">
-              <span className="text-[10px] text-[#444442]">
-                ✦ Llama 3.3 70B · Ask questions or take actions
-              </span>
-              <div className="flex items-center gap-3 text-[10px] text-[#444442]">
-                <span>↵ send</span>
-                <span>⇧↵ newline</span>
-                <span>ESC close</span>
-              </div>
-            </div>
+      {/* ── Floating input bar ── */}
+      <div
+        className="relative"
+        style={{ width: 680 }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Glow effects */}
+        <div className="absolute -top-3 left-1/4 w-32 h-6 rounded-full blur-2xl opacity-60 pointer-events-none"
+          style={{ background: "radial-gradient(ellipse, #ef4444 0%, transparent 70%)" }} />
+        <div className="absolute -top-3 right-1/4 w-32 h-6 rounded-full blur-2xl opacity-60 pointer-events-none"
+          style={{ background: "radial-gradient(ellipse, #3b82f6 0%, transparent 70%)" }} />
+
+        <div className={cn(
+          "flex items-end gap-2 px-4 py-3 rounded-2xl border shadow-lg transition-all",
+          "bg-card dark:bg-[#161614]",
+          "border-border dark:border-[#2E2E2C]",
+          "focus-within:border-ring/50 dark:focus-within:border-[#444442]",
+          "focus-within:shadow-xl"
+        )}>
+          {/* History toggle button */}
+          <button
+            onClick={() => setSidebarOpen(v => !v)}
+            className={cn(
+              "shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all border",
+              sidebarOpen
+                ? "bg-primary text-primary-foreground border-primary"
+                : "text-muted-foreground border-border hover:text-foreground hover:bg-accent dark:hover:bg-[#252523] dark:border-[#333331]"
+            )}
+          >
+            <MessageSquare size={11} />
+            <span>History</span>
+          </button>
+
+          {/* Divider */}
+          <div className="w-px h-5 bg-border dark:bg-[#333331] shrink-0 self-center" />
+
+          {/* Textarea */}
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault()
+                sendMessage()
+              }
+              if (e.key === "Escape") {
+                if (sidebarOpen) { setSidebarOpen(false); return }
+                if (view === "chat") { setView("list"); return }
+                onClose()
+              }
+            }}
+            placeholder="Ask anything…"
+            rows={1}
+            disabled={isStreaming}
+            className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/60 outline-none resize-none leading-5 max-h-24 disabled:opacity-50"
+            style={{ minHeight: 20 }}
+            onInput={e => {
+              const el = e.currentTarget
+              el.style.height = "20px"
+              el.style.height = Math.min(el.scrollHeight, 96) + "px"
+            }}
+          />
+
+          {/* Send button */}
+          <button
+            onClick={() => sendMessage()}
+            disabled={!input.trim() || isStreaming}
+            className={cn(
+              "shrink-0 w-8 h-8 rounded-xl flex items-center justify-center transition-all",
+              input.trim() && !isStreaming
+                ? "opacity-100 cursor-pointer shadow-sm"
+                : "opacity-25 cursor-not-allowed"
+            )}
+            style={{
+              background: input.trim() && !isStreaming
+                ? "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)"
+                : "var(--accent)"
+            }}
+          >
+            {isStreaming
+              ? <Loader2 size={13} className="animate-spin text-white" />
+              : <Send size={12} className="text-white" />
+            }
+          </button>
+        </div>
+
+        {/* Footer hints */}
+        <div className="flex items-center justify-between mt-1.5 px-2">
+          <span className="text-[10px] text-muted-foreground/50">
+            ✦ Llama 3.3 70B
+          </span>
+          <div className="flex items-center gap-3 text-[10px] text-muted-foreground/50">
+            <span>↵ send</span>
+            <span>⇧↵ newline</span>
+            <span>ESC close</span>
           </div>
         </div>
       </div>
