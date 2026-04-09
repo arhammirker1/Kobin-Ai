@@ -16,7 +16,7 @@
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
 ```
-Ai is here
+Ai is here no way really?
 **The founder's operating system.**  by arham mirkar 
 One platform for tasks, clients, calendar, team, relationships, vault, and real-time communication.
 
