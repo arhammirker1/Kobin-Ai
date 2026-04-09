@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server"
 import { supabaseAdmin } from "@/lib/supabase/admin"
 import { refreshGoogleToken } from "@/lib/google/token"
+import { analyzeEmailThread } from "@/lib/gmail/analyze"
 import { NextResponse } from "next/server"
 
 export async function POST(request: Request) {
@@ -10,6 +11,7 @@ export async function POST(request: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     const { relationship_id } = await request.json().catch(() => ({}))
+    console.log(`[sync-crm] Starting for user ${user.id}, relationship_id=${relationship_id || "all"}`)
 
     const { data: integration } = await supabaseAdmin
       .from("google_integrations")
@@ -35,7 +37,8 @@ export async function POST(request: Request) {
     if (!relationships?.length) return NextResponse.json({ synced: 0 })
 
     let synced = 0
-  const contactsNeedingAnalysis: string[] = []
+    let analyzed = 0
+    const contactsAnalyzed: string[] = []
 
     for (const rel of relationships) {
       if (!rel.email) continue
@@ -49,6 +52,7 @@ export async function POST(request: Request) {
 
         let lastInbound: number | null = null
         let lastOutbound: number | null = null
+        let latestThreadId: string | null = null
 
         for (const thread of threads) {
           const tRes = await fetch(
@@ -91,7 +95,10 @@ export async function POST(request: Request) {
             const ts = msg.internalDate ? parseInt(msg.internalDate) : null
             if (!ts) continue
             if (from.includes(rel.email!.toLowerCase())) {
-              if (!lastInbound || ts > lastInbound) lastInbound = ts
+              if (!lastInbound || ts > lastInbound) {
+                lastInbound = ts
+                latestThreadId = thread.id
+              }
             } else {
               if (!lastOutbound || ts > lastOutbound) lastOutbound = ts
             }
@@ -102,36 +109,45 @@ export async function POST(request: Request) {
         if (lastInbound) updates.last_inbound_at = new Date(lastInbound).toISOString()
         if (lastOutbound) updates.last_outbound_at = new Date(lastOutbound).toISOString()
         if (Object.keys(updates).length) {
-        await supabaseAdmin.from("relationships").update(updates).eq("id", rel.id)
-      }
-      // Track contacts with genuinely new inbound emails not yet analyzed
-      if (lastInbound) {
-        const { data: lastAnalysis } = await supabaseAdmin
-          .from("email_analyses")
-          .select("analyzed_at")
-          .eq("user_id", user.id)
-          .eq("contact_id", rel.id)
-          .order("analyzed_at", { ascending: false })
-          .limit(1)
-          .maybeSingle()
-        const lastAnalyzedTs = lastAnalysis?.analyzed_at
-          ? new Date(lastAnalysis.analyzed_at).getTime()
-          : 0
-        const lastInboundTs = lastInbound // already a number (ms)
-        // Only flag if new email arrived MORE THAN 1 minute after last analysis
-        // (prevents reflagging on the same sync pass)
-        if (lastInboundTs > lastAnalyzedTs + 60_000) {
-          contactsNeedingAnalysis.push(rel.id)
+          await supabaseAdmin.from("relationships").update(updates).eq("id", rel.id)
         }
-      }
-      synced++
-    } catch (e) {
-      console.error(`[CRM Sync] Error for ${rel.full_name}:`, e)
-    }
-  }
 
-  return NextResponse.json({ synced, contacts_with_new_emails: contactsNeedingAnalysis })
+        // Auto-analyze if new inbound email exists and hasn't been analyzed yet
+        if (lastInbound && latestThreadId) {
+          const { data: lastAnalysis } = await supabaseAdmin
+            .from("email_analyses")
+            .select("analyzed_at")
+            .eq("user_id", user.id)
+            .eq("contact_id", rel.id)
+            .order("analyzed_at", { ascending: false })
+            .limit(1)
+            .maybeSingle()
+
+          const lastAnalyzedTs = lastAnalysis?.analyzed_at
+            ? new Date(lastAnalysis.analyzed_at).getTime()
+            : 0
+
+          if (lastInbound > lastAnalyzedTs + 60_000) {
+            console.log(`[sync-crm] Analyzing ${rel.full_name} (${rel.email}), thread=${latestThreadId}`)
+            const result = await analyzeEmailThread(user.id, latestThreadId, rel.id)
+            if (!result.error && !result.skipped) {
+              analyzed++
+              contactsAnalyzed.push(rel.full_name)
+            }
+            console.log(`[sync-crm] Analysis result for ${rel.full_name}:`, result.error || result.skipped ? "skipped" : "OK")
+          }
+        }
+
+        synced++
+      } catch (e) {
+        console.error(`[sync-crm] Error for ${rel.full_name}:`, e)
+      }
+    }
+
+    console.log(`[sync-crm] Done: ${synced} synced, ${analyzed} analyzed (${contactsAnalyzed.join(", ")})`)
+    return NextResponse.json({ synced, analyzed, contacts_analyzed: contactsAnalyzed })
   } catch (err) {
+    console.error("[sync-crm] Fatal error:", err)
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }
-}
+}
