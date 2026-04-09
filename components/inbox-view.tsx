@@ -2900,7 +2900,7 @@ function RoomButton({
   active: boolean
   onClick: () => void
 }) {
-  const isAIRoom = room.dm_key?.startsWith("ai-assistant:")
+  const isAIRoom = room.dm_key?.startsWith("ai-room:")
 
   return (
     <button

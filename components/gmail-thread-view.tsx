@@ -555,7 +555,18 @@ export function GmailThreadView({
       if (!res.ok) throw new Error()
       toast.success("Reply sent via Gmail")
       setReplyText("")
-      setTimeout(loadThread, 2000)
+      setTimeout(async () => {
+        setLoadingMessages(true)
+        try {
+          const res = await fetch(`/api/gmail/thread/${threadId}`)
+          const data = await res.json()
+          setMessages(data.messages || [])
+        } catch {
+          toast.error("Failed to reload thread")
+        } finally {
+          setLoadingMessages(false)
+        }
+      }, 2000)
     } catch {
       toast.error("Failed to send reply")
     } finally {

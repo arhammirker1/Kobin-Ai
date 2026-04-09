@@ -5,7 +5,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin"
  * then sends a message that renders as an AI bubble in the inbox.
  */
 export async function sendAIMessage(founderId: string, content: string): Promise<void> {
-  const dmKey = `ai-assistant:${founderId}`
+  const dmKey = `ai-room:${founderId}`
 
   // Find existing AI room
   const { data: existingRoom } = await supabaseAdmin

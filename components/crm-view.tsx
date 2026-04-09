@@ -16,6 +16,27 @@ import { format, parseISO } from "date-fns"
 import { cn } from "@/lib/utils"
 import { PipelineView, STAGES, type PipelineContact, type PipelineStage } from "@/components/pipeline-view"
 
+
+
+
+// Module-level cache for email insights — persists across tab switches
+let _emailInsightsCache: {
+  data: Array<{
+    relationship_id: string
+    contact_name: string
+    thread_id: string
+    subject: string
+    intent: string
+    sentiment: string
+    summary: string
+    signals: string[]
+    analyzed_at: string
+  }>
+  time: number
+} | null = null
+
+
+const EMAIL_INSIGHTS_TTL = 5 * 60 * 1000 // 5 minutes
 const RELATIONSHIP_TYPES = [
   { value: "lead", label: "Lead" },
   { value: "investor", label: "Investor" },
@@ -183,48 +204,54 @@ export function CrmView() {
         }
       }
     } catch { /* non-fatal */ } finally {
+      _emailInsightsCache = null // Invalidate cache so fresh data loads
       setAutoAnalyzing(false)
       await loadEmailInsights()
     }
   }
 
   const loadEmailInsights = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-      const { data } = await supabase
-        .from("email_analyses")
-        .select("gmail_thread_id, contact_id, intent, sentiment, signals, reasoning, thread_subject, analyzed_at, relationships!inner(full_name)")
-        .eq("user_id", user.id)
-        .order("analyzed_at", { ascending: false })
-        .limit(40)
-      if (data) {
-        // Deduplicate by contact — keep latest non-neutral, fallback to most recent
-        const seen = new Map<string, any>()
-        for (const row of data) {
-          const existing = seen.get(row.contact_id)
-          if (!existing) {
-            seen.set(row.contact_id, row)
-          } else if (row.intent !== "neutral" && existing.intent === "neutral") {
-            seen.set(row.contact_id, row)
-          }
-        }
-        setEmailInsights(
-          Array.from(seen.values()).map((row: any) => ({
-            relationship_id: row.contact_id,
-            contact_name: row.relationships?.full_name ?? "Unknown",
-            thread_id: row.gmail_thread_id ?? "",
-            subject: row.thread_subject || "(no subject)",
-            intent: row.intent ?? "neutral",
-            sentiment: row.sentiment ?? "neutral",
-            summary: row.reasoning || "",
-            signals: Array.isArray(row.signals) ? row.signals : [],
-            analyzed_at: row.analyzed_at ?? new Date().toISOString(),
-          }))
-        )
-      }
-    } catch { /* non-fatal */ }
+  // Return cached data immediately if fresh
+  if (_emailInsightsCache && Date.now() - _emailInsightsCache.time < EMAIL_INSIGHTS_TTL) {
+    setEmailInsights(_emailInsightsCache.data)
+    return
   }
+  try {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const { data } = await supabase
+      .from("email_analyses")
+      .select("gmail_thread_id, contact_id, intent, sentiment, signals, reasoning, thread_subject, analyzed_at, relationships!inner(full_name)")
+      .eq("user_id", user.id)
+      .order("analyzed_at", { ascending: false })
+      .limit(40)
+    if (data) {
+      const seen = new Map<string, any>()
+      for (const row of data) {
+        const existing = seen.get(row.contact_id)
+        if (!existing) {
+          seen.set(row.contact_id, row)
+        } else if (row.intent !== "neutral" && existing.intent === "neutral") {
+          seen.set(row.contact_id, row)
+        }
+      }
+      const insights = Array.from(seen.values()).map((row: any) => ({
+        relationship_id: row.contact_id,
+        contact_name: row.relationships?.full_name ?? "Unknown",
+        thread_id: row.gmail_thread_id ?? "",
+        subject: row.thread_subject || "(no subject)",
+        intent: row.intent ?? "neutral",
+        sentiment: row.sentiment ?? "neutral",
+        summary: row.reasoning || "",
+        signals: Array.isArray(row.signals) ? row.signals : [],
+        analyzed_at: row.analyzed_at ?? new Date().toISOString(),
+      }))
+      // Save to module cache
+      _emailInsightsCache = { data: insights, time: Date.now() }
+      setEmailInsights(insights)
+    }
+  } catch { /* non-fatal */ }
+}
 
   // Reset page when filters change
   useEffect(() => {
