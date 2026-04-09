@@ -37,18 +37,36 @@ export async function POST(request: Request) {
     const { thread_id, relationship_id } = await request.json()
     if (!thread_id || !relationship_id) return NextResponse.json({ error: "thread_id and relationship_id required" }, { status: 400 })
 
-    // ── Dedup gate: skip if this thread was analyzed in last 12 hours ──────────
-    const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString()
-    const { data: recentAnalysis } = await supabaseAdmin
-      .from("email_analyses")
-      .select("id, intent, sentiment, reasoning")
-      .eq("gmail_thread_id", thread_id)
-      .eq("user_id", user.id)
-      .gte("analyzed_at", twelveHoursAgo)
-      .maybeSingle()
-
-    if (recentAnalysis) {
-      return NextResponse.json({ skipped: true, reason: "already_analyzed_recently" })
+    // ── Dedup gate: skip if this exact message was already analyzed ──────────
+    // Get the latest message ID in the thread to compare
+    const { data: integration_check } = await supabaseAdmin
+      .from("google_integrations").select("*").eq("user_id", user.id).eq("is_connected", true).single()
+    
+    if (integration_check) {
+      const token = await refreshGoogleToken(integration_check)
+      const metaRes = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/threads/${thread_id}?format=metadata&metadataHeaders=From`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      if (metaRes.ok) {
+        const metaData = await metaRes.json()
+        const latestMsgId = metaData.messages?.[metaData.messages.length - 1]?.id
+        if (latestMsgId) {
+          const { data: recentAnalysis } = await supabaseAdmin
+            .from("email_analyses")
+            .select("gmail_message_id")
+            .eq("gmail_thread_id", thread_id)
+            .eq("user_id", user.id)
+            .order("analyzed_at", { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          
+          // If the last analyzed message is the same as the current latest, skip
+          if (recentAnalysis?.gmail_message_id === latestMsgId) {
+            return NextResponse.json({ skipped: true, reason: "no_new_messages" })
+          }
+        }
+      }
     }
 
     const { data: rel } = await supabaseAdmin

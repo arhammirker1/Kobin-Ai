@@ -404,11 +404,20 @@ export function GmailThreadView({
   }>>([])
   const bottomRef = useRef<HTMLDivElement>(null)
 
+  // Derived external participant — always points to the client, never the user
+  const [googleEmail, setGoogleEmail] = useState("")
+  const [resolvedEmail, setResolvedEmail] = useState(senderEmail)
+  const [resolvedName, setResolvedName] = useState(senderName)
+
   useEffect(() => {
     loadThread()
-    loadContact()
     setContactThreads([])
   }, [threadId])
+
+  // Load contact whenever resolvedEmail changes (derived from messages)
+  useEffect(() => {
+    if (resolvedEmail) loadContact()
+  }, [resolvedEmail])
 
   const loadContactThreads = async (email: string) => {
     try {
@@ -513,7 +522,24 @@ export function GmailThreadView({
     try {
       const res = await fetch(`/api/gmail/thread/${threadId}`)
       const data = await res.json()
-      setMessages(data.messages || [])
+      const msgs: GmailMessage[] = data.messages || []
+      setMessages(msgs)
+
+      // Store the connected Google email for reliable "isMe" checks
+      const myEmail = (data.googleEmail || "").toLowerCase()
+      if (myEmail) setGoogleEmail(myEmail)
+
+      // Derive the external participant from actual messages
+      // Find the first sender who is NOT the connected Google account
+      if (myEmail && msgs.length > 0) {
+        for (const msg of msgs) {
+          if (msg.senderEmail.toLowerCase() !== myEmail) {
+            setResolvedEmail(msg.senderEmail)
+            setResolvedName(msg.senderName)
+            break
+          }
+        }
+      }
     } catch {
       toast.error("Failed to load email thread")
     } finally {
@@ -524,12 +550,12 @@ export function GmailThreadView({
   const loadContact = async () => {
     setLoadingContact(true)
     try {
-      const params = new URLSearchParams({ email: senderEmail, name: senderName })
+      const params = new URLSearchParams({ email: resolvedEmail, name: resolvedName })
       const res = await fetch(`/api/gmail/contact?${params}`)
       const data = await res.json()
       setContact(data.contact)
       if (data.contact) {
-        loadContactThreads(senderEmail)
+        loadContactThreads(resolvedEmail)
       }
     } finally {
       setLoadingContact(false)
@@ -546,7 +572,7 @@ export function GmailThreadView({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           threadId,
-          to: senderEmail,
+          to: resolvedEmail,
           subject,
           body: replyText,
           messageId: lastMsg?.id,
@@ -649,7 +675,7 @@ export function GmailThreadView({
               </span>
             </div>
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              {senderName} · {senderEmail}
+              {resolvedName} · {resolvedEmail}
               {contact && (
                 <span>
                   {" "}· matched →{" "}
@@ -694,9 +720,9 @@ export function GmailThreadView({
             </div>
           ) : (
             messages.map((msg) => {
-              const isMe =
-                currentUser?.email &&
-                msg.senderEmail.toLowerCase() === currentUser.email.toLowerCase()
+              const isMe = googleEmail
+                ? msg.senderEmail.toLowerCase() === googleEmail
+                : (currentUser?.email && msg.senderEmail.toLowerCase() === currentUser.email.toLowerCase())
               const cleanBody = stripQuoted(msg.body)
               const timestamp = msg.internalDate
                 ? format(new Date(parseInt(msg.internalDate)), "MMM d, h:mm a")

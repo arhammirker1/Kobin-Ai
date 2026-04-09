@@ -55,6 +55,9 @@ export async function GET(request: Request) {
     const listData = await listRes.json()
     const threads = listData.threads || []
 
+    // User's own email — used to identify "self" messages and find the external participant
+    const myEmail = (integration.google_email || "").toLowerCase()
+
     const threadDetails = await Promise.all(
       threads.slice(0, 15).map(async (t: { id: string }) => {
         const res = await fetch(
@@ -72,10 +75,27 @@ export async function GET(request: Request) {
         const getHeader = (msg: any, name: string) =>
           msg?.payload?.headers?.find((h: any) => h.name === name)?.value || ""
 
-        const fromHeader = getHeader(lastMsg, "From")
-        const emailMatch = fromHeader.match(/<(.+?)>/)
-        const senderEmail = emailMatch ? emailMatch[1] : fromHeader
-        const senderName = fromHeader.replace(/<.+?>/, "").trim().replace(/"/g, "") || senderEmail
+        // Find the external (non-self) participant — scan all messages for a From that isn't us
+        let senderEmail = ""
+        let senderName = ""
+        for (const msg of messages) {
+          const from = getHeader(msg, "From")
+          const match = from.match(/<(.+?)>/)
+          const email = (match ? match[1] : from).toLowerCase().trim()
+          if (email && email !== myEmail) {
+            senderEmail = match ? match[1] : from
+            senderName = from.replace(/<.+?>/, "").trim().replace(/"/g, "") || senderEmail
+            break
+          }
+        }
+
+        // Fallback: if all messages are from self (e.g. user initiated), use first message From
+        if (!senderEmail) {
+          const from = getHeader(firstMsg, "From")
+          const match = from.match(/<(.+?)>/)
+          senderEmail = match ? match[1] : from
+          senderName = from.replace(/<.+?>/, "").trim().replace(/"/g, "") || senderEmail
+        }
 
         return {
           id: t.id,
