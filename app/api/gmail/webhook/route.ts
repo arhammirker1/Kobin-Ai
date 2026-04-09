@@ -71,6 +71,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ status: "initialized" })
     }
 
+    // Dedup: if we already processed this historyId, skip
+    if (storedHistoryId === historyId) {
+      return NextResponse.json({ status: "duplicate" })
+    }
+
     // Refresh token
     const accessToken = await refreshGoogleToken(integration)
 

@@ -58,6 +58,7 @@ export async function analyzeEmailThread(
   threadId: string,
   relationshipId: string,
 ): Promise<AnalysisResult> {
+  try {
   // ── Dedup gate: skip if this exact message was already analyzed ──────────
   const { data: integration } = await supabaseAdmin
     .from("google_integrations").select("*").eq("user_id", userId).eq("is_connected", true).single()
@@ -240,6 +241,10 @@ Respond ONLY with valid JSON, no markdown:
     score_after: newScore,
     stage_changed: updates.pipeline_stage ? { from: rel.pipeline_stage, to: updates.pipeline_stage } : null,
     tasks_created: createdTasks,
+  }
+  } catch (err) {
+    console.error(`[analyzeEmailThread] Error for thread ${threadId}:`, err)
+    return { error: String(err) }
   }
 }
 

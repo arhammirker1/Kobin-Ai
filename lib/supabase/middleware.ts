@@ -39,8 +39,12 @@ export async function updateSession(request: NextRequest) {
 
     const isAuthPage = request.nextUrl.pathname.startsWith("/login")
     const isPublicAsset = request.nextUrl.pathname.match(/\.(svg|png|jpg|jpeg|gif|webp)$/)
+    // External service endpoints — called by Google Pub/Sub, Vercel Cron, etc. without a user session
+    const isExternalEndpoint =
+      request.nextUrl.pathname.startsWith("/api/gmail/webhook") ||
+      request.nextUrl.pathname.startsWith("/api/cron/")
 
-    if (!user && !isAuthPage && !isPublicAsset && request.nextUrl.pathname !== "/") {
+    if (!user && !isAuthPage && !isPublicAsset && !isExternalEndpoint && request.nextUrl.pathname !== "/") {
       const url = request.nextUrl.clone()
       url.pathname = "/login"
       return NextResponse.redirect(url)
