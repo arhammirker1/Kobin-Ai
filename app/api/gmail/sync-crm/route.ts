@@ -104,7 +104,7 @@ export async function POST(request: Request) {
         if (Object.keys(updates).length) {
         await supabaseAdmin.from("relationships").update(updates).eq("id", rel.id)
       }
-      // Track contacts with new inbound emails not yet analyzed
+      // Track contacts with genuinely new inbound emails not yet analyzed
       if (lastInbound) {
         const { data: lastAnalysis } = await supabaseAdmin
           .from("email_analyses")
@@ -117,7 +117,12 @@ export async function POST(request: Request) {
         const lastAnalyzedTs = lastAnalysis?.analyzed_at
           ? new Date(lastAnalysis.analyzed_at).getTime()
           : 0
-        if (lastInbound > lastAnalyzedTs) contactsNeedingAnalysis.push(rel.id)
+        const lastInboundTs = lastInbound // already a number (ms)
+        // Only flag if new email arrived MORE THAN 1 minute after last analysis
+        // (prevents reflagging on the same sync pass)
+        if (lastInboundTs > lastAnalyzedTs + 60_000) {
+          contactsNeedingAnalysis.push(rel.id)
+        }
       }
       synced++
     } catch (e) {

@@ -19,7 +19,9 @@ import { PipelineView, STAGES, type PipelineContact, type PipelineStage } from "
 
 
 
-// Module-level cache for email insights — persists across tab switches
+// Module-level set — tracks thread IDs analyzed this session to prevent re-runs
+const _analyzedThreadIds = new Set<string>()
+
 // Module-level cache for email insights — persists across tab switches
 let _emailInsightsCache: {
   data: Array<{
@@ -39,6 +41,7 @@ let _emailInsightsCache: {
 // Sync cooldown — prevent re-running analysis on every tab switch
 let _lastSyncTime = 0
 let _syncInProgress = false
+let _analyzeInProgress = false
 const SYNC_COOLDOWN_MS = 5 * 60 * 1000 // 5 minutes
 
 
@@ -165,9 +168,10 @@ export function CrmView() {
         .select("is_connected")
         .eq("user_id", user.id)
         .single()
-      setGmailConnected(integration?.is_connected === true)
+      const connected = integration?.is_connected === true
+      setGmailConnected(connected)
 
-      if (integration?.is_connected) {
+      if (connected) {
         // Always load insights from cache first (instant)
         await loadEmailInsights()
 
@@ -180,6 +184,19 @@ export function CrmView() {
       }
     } catch { /* non-fatal */ }
   }
+
+  // Real-time-ish: re-sync when tab regains focus (user switches back to app)
+  useEffect(() => {
+    const onFocus = () => {
+      const cooldownExpired = Date.now() - _lastSyncTime > SYNC_COOLDOWN_MS
+      if (gmailConnected && cooldownExpired && !_syncInProgress) {
+        _lastSyncTime = Date.now()
+        syncEmailsForCRM()
+      }
+    }
+    window.addEventListener("focus", onFocus)
+    return () => window.removeEventListener("focus", onFocus)
+  }, [gmailConnected])
 
   const syncEmailsForCRM = async () => {
     if (_syncInProgress) return

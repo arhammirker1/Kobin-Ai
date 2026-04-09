@@ -37,6 +37,20 @@ export async function POST(request: Request) {
     const { thread_id, relationship_id } = await request.json()
     if (!thread_id || !relationship_id) return NextResponse.json({ error: "thread_id and relationship_id required" }, { status: 400 })
 
+    // ── Dedup gate: skip if this thread was analyzed in last 12 hours ──────────
+    const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString()
+    const { data: recentAnalysis } = await supabaseAdmin
+      .from("email_analyses")
+      .select("id, intent, sentiment, reasoning")
+      .eq("gmail_thread_id", thread_id)
+      .eq("user_id", user.id)
+      .gte("analyzed_at", twelveHoursAgo)
+      .maybeSingle()
+
+    if (recentAnalysis) {
+      return NextResponse.json({ skipped: true, reason: "already_analyzed_recently" })
+    }
+
     const { data: rel } = await supabaseAdmin
       .from("relationships")
       .select("id, full_name, email, pipeline_stage, lead_score, deal_value, close_probability")
@@ -140,9 +154,19 @@ Respond ONLY with valid JSON, no markdown:
 
     await supabaseAdmin.from("relationships").update(updates).eq("id", relationship_id)
 
-    // Auto-create tasks from action items
+    // Auto-create tasks from action items — max 1 per analysis, with 24h dedup
     const createdTasks: any[] = []
-    for (const item of (analysis.action_items || []).slice(0, 2)) {
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    const actionItems = (analysis.action_items || []).slice(0, 1) // max 1 task per analysis
+    for (const item of actionItems) {
+      const { data: existingTask } = await supabaseAdmin
+        .from("tasks")
+        .select("id")
+        .eq("user_id", user.id)
+        .ilike("title", `%${item.slice(0, 30)}%`)
+        .gte("created_at", oneDayAgo)
+        .maybeSingle()
+      if (existingTask) continue // skip duplicate
       const { data: task } = await supabaseAdmin.from("tasks").insert({
         user_id: user.id,
         created_by: user.id,
