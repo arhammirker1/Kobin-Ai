@@ -20,6 +20,7 @@ import { PipelineView, STAGES, type PipelineContact, type PipelineStage } from "
 
 
 // Module-level cache for email insights — persists across tab switches
+// Module-level cache for email insights — persists across tab switches
 let _emailInsightsCache: {
   data: Array<{
     relationship_id: string
@@ -34,6 +35,11 @@ let _emailInsightsCache: {
   }>
   time: number
 } | null = null
+
+// Sync cooldown — prevent re-running analysis on every tab switch
+let _lastSyncTime = 0
+let _syncInProgress = false
+const SYNC_COOLDOWN_MS = 5 * 60 * 1000 // 5 minutes
 
 
 const EMAIL_INSIGHTS_TTL = 5 * 60 * 1000 // 5 minutes
@@ -160,14 +166,24 @@ export function CrmView() {
         .eq("user_id", user.id)
         .single()
       setGmailConnected(integration?.is_connected === true)
+
       if (integration?.is_connected) {
-        await syncEmailsForCRM()
+        // Always load insights from cache first (instant)
         await loadEmailInsights()
+
+        // Only run background sync if cooldown has expired and not already running
+        const cooldownExpired = Date.now() - _lastSyncTime > SYNC_COOLDOWN_MS
+        if (cooldownExpired && !_syncInProgress) {
+          _lastSyncTime = Date.now()
+          syncEmailsForCRM() // fire-and-forget, non-blocking
+        }
       }
     } catch { /* non-fatal */ }
   }
 
   const syncEmailsForCRM = async () => {
+    if (_syncInProgress) return
+    _syncInProgress = true
     setSyncingEmail(true)
     try {
       const res = await fetch("/api/gmail/sync-crm", {
@@ -177,34 +193,57 @@ export function CrmView() {
       })
       const data = await res.json().catch(() => ({}))
       if (data.contacts_with_new_emails?.length > 0) {
+        // Don't await — let analysis run in background
         autoAnalyzeNewEmails(data.contacts_with_new_emails)
       }
     } catch { /* non-fatal */ } finally {
       setSyncingEmail(false)
+      _syncInProgress = false
     }
   }
 
   const autoAnalyzeNewEmails = async (contactIds: string[]) => {
+    if (autoAnalyzing) return // prevent concurrent runs
     setAutoAnalyzing(true)
     try {
-      for (const relId of contactIds.slice(0, 5)) {
+      // Process one at a time to avoid flooding AI messages
+      for (const relId of contactIds.slice(0, 3)) {
         const { data: thread } = await supabase
           .from("gmail_threads")
-          .select("id")
+          .select("id, last_message_at")
           .eq("relationship_id", relId)
           .order("last_message_at", { ascending: false })
           .limit(1)
           .maybeSingle()
-        if (thread?.id) {
-          await fetch("/api/ai/analyze-email", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ thread_id: thread.id, relationship_id: relId }),
-          }).catch(() => {})
-        }
+
+        if (!thread?.id) continue
+
+        // Check if this exact thread was already analyzed recently (within 1 hour)
+        const { data: recentAnalysis } = await supabase
+          .from("email_analyses")
+          .select("analyzed_at")
+          .eq("gmail_thread_id", thread.id)
+          .order("analyzed_at", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        const oneHourAgo = Date.now() - 60 * 60 * 1000
+        const alreadyAnalyzed = recentAnalysis?.analyzed_at &&
+          new Date(recentAnalysis.analyzed_at).getTime() > oneHourAgo
+
+        if (alreadyAnalyzed) continue // skip — already fresh
+
+        await fetch("/api/ai/analyze-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ thread_id: thread.id, relationship_id: relId }),
+        }).catch(() => {})
+
+        // Small delay between analyses to avoid burst
+        await new Promise(r => setTimeout(r, 500))
       }
     } catch { /* non-fatal */ } finally {
-      _emailInsightsCache = null // Invalidate cache so fresh data loads
+      _emailInsightsCache = null // Invalidate so next load fetches fresh
       setAutoAnalyzing(false)
       await loadEmailInsights()
     }
@@ -586,7 +625,12 @@ export function CrmView() {
             <Button
               variant="outline"
               className="gap-2 shadow-sm font-bold"
-              onClick={async () => { await syncEmailsForCRM(); await loadEmailInsights(); toast.success("Gmail synced") }}
+              onClick={async () => {
+                _lastSyncTime = 0 // reset cooldown so manual sync always runs
+                await syncEmailsForCRM()
+                await loadEmailInsights()
+                toast.success("Gmail synced")
+              }}
               disabled={syncingEmail || autoAnalyzing}
             >
               {syncingEmail || autoAnalyzing ? (
