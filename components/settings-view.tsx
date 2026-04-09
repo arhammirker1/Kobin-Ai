@@ -262,6 +262,68 @@ function AIModeCard() {
   )
 }
 
+function CRMIntelligenceCard() {
+  const [autoDetectLeads, setAutoDetectLeads] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const supabase = createClient()
+
+  useEffect(() => {
+    const load = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data } = await supabase.from("profiles").select("settings").eq("id", user.id).single()
+      if (data?.settings?.auto_detect_leads !== undefined) {
+        setAutoDetectLeads(data.settings.auto_detect_leads)
+      }
+    }
+    load()
+  }, [])
+
+  const handleToggle = async (checked: boolean) => {
+    setSaving(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      // Read existing settings, merge in the new value
+      const { data: profile } = await supabase.from("profiles").select("settings").eq("id", user.id).single()
+      const currentSettings = profile?.settings || {}
+      await supabase.from("profiles").update({
+        settings: { ...currentSettings, auto_detect_leads: checked }
+      }).eq("id", user.id)
+      setAutoDetectLeads(checked)
+      toast.success(checked ? "AI lead detection enabled" : "AI lead detection disabled")
+    } catch { toast.error("Failed to save setting") }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          📧 CRM Intelligence
+        </CardTitle>
+        <CardDescription>Configure how the AI handles incoming emails for your CRM pipeline</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5 flex-1 mr-4">
+            <Label htmlFor="auto-detect-leads" className="text-sm font-medium">Auto-detect leads from emails</Label>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              When a new email arrives from someone not in your CRM, the AI will analyze it and automatically add relevant business leads to your pipeline. Newsletters, notifications, and spam are filtered out.
+            </p>
+          </div>
+          <Switch
+            id="auto-detect-leads"
+            checked={autoDetectLeads}
+            onCheckedChange={handleToggle}
+            disabled={saving}
+          />
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 export function SettingsView({ isClient }: { isClient?: boolean } = {}) {
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
@@ -365,6 +427,8 @@ export function SettingsView({ isClient }: { isClient?: boolean } = {}) {
         </Card>
 
         <GoogleIntegrationCard isClient={isClient} />
+
+        {!isClient && <CRMIntelligenceCard />}
 
         {!isClient && <AIModeCard />}
       </div>

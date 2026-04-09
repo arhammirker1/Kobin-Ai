@@ -98,6 +98,20 @@ export async function GET(request: Request) {
         console.warn("[Vault] Could not auto-init vault folder:", vaultErr)
         // Non-fatal — vault can be initialized later from Settings
       }
+
+      // Register Gmail push notifications via Pub/Sub
+      try {
+        const { registerGmailWatch } = await import("@/lib/google/gmail-watch")
+        const watchResult = await registerGmailWatch(user.id)
+        if (watchResult.success) {
+          console.log(`[Google OAuth] Gmail watch registered, expires ${watchResult.expiration}`)
+        } else {
+          console.warn("[Google OAuth] Gmail watch registration failed:", watchResult.error)
+        }
+      } catch (watchErr) {
+        console.warn("[Google OAuth] Could not register Gmail watch:", watchErr)
+        // Non-fatal — watch can be registered later by the daily cron
+      }
     }
 
     if (upsertError) {

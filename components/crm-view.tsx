@@ -7,7 +7,7 @@ import { Input, Textarea } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Search, Plus, Video, CalendarIcon, FileText, Linkedin, LayoutList, Kanban, Upload, ChevronLeft, ChevronRight, History, Mail, Loader2, Brain, X } from "lucide-react"
+import { Search, Plus, Video, CalendarIcon, FileText, Linkedin, LayoutList, Kanban, Upload, ChevronLeft, ChevronRight, History, Mail, Loader2, Brain } from "lucide-react"
 import { LeadsImportDialog } from "@/components/leads-import-dialog"
 import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
@@ -91,8 +91,6 @@ export function CrmView() {
   const [importHistory, setImportHistory] = useState<ImportHistoryItem[]>([])
   const [gmailConnected, setGmailConnected] = useState(false)
   const [syncingEmail, setSyncingEmail] = useState(false)
-  const [autoAnalyzing, setAutoAnalyzing] = useState(false)
-  const [dismissedInsights, setDismissedInsights] = useState<Set<string>>(new Set())
   const [emailInsights, setEmailInsights] = useState<Array<{
     relationship_id: string
     contact_name: string
@@ -168,50 +166,16 @@ export function CrmView() {
     _syncInProgress = true
     setSyncingEmail(true)
     try {
-      const res = await fetch("/api/gmail/sync-crm", {
+      await fetch("/api/gmail/sync-crm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       })
-      const data = await res.json().catch(() => ({}))
-      if (data.contacts_with_new_emails?.length > 0) {
-        await autoAnalyzeNewEmails(data.contacts_with_new_emails)
-      }
+      // Reload fresh insights from DB after sync
+      await loadEmailInsights()
     } catch { /* non-fatal */ } finally {
       setSyncingEmail(false)
       _syncInProgress = false
-    }
-  }
-
-  const autoAnalyzeNewEmails = async (contactIds: string[]) => {
-    if (autoAnalyzing) return
-    setAutoAnalyzing(true)
-    try {
-      // Process ALL contacts with new emails (no cap)
-      for (const relId of contactIds) {
-        const { data: thread } = await supabase
-          .from("gmail_threads")
-          .select("id, last_message_at")
-          .eq("relationship_id", relId)
-          .order("last_message_at", { ascending: false })
-          .limit(1)
-          .maybeSingle()
-
-        if (!thread?.id) continue
-
-        await fetch("/api/ai/analyze-email", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ thread_id: thread.id, relationship_id: relId }),
-        }).catch(() => {})
-
-        // Small delay between analyses to avoid burst
-        await new Promise(r => setTimeout(r, 500))
-      }
-    } catch { /* non-fatal */ } finally {
-      setAutoAnalyzing(false)
-      // Reload fresh insights from DB after analysis completes
-      await loadEmailInsights()
     }
   }
 
@@ -589,12 +553,11 @@ export function CrmView() {
               className="gap-2 shadow-sm font-bold"
               onClick={async () => {
                 await syncEmailsForCRM()
-                await loadEmailInsights()
                 toast.success("Gmail synced")
               }}
-              disabled={syncingEmail || autoAnalyzing}
+              disabled={syncingEmail}
             >
-              {syncingEmail || autoAnalyzing ? (
+              {syncingEmail ? (
                 <Loader2 size={16} className="animate-spin" />
               ) : (
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
@@ -605,7 +568,7 @@ export function CrmView() {
                 </svg>
               )}
               <span className="hidden md:inline">
-                {syncingEmail ? "Syncing…" : autoAnalyzing ? "Analysing…" : "Sync Gmail"}
+                {syncingEmail ? "Syncing…" : "Sync Gmail"}
               </span>
             </Button>
           )}
@@ -759,7 +722,7 @@ export function CrmView() {
       </div>
 
       {/* ─── AI Email Intelligence Panel ──────────────────────────────────────── */}
-      {(emailInsights.length > 0 || autoAnalyzing) && (
+      {emailInsights.length > 0 && (
         <div className="rounded-2xl border border-border bg-card overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/30">
@@ -771,22 +734,20 @@ export function CrmView() {
               <div>
                 <span className="text-xs font-semibold text-foreground">Email Intelligence</span>
                 <span className="text-[10px] text-muted-foreground ml-2">
-                  {emailInsights.filter(i => !dismissedInsights.has(i.relationship_id)).length} contact{emailInsights.filter(i => !dismissedInsights.has(i.relationship_id)).length !== 1 ? "s" : ""} analysed
+                  {emailInsights.length} contact{emailInsights.length !== 1 ? "s" : ""} analysed
                 </span>
               </div>
             </div>
-            {autoAnalyzing && (
+            {syncingEmail && (
               <div className="flex items-center gap-1.5 text-[11px] text-violet-400">
                 <Loader2 size={11} className="animate-spin" />
-                Analysing new emails…
+                Syncing…
               </div>
             )}
           </div>
           {/* Cards */}
           <div className="flex gap-3 overflow-x-auto p-4 scrollbar-hide">
-            {emailInsights
-              .filter(i => !dismissedInsights.has(i.relationship_id))
-              .map((insight, i) => {
+            {emailInsights.map((insight) => {
                 const initials = insight.contact_name.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)
                 const sentimentColor = insight.sentiment === "positive"
                   ? { dot: "#10b981", bg: "bg-emerald-500/10 border-emerald-500/20", text: "text-emerald-400" }
@@ -811,16 +772,9 @@ export function CrmView() {
                   : ""
                 return (
                   <div
-                    key={insight.relationship_id}
-                    className="flex-shrink-0 w-64 rounded-xl border border-border bg-background hover:border-primary/30 transition-colors relative group"
+                    key={`${insight.thread_id}-${insight.analyzed_at}`}
+                    className="flex-shrink-0 w-64 rounded-xl border border-border bg-background hover:border-primary/30 transition-colors"
                   >
-                    {/* Dismiss */}
-                    <button
-                      onClick={() => setDismissedInsights(prev => new Set([...prev, insight.relationship_id]))}
-                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity w-5 h-5 rounded-full bg-muted/80 hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground"
-                    >
-                      <X size={10} />
-                    </button>
                     {/* Contact header */}
                     <div className="flex items-center gap-2.5 px-3 pt-3 pb-2 border-b border-border/50">
                       <div className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0"
@@ -867,13 +821,6 @@ export function CrmView() {
                   </div>
                 )
               })}
-            {/* Empty state when all dismissed */}
-            {emailInsights.filter(i => !dismissedInsights.has(i.relationship_id)).length === 0 && !autoAnalyzing && (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
-                <Brain size={14} />
-                All caught up — no new email signals
-              </div>
-            )}
           </div>
         </div>
       )}

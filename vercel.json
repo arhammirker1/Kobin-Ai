@@ -7,6 +7,10 @@
     {
       "path": "/api/ai/proactive",
       "schedule": "0 18 * * *"
+    },
+    {
+      "path": "/api/cron/renew-gmail-watch",
+      "schedule": "0 6 * * *"
     }
   ]
 }
