@@ -35,6 +35,7 @@ export async function POST(request: Request) {
     if (!relationships?.length) return NextResponse.json({ synced: 0 })
 
     let synced = 0
+  const contactsNeedingAnalysis: string[] = []
 
     for (const rel of relationships) {
       if (!rel.email) continue
@@ -101,15 +102,30 @@ export async function POST(request: Request) {
         if (lastInbound) updates.last_inbound_at = new Date(lastInbound).toISOString()
         if (lastOutbound) updates.last_outbound_at = new Date(lastOutbound).toISOString()
         if (Object.keys(updates).length) {
-          await supabaseAdmin.from("relationships").update(updates).eq("id", rel.id)
-        }
-        synced++
-      } catch (e) {
-        console.error(`[CRM Sync] Error for ${rel.full_name}:`, e)
+        await supabaseAdmin.from("relationships").update(updates).eq("id", rel.id)
       }
+      // Track contacts with new inbound emails not yet analyzed
+      if (lastInbound) {
+        const { data: lastAnalysis } = await supabaseAdmin
+          .from("email_analyses")
+          .select("analyzed_at")
+          .eq("user_id", user.id)
+          .eq("contact_id", rel.id)
+          .order("analyzed_at", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        const lastAnalyzedTs = lastAnalysis?.analyzed_at
+          ? new Date(lastAnalysis.analyzed_at).getTime()
+          : 0
+        if (lastInbound > lastAnalyzedTs) contactsNeedingAnalysis.push(rel.id)
+      }
+      synced++
+    } catch (e) {
+      console.error(`[CRM Sync] Error for ${rel.full_name}:`, e)
     }
+  }
 
-    return NextResponse.json({ synced })
+  return NextResponse.json({ synced, contacts_with_new_emails: contactsNeedingAnalysis })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }

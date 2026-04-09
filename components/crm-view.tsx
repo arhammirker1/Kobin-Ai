@@ -85,6 +85,8 @@ export function CrmView() {
   const [importHistory, setImportHistory] = useState<ImportHistoryItem[]>([])
   const [gmailConnected, setGmailConnected] = useState(false)
   const [syncingEmail, setSyncingEmail] = useState(false)
+  const [autoAnalyzing, setAutoAnalyzing] = useState(false)
+  const [dismissedInsights, setDismissedInsights] = useState<Set<string>>(new Set())
   const [emailInsights, setEmailInsights] = useState<Array<{
     relationship_id: string
     contact_name: string
@@ -147,9 +149,42 @@ export function CrmView() {
   const syncEmailsForCRM = async () => {
     setSyncingEmail(true)
     try {
-      await fetch("/api/gmail/sync-crm", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) })
+      const res = await fetch("/api/gmail/sync-crm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (data.contacts_with_new_emails?.length > 0) {
+        autoAnalyzeNewEmails(data.contacts_with_new_emails)
+      }
     } catch { /* non-fatal */ } finally {
       setSyncingEmail(false)
+    }
+  }
+
+  const autoAnalyzeNewEmails = async (contactIds: string[]) => {
+    setAutoAnalyzing(true)
+    try {
+      for (const relId of contactIds.slice(0, 5)) {
+        const { data: thread } = await supabase
+          .from("gmail_threads")
+          .select("id")
+          .eq("relationship_id", relId)
+          .order("last_message_at", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        if (thread?.id) {
+          await fetch("/api/ai/analyze-email", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ thread_id: thread.id, relationship_id: relId }),
+          }).catch(() => {})
+        }
+      }
+    } catch { /* non-fatal */ } finally {
+      setAutoAnalyzing(false)
+      await loadEmailInsights()
     }
   }
 
@@ -161,21 +196,32 @@ export function CrmView() {
         .from("email_analyses")
         .select("gmail_thread_id, contact_id, intent, sentiment, signals, reasoning, thread_subject, analyzed_at, relationships!inner(full_name)")
         .eq("user_id", user.id)
-        .not("intent", "eq", "neutral")
         .order("analyzed_at", { ascending: false })
-        .limit(5)
+        .limit(40)
       if (data) {
-        setEmailInsights(data.map((row: any) => ({
-          relationship_id: row.contact_id,
-          contact_name: row.relationships?.full_name || "Unknown",
-          thread_id: row.gmail_thread_id,
-          subject: row.thread_subject || "(no subject)",
-          intent: row.intent,
-          sentiment: row.sentiment,
-          summary: row.reasoning || "",
-          signals: row.signals || [],
-          analyzed_at: row.analyzed_at,
-        })))
+        // Deduplicate by contact — keep latest non-neutral, fallback to most recent
+        const seen = new Map<string, any>()
+        for (const row of data) {
+          const existing = seen.get(row.contact_id)
+          if (!existing) {
+            seen.set(row.contact_id, row)
+          } else if (row.intent !== "neutral" && existing.intent === "neutral") {
+            seen.set(row.contact_id, row)
+          }
+        }
+        setEmailInsights(
+          Array.from(seen.values()).map((row: any) => ({
+            relationship_id: row.contact_id,
+            contact_name: row.relationships?.full_name || "Unknown",
+            thread_id: row.gmail_thread_id,
+            subject: row.thread_subject || "(no subject)",
+            intent: row.intent,
+            sentiment: row.sentiment,
+            summary: row.reasoning || "",
+            signals: row.signals || [],
+            analyzed_at: row.analyzed_at,
+          }))
+        )
       }
     } catch { /* non-fatal */ }
   }
@@ -514,9 +560,11 @@ export function CrmView() {
               variant="outline"
               className="gap-2 shadow-sm font-bold"
               onClick={async () => { await syncEmailsForCRM(); await loadEmailInsights(); toast.success("Gmail synced") }}
-              disabled={syncingEmail}
+              disabled={syncingEmail || autoAnalyzing}
             >
-              {syncingEmail ? <Loader2 size={16} className="animate-spin" /> : (
+              {syncingEmail || autoAnalyzing ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                   <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
                   <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
@@ -524,7 +572,9 @@ export function CrmView() {
                   <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
                 </svg>
               )}
-              <span className="hidden md:inline">{syncingEmail ? "Syncing…" : "Sync Gmail"}</span>
+              <span className="hidden md:inline">
+                {syncingEmail ? "Syncing…" : autoAnalyzing ? "Analysing…" : "Sync Gmail"}
+              </span>
             </Button>
           )}
           <Button
@@ -677,53 +727,121 @@ export function CrmView() {
       </div>
 
       {/* ─── AI Email Intelligence Panel ──────────────────────────────────────── */}
-      {emailInsights.length > 0 && (
-        <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 p-4 space-y-3">
-          <div className="flex items-center gap-2">
-            <Brain size={14} className="text-violet-400" />
-            <span className="text-xs font-bold uppercase tracking-widest text-violet-300">
-              AI Email Intelligence
-            </span>
-            <span className="text-[10px] text-violet-400/60 ml-auto">
-              {emailInsights.length} recent analysis{emailInsights.length > 1 ? "es" : ""}
-            </span>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-            {emailInsights.map((insight, i) => (
-              <div key={i} className={cn(
-                "flex flex-col gap-1.5 px-3 py-2.5 rounded-lg border text-left",
-                insight.sentiment === "positive" ? "border-emerald-500/20 bg-emerald-500/5" :
-                insight.sentiment === "negative" ? "border-red-500/20 bg-red-500/5" :
-                "border-border/40 bg-muted/20"
-              )}>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-semibold text-foreground truncate">{insight.contact_name}</span>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <span className={cn("text-[9px] px-1.5 py-0.5 rounded-full font-semibold uppercase", {
-                      "bg-emerald-500/20 text-emerald-400": insight.sentiment === "positive",
-                      "bg-red-500/20 text-red-400": insight.sentiment === "negative",
-                      "bg-zinc-500/10 text-zinc-500": insight.sentiment === "neutral",
-                    })}>
-                      {insight.sentiment}
-                    </span>
-                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-400 font-medium capitalize">
-                      {insight.intent.replace(/_/g, " ")}
-                    </span>
-                  </div>
-                </div>
-                <p className="text-[11px] text-muted-foreground truncate">{insight.subject}</p>
-                {insight.summary && (
-                  <p className="text-[11px] text-muted-foreground/70 line-clamp-2 leading-relaxed">{insight.summary}</p>
-                )}
-                {insight.signals?.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
-                    {insight.signals.slice(0, 2).map((s, si) => (
-                      <span key={si} className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{s}</span>
-                    ))}
-                  </div>
-                )}
+      {(emailInsights.length > 0 || autoAnalyzing) && (
+        <div className="rounded-2xl border border-border bg-card overflow-hidden">
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/30">
+            <div className="flex items-center gap-2.5">
+              <div className="w-6 h-6 rounded-lg flex items-center justify-center"
+                style={{ background: "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)" }}>
+                <Brain size={12} className="text-white" />
               </div>
-            ))}
+              <div>
+                <span className="text-xs font-semibold text-foreground">Email Intelligence</span>
+                <span className="text-[10px] text-muted-foreground ml-2">
+                  {emailInsights.filter(i => !dismissedInsights.has(i.relationship_id)).length} contact{emailInsights.filter(i => !dismissedInsights.has(i.relationship_id)).length !== 1 ? "s" : ""} analysed
+                </span>
+              </div>
+            </div>
+            {autoAnalyzing && (
+              <div className="flex items-center gap-1.5 text-[11px] text-violet-400">
+                <Loader2 size={11} className="animate-spin" />
+                Analysing new emails…
+              </div>
+            )}
+          </div>
+          {/* Cards */}
+          <div className="flex gap-3 overflow-x-auto p-4 scrollbar-hide">
+            {emailInsights
+              .filter(i => !dismissedInsights.has(i.relationship_id))
+              .map((insight, i) => {
+                const initials = insight.contact_name.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)
+                const sentimentColor = insight.sentiment === "positive"
+                  ? { dot: "#10b981", bg: "bg-emerald-500/10 border-emerald-500/20", text: "text-emerald-400" }
+                  : insight.sentiment === "negative"
+                  ? { dot: "#ef4444", bg: "bg-red-500/10 border-red-500/20", text: "text-red-400" }
+                  : { dot: "#888780", bg: "bg-muted/60 border-border", text: "text-muted-foreground" }
+                const intentColors: Record<string, string> = {
+                  interested: "bg-blue-500/15 text-blue-400",
+                  ready_to_close: "bg-emerald-500/15 text-emerald-400",
+                  requesting_meeting: "bg-violet-500/15 text-violet-400",
+                  not_interested: "bg-red-500/15 text-red-400",
+                  objection: "bg-orange-500/15 text-orange-400",
+                }
+                const intentClass = intentColors[insight.intent] || "bg-muted/60 text-muted-foreground"
+                const timeAgo = insight.analyzed_at
+                  ? (() => {
+                      const diff = Date.now() - new Date(insight.analyzed_at).getTime()
+                      const h = Math.floor(diff / 3600000)
+                      const d = Math.floor(diff / 86400000)
+                      return d > 0 ? `${d}d ago` : h > 0 ? `${h}h ago` : "just now"
+                    })()
+                  : ""
+                return (
+                  <div
+                    key={insight.relationship_id}
+                    className="flex-shrink-0 w-64 rounded-xl border border-border bg-background hover:border-primary/30 transition-colors relative group"
+                  >
+                    {/* Dismiss */}
+                    <button
+                      onClick={() => setDismissedInsights(prev => new Set([...prev, insight.relationship_id]))}
+                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity w-5 h-5 rounded-full bg-muted/80 hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground"
+                    >
+                      <X size={10} />
+                    </button>
+                    {/* Contact header */}
+                    <div className="flex items-center gap-2.5 px-3 pt-3 pb-2 border-b border-border/50">
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0"
+                        style={{ background: `${sentimentColor.dot}20`, color: sentimentColor.dot }}>
+                        {initials}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold truncate">{insight.contact_name}</p>
+                        <p className="text-[10px] text-muted-foreground truncate">{insight.subject}</p>
+                      </div>
+                    </div>
+                    {/* Badges */}
+                    <div className="px-3 pt-2 flex flex-wrap gap-1.5">
+                      <span className={cn("text-[10px] px-2 py-0.5 rounded-full border font-medium flex items-center gap-1", sentimentColor.bg, sentimentColor.text)}>
+                        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: sentimentColor.dot }} />
+                        {insight.sentiment}
+                      </span>
+                      {insight.intent !== "neutral" && (
+                        <span className={cn("text-[10px] px-2 py-0.5 rounded-full font-medium capitalize", intentClass)}>
+                          {insight.intent.replace(/_/g, " ")}
+                        </span>
+                      )}
+                    </div>
+                    {/* Summary */}
+                    {insight.summary && (
+                      <p className="px-3 pt-2 text-[11px] text-muted-foreground leading-relaxed line-clamp-2">
+                        {insight.summary}
+                      </p>
+                    )}
+                    {/* Signals */}
+                    {insight.signals?.length > 0 && (
+                      <div className="px-3 pt-1.5 flex flex-wrap gap-1">
+                        {insight.signals.slice(0, 3).map((s: string, si: number) => (
+                          <span key={si} className="text-[9px] px-1.5 py-0.5 rounded bg-muted/60 text-muted-foreground">
+                            {s}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {/* Footer */}
+                    <div className="px-3 pt-2 pb-3 flex items-center justify-between">
+                      <span className="text-[10px] text-muted-foreground/50">{timeAgo}</span>
+                    </div>
+                  </div>
+                )
+              })}
+            {/* Empty state when all dismissed */}
+            {emailInsights.filter(i => !dismissedInsights.has(i.relationship_id)).length === 0 && !autoAnalyzing && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+                <Brain size={14} />
+                All caught up — no new email signals
+              </div>
+            )}
           </div>
         </div>
       )}

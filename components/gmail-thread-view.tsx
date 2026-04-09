@@ -382,6 +382,7 @@ export function GmailThreadView({
   const [sending, setSending] = useState(false)
   const [taskCreating, setTaskCreating] = useState(false)
   const [draftLoading, setDraftLoading] = useState(false)
+  const replyTextareaRef = useRef<HTMLTextAreaElement>(null)
   const [analyzing, setAnalyzing] = useState(false)
   const [analysisResult, setAnalysisResult] = useState<{
     intent: string
@@ -439,8 +440,19 @@ export function GmailThreadView({
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
-      setReplyText(data.draft || "")
-      toast.success("Draft generated")
+      const draft = data.draft || ""
+      setReplyText(draft)
+      // Auto-resize textarea and focus it so user can see + send
+      setTimeout(() => {
+        const el = replyTextareaRef.current
+        if (el) {
+          el.style.height = "auto"
+          el.style.height = `${Math.min(el.scrollHeight, 200)}px`
+          el.focus()
+          el.setSelectionRange(draft.length, draft.length)
+        }
+      }, 30)
+      toast.success("Draft ready — review and send")
     } catch (err: any) {
       toast.error(err.message || "Failed to draft reply")
     } finally {
@@ -764,8 +776,13 @@ export function GmailThreadView({
           )}
           <div className="flex items-end gap-2">
             <textarea
+              ref={replyTextareaRef}
               value={replyText}
-              onChange={(e) => setReplyText(e.target.value)}
+              onChange={(e) => {
+                setReplyText(e.target.value)
+                e.target.style.height = "auto"
+                e.target.style.height = `${Math.min(e.target.scrollHeight, 200)}px`
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleReply()
               }}

@@ -22,9 +22,24 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url)
     const fromEmail = searchParams.get("from") || ""
-    const query = fromEmail
-      ? `from:${fromEmail}`
-      : "in:inbox"
+    const crmOnly = searchParams.get("crm_only") === "true"
+
+    let query = fromEmail ? `from:${fromEmail}` : "in:inbox"
+
+    if (crmOnly && !fromEmail) {
+      const { data: crmContacts } = await supabaseAdmin
+        .from("relationships")
+        .select("email")
+        .eq("user_id", user.id)
+        .not("email", "is", null)
+        .eq("status", "active")
+      const crmEmails = crmContacts?.map(r => r.email).filter(Boolean) || []
+      if (crmEmails.length > 0) {
+        query = crmEmails.slice(0, 25).map(e => `from:${e} OR to:${e}`).join(" OR ")
+      } else {
+        return NextResponse.json({ threads: [], connected: true })
+      }
+    }
 
     const listRes = await fetch(
       `https://gmail.googleapis.com/gmail/v1/users/me/threads?maxResults=20&q=${encodeURIComponent(query)}`,

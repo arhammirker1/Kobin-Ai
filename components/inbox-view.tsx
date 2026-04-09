@@ -1440,6 +1440,7 @@ const filteredRooms = useMemo(() => {
 }, [rooms, sidebarSearch])
 
 const [loadingGmail, setLoadingGmail] = useState(false)
+  const [gmailCrmOnly, setGmailCrmOnly] = useState(true)
 
 
 // ... rest of your hooks
@@ -1451,10 +1452,11 @@ const [loadingGmail, setLoadingGmail] = useState(false)
   const realtimeRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
   const messagesRef = useRef<ChatMessage[]>([])
   // ── Boot ────────────────────────────────────────────────────────────────────
-  const loadGmailThreads = useCallback(async () => {
+  const loadGmailThreads = useCallback(async (crmOnly = true) => {
     setLoadingGmail(true)
     try {
-      const res = await fetch("/api/gmail/threads")
+      const url = crmOnly ? "/api/gmail/threads?crm_only=true" : "/api/gmail/threads"
+      const res = await fetch(url)
       const data = await res.json()
       setGmailConnected(data.connected || false)
       setGmailThreads(data.threads || [])
@@ -2427,6 +2429,24 @@ if (error) {
     )}
   </button>
 </div>
+{/* CRM-only toggle — shown when on Gmail tab */}
+{sidebarTab === "gmail" && gmailConnected && (
+  <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/50 bg-muted/20">
+    <span className="text-[10px] text-muted-foreground">CRM contacts only</span>
+    <button
+      onClick={() => setGmailCrmOnly(v => !v)}
+      className={cn(
+        "relative inline-flex h-4 w-7 items-center rounded-full transition-colors",
+        gmailCrmOnly ? "bg-primary" : "bg-muted-foreground/30"
+      )}
+    >
+      <span className={cn(
+        "inline-block h-3 w-3 rounded-full bg-white shadow transition-transform",
+        gmailCrmOnly ? "translate-x-3.5" : "translate-x-0.5"
+      )} />
+    </button>
+  </div>
+)}
 
 {/* Search */}
 <div className="px-2 py-2">
