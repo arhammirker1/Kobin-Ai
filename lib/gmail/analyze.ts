@@ -133,11 +133,11 @@ export async function analyzeEmailThread(
   const groq = getGroqClient()
   const resp = await groq.chat.completions.create({
     model: GROQ_MODEL_STD,
-    max_tokens: 600,
+    max_tokens: 1024,
     temperature: 0,
     messages: [{
       role: "user",
-      content: `Analyze this email conversation for a sales pipeline.
+      content: `Analyze this email conversation for a sales pipeline. Be concise.
 
 Contact: ${rel.full_name} | Email: ${rel.email} | Current stage: ${rel.pipeline_stage}
 Subject: ${subject}
@@ -145,32 +145,76 @@ Subject: ${subject}
 Thread:
 ${emailContent}
 
-Respond ONLY with valid JSON, no markdown:
+Respond ONLY with valid JSON, no markdown. Keep strings SHORT (under 15 words each):
 {
   "intent": "interested|not_interested|requesting_info|requesting_meeting|following_up|neutral|objection|ready_to_close",
   "sentiment": "positive|neutral|negative",
   "urgency": "high|medium|low",
   "suggested_stage": "new_lead|contacted|meeting_booked|proposal|negotiating|closed_won|closed_lost|null",
-  "stage_change_reason": "string or null",
+  "stage_change_reason": "short reason or null",
   "score_delta": -20 to 20,
-  "action_items": ["action 1", "action 2"],
+  "action_items": ["short action"],
   "important": true or false,
-  "importance_reason": "string or null",
-  "signals": ["signal 1"],
-  "summary": "1-2 sentence summary"
+  "importance_reason": "short reason or null",
+  "signals": ["short signal"],
+  "summary": "1 sentence summary"
 }`
     }]
   })
 
   let analysis: any = {}
   const rawContent = resp.choices[0]?.message?.content || "{}"
-  console.log(`[analyzeEmail] Groq raw response (first 300):`, rawContent.slice(0, 300))
+  console.log(`[analyzeEmail] Groq raw response (first 500):`, rawContent.slice(0, 500))
+  
+  // Clean the raw content
+  let cleanedContent = rawContent.replace(/```json|```/g, "").trim()
+  
   try {
-    analysis = JSON.parse(rawContent.replace(/```json|```/g, "").trim())
+    analysis = JSON.parse(cleanedContent)
     console.log(`[analyzeEmail] Parsed analysis: intent=${analysis.intent}, sentiment=${analysis.sentiment}`)
   } catch (parseErr) {
-    console.error(`[analyzeEmail] AI parse failed:`, parseErr, `Raw: ${rawContent.slice(0, 200)}`)
-    return { error: "AI parse failed" }
+    console.warn(`[analyzeEmail] First parse failed, attempting JSON repair...`)
+    // Try to repair truncated JSON
+    try {
+      // Close any open strings, arrays, objects
+      let repaired = cleanedContent
+      // Count unbalanced braces/brackets
+      const openBraces = (repaired.match(/{/g) || []).length
+      const closeBraces = (repaired.match(/}/g) || []).length
+      const openBrackets = (repaired.match(/\[/g) || []).length
+      const closeBrackets = (repaired.match(/\]/g) || []).length
+      
+      // If inside a string (odd number of unescaped quotes after last complete key-value)
+      // Truncate to the last complete value
+      const lastCompleteComma = repaired.lastIndexOf(",\n")
+      const lastCompleteBrace = repaired.lastIndexOf("}")
+      if (lastCompleteComma > lastCompleteBrace && lastCompleteComma > 0) {
+        repaired = repaired.slice(0, lastCompleteComma)
+      }
+      
+      // Close brackets and braces
+      for (let i = 0; i < openBrackets - closeBrackets; i++) repaired += "]"
+      for (let i = 0; i < openBraces - closeBraces; i++) repaired += "}"
+      
+      analysis = JSON.parse(repaired)
+      console.log(`[analyzeEmail] Repaired JSON parsed OK: intent=${analysis.intent}`)
+    } catch (repairErr) {
+      console.error(`[analyzeEmail] JSON repair also failed:`, repairErr)
+      console.error(`[analyzeEmail] Raw content: ${cleanedContent.slice(0, 500)}`)
+      // Return a safe default analysis instead of failing completely
+      analysis = {
+        intent: "neutral",
+        sentiment: "neutral",
+        urgency: "low",
+        suggested_stage: null,
+        score_delta: 0,
+        action_items: [],
+        important: false,
+        signals: [],
+        summary: "Analysis failed — AI response was incomplete"
+      }
+      console.log(`[analyzeEmail] Using fallback analysis`)
+    }
   }
 
   // ── Save analysis ────────────────────────────────────────────────────────
