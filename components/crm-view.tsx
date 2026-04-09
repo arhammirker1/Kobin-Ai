@@ -184,14 +184,23 @@ export function CrmView() {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
-      const { data } = await supabase
+
+      // Only show analyses from the last 7 days — old stale ones should fade away
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+      console.log(`[loadEmailInsights] Loading analyses since ${sevenDaysAgo}`)
+
+      const { data, error } = await supabase
         .from("email_analyses")
         .select("gmail_thread_id, contact_id, intent, sentiment, signals, reasoning, thread_subject, analyzed_at, relationships!inner(full_name)")
         .eq("user_id", user.id)
+        .gte("analyzed_at", sevenDaysAgo)
         .order("analyzed_at", { ascending: false })
-        .limit(50)
+        .limit(20)
+
+      console.log(`[loadEmailInsights] Query returned ${data?.length ?? 0} rows, error:`, error)
+
       if (data) {
-        // Group by contact — show the most recent/interesting analysis per contact
+        // Group by contact — show the most recent analysis per contact
         const seen = new Map<string, any>()
         for (const row of data) {
           const existing = seen.get(row.contact_id)
@@ -213,9 +222,12 @@ export function CrmView() {
           signals: Array.isArray(row.signals) ? row.signals : [],
           analyzed_at: row.analyzed_at ?? new Date().toISOString(),
         }))
+        console.log(`[loadEmailInsights] ${insights.length} unique contacts with insights:`, insights.map(i => `${i.contact_name} (${i.intent}, ${i.analyzed_at})`))
         setEmailInsights(insights)
       }
-    } catch { /* non-fatal */ }
+    } catch (err) {
+      console.error(`[loadEmailInsights] Error:`, err)
+    }
   }
 
   // Reset page when filters change
