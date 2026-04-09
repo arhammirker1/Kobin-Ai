@@ -25,7 +25,7 @@ import { NextResponse } from "next/server"
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-
+    console.log(`[Webhook] Received:`, JSON.stringify(body).slice(0, 300))
     // Decode the Pub/Sub message
     const messageData = body?.message?.data
     if (!messageData) {
@@ -77,6 +77,7 @@ export async function POST(request: Request) {
     }
 
     // Refresh token
+    console.log(`[Webhook] Processing: stored=${storedHistoryId}, new=${historyId}`)
     const accessToken = await refreshGoogleToken(integration)
 
     // Fetch message history since last known historyId
@@ -177,9 +178,9 @@ export async function POST(request: Request) {
 
         if (contact) {
           // Known contact — fire-and-forget analysis
-          // Using a Promise that we don't await — the analysis runs in background
+          console.log(`[Webhook] Matched CRM contact ${contact.id} for sender ${senderEmail}, queuing analysis for thread ${threadId}`)
           analyzeEmailThread(userId, threadId, contact.id).catch((err) => {
-            console.error(`[Gmail Webhook] Analysis failed for thread ${threadId}:`, err)
+            console.error(`[Webhook] Analysis failed for thread ${threadId}:`, err)
           })
           analyzed++
         } else if (autoDetectLeads) {

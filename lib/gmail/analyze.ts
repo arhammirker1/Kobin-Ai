@@ -59,13 +59,20 @@ export async function analyzeEmailThread(
   relationshipId: string,
 ): Promise<AnalysisResult> {
   try {
+  console.log(`[analyzeEmail] Starting: user=${userId}, thread=${threadId}, rel=${relationshipId}`)
+
   // ── Dedup gate: skip if this exact message was already analyzed ──────────
-  const { data: integration } = await supabaseAdmin
+  const { data: integration, error: intError } = await supabaseAdmin
     .from("google_integrations").select("*").eq("user_id", userId).eq("is_connected", true).single()
 
-  if (!integration) return { error: "Gmail not connected" }
+  if (!integration) {
+    console.error(`[analyzeEmail] No integration found:`, intError)
+    return { error: "Gmail not connected" }
+  }
 
+  console.log(`[analyzeEmail] Refreshing token for ${integration.google_email}`)
   const accessToken = await refreshGoogleToken(integration)
+  console.log(`[analyzeEmail] Token refreshed OK`)
 
   // Check latest message ID for dedup
   const metaRes = await fetch(
@@ -87,6 +94,7 @@ export async function analyzeEmailThread(
       .maybeSingle()
 
     if (recentAnalysis?.gmail_message_id === latestMsgId) {
+      console.log(`[analyzeEmail] Skipped — same message ${latestMsgId} already analyzed`)
       return { skipped: true, reason: "no_new_messages" }
     }
   }
@@ -97,7 +105,11 @@ export async function analyzeEmailThread(
     .select("id, full_name, email, pipeline_stage, lead_score, deal_value, close_probability")
     .eq("id", relationshipId).single()
 
-  if (!rel) return { error: "Relationship not found" }
+  if (!rel) {
+    console.error(`[analyzeEmail] Relationship ${relationshipId} not found`)
+    return { error: "Relationship not found" }
+  }
+  console.log(`[analyzeEmail] Contact: ${rel.full_name} (${rel.email})`)
 
   // ── Fetch full thread ────────────────────────────────────────────────────
   const tRes = await fetch(
@@ -117,6 +129,7 @@ export async function analyzeEmailThread(
   const subject = messages[0]?.payload?.headers?.find((h: any) => h.name === "Subject")?.value || ""
 
   // ── AI analysis ──────────────────────────────────────────────────────────
+  console.log(`[analyzeEmail] Calling Groq AI (model: ${GROQ_MODEL_STD})...`)
   const groq = getGroqClient()
   const resp = await groq.chat.completions.create({
     model: GROQ_MODEL_STD,
@@ -150,9 +163,13 @@ Respond ONLY with valid JSON, no markdown:
   })
 
   let analysis: any = {}
+  const rawContent = resp.choices[0]?.message?.content || "{}"
+  console.log(`[analyzeEmail] Groq raw response (first 300):`, rawContent.slice(0, 300))
   try {
-    analysis = JSON.parse((resp.choices[0]?.message?.content || "{}").replace(/```json|```/g, "").trim())
-  } catch {
+    analysis = JSON.parse(rawContent.replace(/```json|```/g, "").trim())
+    console.log(`[analyzeEmail] Parsed analysis: intent=${analysis.intent}, sentiment=${analysis.sentiment}`)
+  } catch (parseErr) {
+    console.error(`[analyzeEmail] AI parse failed:`, parseErr, `Raw: ${rawContent.slice(0, 200)}`)
     return { error: "AI parse failed" }
   }
 
@@ -243,7 +260,7 @@ Respond ONLY with valid JSON, no markdown:
     tasks_created: createdTasks,
   }
   } catch (err) {
-    console.error(`[analyzeEmailThread] Error for thread ${threadId}:`, err)
+    console.error(`[analyzeEmail] FATAL for thread ${threadId}:`, err instanceof Error ? err.stack : err)
     return { error: String(err) }
   }
 }
