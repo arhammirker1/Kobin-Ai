@@ -7,7 +7,7 @@ import { Input, Textarea } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Search, Plus, Video, CalendarIcon, FileText, Linkedin, LayoutList, Kanban, Upload, ChevronLeft, ChevronRight, History, Mail, Loader2, Brain } from "lucide-react"
+import { Search, Plus, Video, CalendarIcon, FileText, Linkedin, LayoutList, Kanban, Upload, ChevronLeft, ChevronRight, History, Mail, Loader2, Brain, X } from "lucide-react"
 import { LeadsImportDialog } from "@/components/leads-import-dialog"
 import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
@@ -212,14 +212,14 @@ export function CrmView() {
         setEmailInsights(
           Array.from(seen.values()).map((row: any) => ({
             relationship_id: row.contact_id,
-            contact_name: row.relationships?.full_name || "Unknown",
-            thread_id: row.gmail_thread_id,
+            contact_name: row.relationships?.full_name ?? "Unknown",
+            thread_id: row.gmail_thread_id ?? "",
             subject: row.thread_subject || "(no subject)",
-            intent: row.intent,
-            sentiment: row.sentiment,
+            intent: row.intent ?? "neutral",
+            sentiment: row.sentiment ?? "neutral",
             summary: row.reasoning || "",
-            signals: row.signals || [],
-            analyzed_at: row.analyzed_at,
+            signals: Array.isArray(row.signals) ? row.signals : [],
+            analyzed_at: row.analyzed_at ?? new Date().toISOString(),
           }))
         )
       }

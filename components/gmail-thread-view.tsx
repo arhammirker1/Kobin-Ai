@@ -385,9 +385,11 @@ export function GmailThreadView({
   const replyTextareaRef = useRef<HTMLTextAreaElement>(null)
   const [analyzing, setAnalyzing] = useState(false)
   const [analysisResult, setAnalysisResult] = useState<{
-    intent: string
-    sentiment: string
-    summary: string
+    analysis: {
+      intent: string
+      sentiment: string
+      summary: string
+    }
     score_before: number
     score_after: number
     stage_changed: { from: string; to: string } | null
@@ -413,10 +415,23 @@ export function GmailThreadView({
       const res = await fetch(
         `/api/gmail/threads?from=${encodeURIComponent(email)}`
       )
+      if (!res.ok) {
+        setContactThreads([])
+        return
+      }
       const data = await res.json()
-      setContactThreads(data.threads || [])
+      const threads = Array.isArray(data.threads) ? data.threads.filter((t: any) => 
+        t && typeof t.id === "string"
+      ).map((t: any) => ({
+        id: t.id,
+        subject: t.subject || "(no subject)",
+        snippet: t.snippet || "",
+        date: t.date || "",
+        unread: Boolean(t.unread),
+      })) : []
+      setContactThreads(threads)
     } catch {
-      // non-fatal
+      setContactThreads([])
     }
   }
 
@@ -471,7 +486,13 @@ export function GmailThreadView({
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
-      setAnalysisResult({ ...data, analysis: data.analysis })
+      setAnalysisResult({
+        analysis: data.analysis,
+        score_before: data.score_before,
+        score_after: data.score_after,
+        stage_changed: data.stage_changed,
+        tasks_created: data.tasks_created || [],
+      })
       if (data.stage_changed) {
         toast.success(`Stage updated: ${data.stage_changed.from.replace(/_/g, " ")} → ${data.stage_changed.to.replace(/_/g, " ")}`)
       } else {
