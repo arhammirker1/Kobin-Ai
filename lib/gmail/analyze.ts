@@ -218,7 +218,15 @@ Respond ONLY with valid JSON, no markdown. Keep strings SHORT (under 15 words ea
   }
 
   // ── Save analysis ────────────────────────────────────────────────────────
-  await supabaseAdmin.from("email_analyses").upsert({
+  // Delete any existing analysis for this thread (upsert won't work because
+  // the unique constraint is on (user_id, gmail_message_id), not thread_id)
+  await supabaseAdmin
+    .from("email_analyses")
+    .delete()
+    .eq("user_id", userId)
+    .eq("gmail_thread_id", threadId)
+
+  const { error: insertError } = await supabaseAdmin.from("email_analyses").insert({
     user_id: userId,
     gmail_thread_id: threadId,
     gmail_message_id: messages[messages.length - 1]?.id || threadId,
@@ -232,7 +240,13 @@ Respond ONLY with valid JSON, no markdown. Keep strings SHORT (under 15 words ea
     reasoning: analysis.summary || "",
     thread_subject: subject,
     analyzed_at: new Date().toISOString(),
-  }, { onConflict: "gmail_thread_id,user_id" })
+  })
+
+  if (insertError) {
+    console.error(`[analyzeEmail] DB insert failed:`, insertError)
+    return { error: `DB insert failed: ${insertError.message}` }
+  }
+  console.log(`[analyzeEmail] Saved analysis for thread ${threadId}`)
 
   // ── Update lead score ────────────────────────────────────────────────────
   const currentScore = rel.lead_score || 0
