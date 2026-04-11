@@ -7,7 +7,7 @@
 const {
   app, BrowserWindow, shell, Menu, Tray, screen,
   nativeImage, dialog, ipcMain, desktopCapturer,
-  systemPreferences
+  systemPreferences, Notification
 } = require('electron')
 const { autoUpdater } = require('electron-updater')
 const path = require('path')
@@ -1047,6 +1047,43 @@ ipcMain.handle('get-app-version', () => app.getVersion())
 ipcMain.handle('check-for-updates', () => {
   try { autoUpdater.checkForUpdates() }
   catch (e) { logger.error('Update check failed:', e.message) }
+})
+
+// ── Native desktop notifications ─────────────────────────────────────────────
+ipcMain.handle('show-notification', (event, options) => {
+  try {
+    if (!Notification.isSupported()) {
+      logger.warn('[Notif] Not supported on this platform')
+      return { success: false }
+    }
+
+    const notif = new Notification({
+      title: options.title || 'Kobin AI',
+      body: options.body || '',
+      icon: getAssetPath('source-icon.png'),
+      silent: false,
+    })
+
+    notif.on('click', () => {
+      logger.info(`[Notif] Clicked: tab=${options.tab} room=${options.roomId}`)
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore()
+        mainWindow.show()
+        mainWindow.focus()
+        mainWindow.webContents.send('notification-click', {
+          roomId: options.roomId || null,
+          tab: options.tab || 'Inbox',
+        })
+      }
+    })
+
+    notif.show()
+    logger.info(`[Notif] Shown: "${options.title}"`)
+    return { success: true }
+  } catch (err) {
+    logger.error('[Notif] Failed to show notification:', err.message)
+    return { success: false }
+  }
 })
 
 ipcMain.handle('start-recording', (_, options) => {

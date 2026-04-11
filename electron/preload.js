@@ -15,6 +15,13 @@ contextBridge.exposeInMainWorld('electron', {
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
 
+  // ── Native notifications ────────────────────────────────────────────────────
+  showNotification: (options) => ipcRenderer.invoke('show-notification', options),
+  onNotificationClick: (cb) => {
+    ipcRenderer.on('notification-click', (_, data) => cb(data))
+    return () => ipcRenderer.removeAllListeners('notification-click')
+  },
+
   // ── Recording controls ─────────────────────────────────────────────────────
   startRecording: (options) => ipcRenderer.invoke('start-recording', options),
   stopRecording: () => ipcRenderer.invoke('stop-recording'),

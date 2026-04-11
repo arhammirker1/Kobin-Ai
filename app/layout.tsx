@@ -8,6 +8,7 @@ import { Toaster } from "@/components/ui/sonner"
 import { MeetingReminder } from "@/components/meeting-reminder"
 import { TaskAssignmentNotification } from "@/components/task-assignment-notification"
 import { PushProvider } from "@/components/push-provider"
+import { DesktopNotificationProvider } from "@/components/desktop-notification-provider"
 import "./globals.css"
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist" })
@@ -36,6 +37,7 @@ export default function RootLayout({
           <MeetingReminder />
           <PushProvider />
           <TaskAssignmentNotification />
+          <DesktopNotificationProvider />
           <Toaster />
           <Analytics />
           <SpeedInsights />

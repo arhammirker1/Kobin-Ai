@@ -93,6 +93,18 @@ export function TaskAssignmentNotification() {
   }
 
   const sendTaskPush = async (task: Task) => {
+    const priorityEmoji = task.priority === "urgent" ? "🔴" : task.priority === "high" ? "🟠" : "📋"
+    const title = `${priorityEmoji} New Task Assigned`
+
+    // Use native Electron notification when running in desktop app
+    if ((window as any).electron?.isDesktop) {
+      const electron = (window as any).electron
+      if (electron?.showNotification) {
+        await electron.showNotification({ title, body: task.title, tab: "Tasks" }).catch(() => {})
+      }
+      return
+    }
+
     try {
       await fetch("/api/push/send-self", {
         method: "POST",
@@ -100,7 +112,7 @@ export function TaskAssignmentNotification() {
         body: JSON.stringify({
           payload: {
             type: "task_assigned",
-            title: "📋 New Task Assigned",
+            title,
             body: task.title,
             task_id: task.id,
             priority: task.priority,

@@ -57,6 +57,18 @@ const fetchUpcomingEvents = async () => {
 
   const sendMeetingPush = async (event: Event, minutesUntil: number) => {
     const isUrgent = minutesUntil <= 1
+    const title = isUrgent ? "🔴 Meeting Starting Now!" : "📅 Meeting in 5 minutes"
+    const body = `${event.title}${event.purpose ? ` — ${event.purpose}` : ""}${isUrgent ? " — starting NOW" : " — in 5 minutes"}`
+
+    // Use native Electron notification when running in desktop app
+    if ((window as any).electron?.isDesktop) {
+      const electron = (window as any).electron
+      if (electron?.showNotification) {
+        await electron.showNotification({ title, body, tab: "Calendar" }).catch(() => {})
+      }
+      return
+    }
+
     try {
       await fetch("/api/push/send-self", {
         method: "POST",
@@ -64,8 +76,8 @@ const fetchUpcomingEvents = async () => {
         body: JSON.stringify({
           payload: {
             type: "meeting_reminder",
-            title: isUrgent ? "🔴 Meeting Starting Now!" : "📅 Meeting in 5 minutes",
-            body: `${event.title} — ${isUrgent ? "starting NOW" : "in 5 minutes"}${event.purpose ? `\n${event.purpose}` : ""}`,
+            title,
+            body,
             event_id: event.id,
             meeting_link: event.meeting_link || null,
             minutes_until: minutesUntil,
