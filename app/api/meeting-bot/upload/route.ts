@@ -29,8 +29,57 @@ export async function POST(req: NextRequest) {
       duration_seconds,
       started_at,
       ended_at,
-      user_id,
+      user_id: providedUserId,
     } = body
+
+    // Resolve user_id — try body first, then cookies, then single-user fallback
+    let user_id = providedUserId || null
+
+    if (!user_id) {
+      // Try to get user from cookies (Supabase auth)
+      try {
+        const { createServerClient } = await import("@supabase/ssr")
+        const cookieSupabase = createServerClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+          {
+            cookies: {
+              getAll() {
+                return req.cookies.getAll()
+              },
+              setAll() {},
+            },
+          }
+        )
+        const { data: { user } } = await cookieSupabase.auth.getUser()
+        if (user) {
+          user_id = user.id
+          console.log(`[upload] Got user_id from cookies: ${user_id}`)
+        }
+      } catch (e) {
+        console.warn("[upload] Cookie auth failed:", e)
+      }
+    }
+
+    // Final fallback — get the first profile (single-user app)
+    if (!user_id) {
+      const { data: profiles } = await supabaseAdmin
+        .from("profiles")
+        .select("id")
+        .limit(1)
+        .single()
+      if (profiles?.id) {
+        user_id = profiles.id
+        console.log(`[upload] Fallback to first profile: ${user_id}`)
+      }
+    }
+
+    if (!user_id) {
+      return NextResponse.json(
+        { error: "Could not determine user. Please log in to the desktop app." },
+        { status: 401 }
+      )
+    }
 
     // Validate required fields
     if (!combined_transcript && (!host_segments || host_segments.length === 0)) {
