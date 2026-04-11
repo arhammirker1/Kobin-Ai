@@ -126,14 +126,30 @@ export async function POST(req: NextRequest) {
     console.log(`✅ Meeting recording saved: ${recording.id} — "${meeting_title}"`)
 
     // Trigger async processing (fire-and-forget to avoid timeout)
-    const processUrl = new URL("/api/meeting-bot/process", req.url)
-    fetch(processUrl.toString(), {
+    // Use the canonical app URL — req.url may be a deployment-preview URL
+    const host = req.headers.get("host") || "founder-assistant-three.vercel.app"
+    const protocol = host.includes("localhost") ? "http" : "https"
+    const processUrl = `${protocol}://${host}/api/meeting-bot/process`
+
+    console.log(`[upload] Triggering AI processing at: ${processUrl}`)
+
+    fetch(processUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ recording_id: recording.id }),
-    }).catch(err => {
-      console.error("Failed to trigger processing:", err)
     })
+      .then(async (res) => {
+        if (!res.ok) {
+          const errText = await res.text()
+          console.error(`[upload] Process trigger failed: ${res.status} — ${errText}`)
+        } else {
+          const result = await res.json()
+          console.log(`[upload] Process result:`, result)
+        }
+      })
+      .catch(err => {
+        console.error("[upload] Failed to trigger processing:", err.message)
+      })
 
     return NextResponse.json({
       success: true,
