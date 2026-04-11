@@ -312,6 +312,17 @@ const EDGES = [
   ["lib-google-token", "db-google-integ"],
 
   ["lib-push", "db-push-subs"],
+  
+  // Unconnected Node Fixes
+  ["page-login", "api-auth-google"],
+  ["page-login", "api-auth-callback"],
+  ["api-auth-callback", "lib-supabase-admin"],
+  ["api-auth-callback", "db-profiles"],
+  ["comp-task", "comp-taskform"], 
+  ["comp-taskform", "api-command"],
+  ["api-extract", "lib-groq"], 
+  ["api-extract", "db-tasks"], 
+  ["api-extract", "db-chat-messages"],
 ]
 
 const GROUP_META = {
@@ -354,7 +365,16 @@ export default function KobinKnowledgeGraph() {
   const filteredNodeIds = new Set(
     NODES.filter(n => {
       const matchSearch = !search || n.label.toLowerCase().includes(search.toLowerCase()) || n.desc.toLowerCase().includes(search.toLowerCase())
-      const matchFilter = filter === "all" || n.group === filter || n.group.startsWith(filter + "-")
+      
+      let matchFilter = true
+      if (filter === "all") {
+        matchFilter = true
+      } else if (filter === "ai-related") {
+        matchFilter = ["api-ai", "lib-ai", "db-ai", "api-meeting", "db-meeting"].includes(n.group) || ["comp-command", "comp-gmail"].includes(n.id)
+      } else {
+        matchFilter = n.group === filter || n.group.startsWith(filter + "-")
+      }
+
       return matchSearch && matchFilter
     }).map(n => n.id)
   )
@@ -560,6 +580,7 @@ export default function KobinKnowledgeGraph() {
             style={{ background: "#1C1C1A", border: "1px solid #333", borderRadius: 6, padding: "4px 8px", color: "#C8C4B8", fontSize: 11, outline: "none" }}
           >
             <option value="all">All layers</option>
+            <option value="ai-related">AI & Meeting Bot</option>
             <option value="page">Pages</option>
             <option value="component">Components</option>
             <option value="api">API Routes</option>

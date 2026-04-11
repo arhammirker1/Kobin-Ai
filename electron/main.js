@@ -298,13 +298,13 @@ function updateTrayMenu() {
       { type: 'separator' },
       ...(isPaused
         ? [{
-            label: '▶  Resume Recording',
-            click: () => resumeRecording()
-          }]
+          label: '▶  Resume Recording',
+          click: () => resumeRecording()
+        }]
         : [{
-            label: '⏸  Pause Recording',
-            click: () => pauseRecording()
-          }]
+          label: '⏸  Pause Recording',
+          click: () => pauseRecording()
+        }]
       ),
       {
         label: '⏹  Stop & Process',
@@ -1073,9 +1073,9 @@ function showBrandedNotification(options) {
   const MARGIN = 16
 
   const isMeeting = type === 'meeting' || title.toLowerCase().includes('meeting')
-  const isTask    = type === 'task'
-  const isInbox   = type === 'inbox'
-  const isDM      = roomType === 'direct'
+  const isTask = type === 'task'
+  const isInbox = type === 'inbox'
+  const isDM = roomType === 'direct'
   const isBatched = count > 1
 
   // Height depends on content
@@ -1110,33 +1110,33 @@ function showBrandedNotification(options) {
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 
   // ── Visual config per type ──────────────────────────────────────────────
-  let accent    = '#4C3FD4'
+  let accent = '#4C3FD4'
   let iconColor = '#4C3FD4'
-  let iconBg    = 'rgba(76,63,212,.12)'
-  let appLabel  = 'Kobin AI'
-  let iconSVG   = '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'
+  let iconBg = 'rgba(76,63,212,.12)'
+  let appLabel = 'Kobin AI'
+  let iconSVG = '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'
 
   if (isMeeting) {
     const isUrgent = title.toLowerCase().includes('now')
-    accent    = isUrgent ? '#E24B4A' : '#EF9F27'
+    accent = isUrgent ? '#E24B4A' : '#EF9F27'
     iconColor = isUrgent ? '#E24B4A' : '#BA7517'
-    iconBg    = isUrgent ? 'rgba(226,75,74,.12)' : 'rgba(239,159,39,.12)'
-    appLabel  = 'Calendar'
-    iconSVG   = '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>'
+    iconBg = isUrgent ? 'rgba(226,75,74,.12)' : 'rgba(239,159,39,.12)'
+    appLabel = 'Calendar'
+    iconSVG = '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>'
   } else if (isTask) {
     const isUrgent = priority === 'urgent'
-    const isHigh   = priority === 'high'
-    accent    = isUrgent ? '#E24B4A' : isHigh ? '#EF9F27' : '#4C3FD4'
+    const isHigh = priority === 'high'
+    accent = isUrgent ? '#E24B4A' : isHigh ? '#EF9F27' : '#4C3FD4'
     iconColor = accent
-    iconBg    = isUrgent ? 'rgba(226,75,74,.12)' : isHigh ? 'rgba(239,159,39,.12)' : 'rgba(76,63,212,.12)'
-    appLabel  = 'Tasks'
-    iconSVG   = '<polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>'
+    iconBg = isUrgent ? 'rgba(226,75,74,.12)' : isHigh ? 'rgba(239,159,39,.12)' : 'rgba(76,63,212,.12)'
+    appLabel = 'Tasks'
+    iconSVG = '<polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>'
   } else if (isInbox) {
-    accent    = '#4C3FD4'
+    accent = '#4C3FD4'
     iconColor = '#4C3FD4'
-    iconBg    = 'rgba(76,63,212,.12)'
-    appLabel  = isDM ? 'Inbox · Direct Message' : 'Inbox · Channel'
-    iconSVG   = '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'
+    iconBg = 'rgba(76,63,212,.12)'
+    appLabel = isDM ? 'Inbox · Direct Message' : 'Inbox · Channel'
+    iconSVG = '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'
   }
 
   // ── Avatar initials (for DMs) ───────────────────────────────────────────
