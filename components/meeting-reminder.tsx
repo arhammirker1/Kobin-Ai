@@ -64,7 +64,13 @@ const fetchUpcomingEvents = async () => {
     if ((window as any).electron?.isDesktop) {
       const electron = (window as any).electron
       if (electron?.showNotification) {
-        await electron.showNotification({ title, body, tab: "Calendar" }).catch(() => {})
+        await electron.showNotification({ 
+  title, 
+  body, 
+  tab: "Calendar",
+  meetingLink: event.meeting_link || null,
+  meetingTitle: event.title,
+}).catch(() => {})
       }
       return
     }

@@ -1050,36 +1050,220 @@ ipcMain.handle('check-for-updates', () => {
 })
 
 // ── Native desktop notifications ─────────────────────────────────────────────
-ipcMain.handle('show-notification', (event, options) => {
-  try {
-    if (!Notification.isSupported()) {
-      logger.warn('[Notif] Not supported on this platform')
-      return { success: false }
-    }
+// Custom branded notification windows
+const notifWindows = []
 
-    const notif = new Notification({
-      title: options.title || 'Kobin AI',
-      body: options.body || '',
-      icon: getAssetPath('source-icon.png'),
-      silent: false,
-    })
+function showBrandedNotification(options) {
+  const { title = '', body = '', tab = 'Inbox', roomId = null, type = 'default', meetingLink = null, meetingTitle = '' } = options
 
-    notif.on('click', () => {
-      logger.info(`[Notif] Clicked: tab=${options.tab} room=${options.roomId}`)
+const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize
+const NOTIF_W = 380
+const NOTIF_H = 110
+const MARGIN = 16
+
+// Stack notifications upward from bottom-right
+const activeCount = notifWindows.filter(w => !w.isDestroyed()).length
+const yOffset = activeCount * (NOTIF_H + 8)
+
+const win = new BrowserWindow({
+  width: NOTIF_W,
+  height: NOTIF_H,
+  x: sw - NOTIF_W - MARGIN,
+  y: sh - NOTIF_H - MARGIN - yOffset,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    resizable: false,
+    skipTaskbar: true,
+    focusable: false,
+    hasShadow: false,
+    backgroundColor: '#00000000',
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+
+  win.setAlwaysOnTop(true, 'floating', 2)
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+
+  // Determine accent color and icon based on notification type
+  const isMeeting = title.toLowerCase().includes('meeting') || type === 'meeting'
+  const isTask = type === 'task' || title.toLowerCase().includes('task')
+  const isUrgent = title.toLowerCase().includes('now') || title.toLowerCase().includes('🔴')
+
+  let accent = '#4C3FD4'
+  let iconColor = '#4C3FD4'
+  let iconBg = 'rgba(76,63,212,.12)'
+  let appLabel = 'Kobin AI'
+  let iconSVG = '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'
+
+  if (isMeeting || isUrgent) {
+    accent = isUrgent ? '#E24B4A' : '#EF9F27'
+    iconColor = isUrgent ? '#E24B4A' : '#BA7517'
+    iconBg = isUrgent ? 'rgba(226,75,74,.12)' : 'rgba(239,159,39,.12)'
+    appLabel = 'Calendar'
+    iconSVG = '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>'
+  } else if (isTask) {
+    accent = '#4C3FD4'
+    iconColor = '#4C3FD4'
+    iconBg = 'rgba(76,63,212,.12)'
+    appLabel = 'Tasks'
+    iconSVG = '<polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>'
+  }
+
+  const hasJoinBtn = isMeeting && meetingLink
+  const extraHeight = hasJoinBtn ? 50 : 0
+  win.setSize(NOTIF_W, NOTIF_H + extraHeight)
+
+  const joinBtnHTML = hasJoinBtn ? `
+    <div style="display:flex;gap:6px;margin-top:8px">
+      <button onclick="handleJoin()" style="flex:1;padding:6px 0;font-size:11px;font-weight:500;border-radius:7px;border:none;cursor:pointer;background:#F0EDE6;color:#0E0E0D;font-family:Inter,sans-serif">Join meeting</button>
+      <button onclick="handleDismiss()" style="flex:1;padding:6px 0;font-size:11px;font-weight:500;border-radius:7px;border:none;cursor:pointer;background:rgba(240,237,230,.08);color:#F0EDE6;font-family:Inter,sans-serif">Dismiss</button>
+    </div>
+  ` : ''
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: Inter, -apple-system, sans-serif; background: transparent; overflow: hidden; cursor: pointer; }
+  .notif {
+    background: #1A1A18;
+    border: 1px solid rgba(240,237,230,.08);
+    border-radius: 14px;
+    overflow: hidden;
+    animation: slideIn .3s cubic-bezier(.16,1,.3,1);
+    transition: transform .15s ease, opacity .15s ease;
+  }
+  .notif:hover { transform: translateX(-2px); }
+  @keyframes slideIn { from { opacity:0; transform:translateY(-10px) scale(.97); } to { opacity:1; transform:translateY(0) scale(1); } }
+  .accent { height: 2px; background: ${accent}; }
+  .body { padding: 11px 13px 12px; display:flex; flex-direction:column; }
+  .top { display:flex; align-items:flex-start; gap:10px; }
+  .icon { width:32px; height:32px; border-radius:9px; background:${iconBg}; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .content { flex:1; min-width:0; }
+  .app-label { font-size:10px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:#6B6860; margin-bottom:2px; }
+  .title { font-size:13px; font-weight:600; color:#F0EDE6; line-height:1.3; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .body-text { font-size:12px; color:#888580; line-height:1.45; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  .time { font-size:10px; color:#B4B2A9; flex-shrink:0; white-space:nowrap; }
+</style>
+</head>
+<body>
+<div class="notif" id="notif" onclick="handleClick()">
+  <div class="accent"></div>
+  <div class="body">
+    <div class="top">
+      <div class="icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${iconColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${iconSVG}</svg>
+      </div>
+      <div class="content">
+        <div class="app-label">${appLabel}</div>
+        <div class="title">${title.replace(/[🔴📅📋🟠]/gu, '').trim()}</div>
+        <div class="body-text">${body}</div>
+      </div>
+      <div class="time">now</div>
+    </div>
+    ${joinBtnHTML}
+  </div>
+</div>
+<script>
+  function handleClick() {
+    fetch('kobin-notif://click?tab=${encodeURIComponent(tab)}&roomId=${encodeURIComponent(roomId || '')}').catch(()=>{})
+    setTimeout(() => window.close(), 100)
+  }
+  function handleJoin() {
+    fetch('kobin-notif://join?url=${encodeURIComponent(meetingLink || '')}&title=${encodeURIComponent(meetingTitle || title)}').catch(()=>{})
+    setTimeout(() => window.close(), 100)
+  }
+  function handleDismiss() {
+    const el = document.getElementById('notif')
+    el.style.transition = 'all .25s ease'
+    el.style.opacity = '0'
+    el.style.transform = 'translateX(16px) scale(.97)'
+    setTimeout(() => window.close(), 260)
+  }
+  setTimeout(() => handleDismiss(), ${isMeeting ? 15000 : 6000})
+<\/script>
+</body>
+</html>`
+
+  win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
+
+  // Handle click navigation via a custom protocol workaround
+  win.webContents.on('will-navigate', (event, url) => {
+    event.preventDefault()
+
+    if (url.startsWith('kobin-notif://click')) {
+      const u = new URL(url)
+      const clickTab = u.searchParams.get('tab') || 'Inbox'
+      const clickRoom = u.searchParams.get('roomId') || null
       if (mainWindow) {
         if (mainWindow.isMinimized()) mainWindow.restore()
         mainWindow.show()
         mainWindow.focus()
-        mainWindow.webContents.send('notification-click', {
-          roomId: options.roomId || null,
-          tab: options.tab || 'Inbox',
-        })
+        mainWindow.webContents.send('notification-click', { roomId: clickRoom, tab: clickTab })
       }
-    })
+    }
 
-    notif.show()
-    logger.info(`[Notif] Shown: "${options.title}"`)
-    return { success: true }
+    if (url.startsWith('kobin-notif://join')) {
+      const u = new URL(url)
+      const meetUrl = decodeURIComponent(u.searchParams.get('url') || '')
+      const meetTitle = decodeURIComponent(u.searchParams.get('title') || 'Meeting')
+
+      if (meetUrl) {
+        // Open the meeting in system browser — same as clicking a meeting link in the app
+        shell.openExternal(meetUrl)
+
+        // Trigger recording widget with participant lookup — same flow as the app
+        setTimeout(async () => {
+          let participantEmails = []
+
+          try {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              const eventData = await mainWindow.webContents.executeJavaScript(`
+                (async () => {
+                  try {
+                    const res = await fetch('/api/meeting-bot/lookup-event?meet_url=${encodeURIComponent(meetUrl)}');
+                    if (res.ok) return await res.json();
+                    return null;
+                  } catch(e) { return null; }
+                })()
+              `)
+              if (eventData?.attendee_emails?.length > 0) {
+                participantEmails = eventData.attendee_emails
+              }
+            }
+          } catch (e) {
+            logger.warn('Could not lookup event participants from notif join:', e.message)
+          }
+
+          showRecordingWidget({
+            meetingUrl: meetUrl,
+            meetingTitle: meetTitle,
+            autoStart: false,
+            participantEmails,
+          })
+        }, 1500)
+      }
+    }
+  })
+
+  notifWindows.push(win)
+  win.on('closed', () => {
+    const idx = notifWindows.indexOf(win)
+    if (idx > -1) notifWindows.splice(idx, 1)
+  })
+
+  logger.info(`[Notif] Branded notification shown: "${title}"`)
+  return { success: true }
+}
+
+ipcMain.handle('show-notification', (event, options) => {
+  try {
+    return showBrandedNotification(options)
   } catch (err) {
     logger.error('[Notif] Failed to show notification:', err.message)
     return { success: false }
