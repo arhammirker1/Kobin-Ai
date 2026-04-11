@@ -1,0 +1,707 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kobin AI — Recording</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Geist+Mono&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: transparent;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    .widget {
+      width: 400px;
+      background: rgba(14, 14, 13, 0.92);
+      backdrop-filter: blur(24px) saturate(1.4);
+      -webkit-backdrop-filter: blur(24px) saturate(1.4);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 18px;
+      overflow: hidden;
+      box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.4),
+        0 2px 8px rgba(0, 0, 0, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      animation: slideDown 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+      -webkit-app-region: drag;
+    }
+
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-16px) scale(0.96); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    /* ── Accent bar ── */
+    .accent-bar {
+      height: 2px;
+      background: linear-gradient(90deg, #5B4FE8, #7B6FF0, #5B4FE8);
+      background-size: 200% 100%;
+      animation: shimmer 3s ease-in-out infinite;
+    }
+
+    @keyframes shimmer {
+      0%, 100% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+    }
+
+    /* ── Main content ── */
+    .content {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 18px;
+    }
+
+    /* ── Recording indicator dot ── */
+    .rec-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #E24B4A;
+      flex-shrink: 0;
+      position: relative;
+      box-shadow: 0 0 8px rgba(226, 75, 74, 0.5);
+    }
+
+    .rec-dot.recording::after {
+      content: '';
+      position: absolute;
+      inset: -4px;
+      border-radius: 50%;
+      border: 1.5px solid rgba(226, 75, 74, 0.4);
+      animation: pulse-ring 1.8s ease-in-out infinite;
+    }
+
+    .rec-dot.paused {
+      background: #EF9F27;
+      box-shadow: 0 0 8px rgba(239, 159, 39, 0.4);
+      animation: blink 1.2s ease-in-out infinite;
+    }
+
+    .rec-dot.paused::after { display: none; }
+
+    .rec-dot.idle {
+      background: #5B4FE8;
+      box-shadow: 0 0 8px rgba(91, 79, 232, 0.4);
+    }
+
+    .rec-dot.idle::after { display: none; }
+
+    @keyframes pulse-ring {
+      0%   { transform: scale(1); opacity: 0.6; }
+      50%  { transform: scale(1.5); opacity: 0; }
+      100% { transform: scale(1); opacity: 0; }
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50%      { opacity: 0.3; }
+    }
+
+    /* ── Info section ── */
+    .info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .meeting-title {
+      font-size: 13px;
+      font-weight: 500;
+      color: #F0EDE6;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      letter-spacing: -0.01em;
+      line-height: 1;
+    }
+
+    .status-line {
+      font-size: 11px;
+      color: #6E6B63;
+      margin-top: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      line-height: 1;
+    }
+
+    .status-label {
+      text-transform: uppercase;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      font-size: 9px;
+    }
+
+    .status-label.recording { color: #E24B4A; }
+    .status-label.paused    { color: #EF9F27; }
+    .status-label.idle      { color: #5B4FE8; }
+    .status-label.done      { color: #0D6B4F; }
+
+    /* ── Timer ── */
+    .timer {
+      font-family: 'Geist Mono', 'SF Mono', monospace;
+      font-size: 18px;
+      font-weight: 500;
+      color: #F0EDE6;
+      letter-spacing: 0.02em;
+      min-width: 62px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+
+    /* ── Controls ── */
+    .controls {
+      display: flex;
+      gap: 6px;
+      flex-shrink: 0;
+      -webkit-app-region: no-drag;
+    }
+
+    .btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.04);
+      color: #F0EDE6;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      -webkit-app-region: no-drag;
+    }
+
+    .btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.15);
+      transform: scale(1.04);
+    }
+
+    .btn:active { transform: scale(0.96); }
+
+    .btn.start {
+      background: linear-gradient(135deg, #5B4FE8, #4C3FD4);
+      border-color: rgba(91, 79, 232, 0.4);
+      width: auto;
+      padding: 0 14px;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .btn.start:hover {
+      background: linear-gradient(135deg, #6B5FF8, #5C4FE4);
+      border-color: rgba(91, 79, 232, 0.6);
+    }
+
+    .btn.stop {
+      background: rgba(226, 75, 74, 0.15);
+      border-color: rgba(226, 75, 74, 0.3);
+      color: #E24B4A;
+    }
+
+    .btn.stop:hover {
+      background: rgba(226, 75, 74, 0.25);
+      border-color: rgba(226, 75, 74, 0.5);
+    }
+
+    .btn.close-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      font-size: 14px;
+      color: #6E6B63;
+      border: none;
+      background: transparent;
+    }
+
+    .btn.close-btn:hover {
+      background: rgba(255, 255, 255, 0.06);
+      color: #F0EDE6;
+    }
+
+    /* ── Processing state ── */
+    .processing-bar {
+      height: 2px;
+      background: linear-gradient(90deg, transparent 0%, #5B4FE8 50%, transparent 100%);
+      animation: processingSlide 1.5s ease-in-out infinite;
+    }
+
+    @keyframes processingSlide {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(100%); }
+    }
+
+    .result-section {
+      padding: 12px 18px 16px;
+      border-top: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    .result-item {
+      font-size: 11px;
+      color: #9C9890;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 0;
+    }
+
+    .result-item .emoji { font-size: 12px; }
+    .result-item .count { color: #F0EDE6; font-weight: 500; }
+
+    /* ── Hidden state ── */
+    .widget.hidden { display: none; }
+    .widget.minimized {
+      width: 200px;
+    }
+    .widget.minimized .info,
+    .widget.minimized .controls { display: none; }
+  </style>
+</head>
+<body>
+  <div class="widget" id="widget">
+    <div class="accent-bar" id="accent-bar"></div>
+
+    <div class="content" id="main-content">
+      <!-- Recording dot -->
+      <div class="rec-dot idle" id="rec-dot"></div>
+
+      <!-- Info -->
+      <div class="info">
+        <div class="meeting-title" id="meeting-title">Ready to record</div>
+        <div class="status-line">
+          <span class="status-label idle" id="status-label">READY</span>
+          <span id="status-detail">Click start to begin</span>
+        </div>
+      </div>
+
+      <!-- Timer -->
+      <div class="timer" id="timer">0:00</div>
+
+      <!-- Controls -->
+      <div class="controls" id="controls">
+        <button class="btn start" id="btn-start" title="Start Recording">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="6"/></svg>
+          <span>REC</span>
+        </button>
+        <button class="btn close-btn" id="btn-close" title="Close">✕</button>
+      </div>
+    </div>
+
+    <!-- Processing / Results -->
+    <div id="result-section" class="result-section" style="display: none;"></div>
+  </div>
+
+  <script>
+    // ── State ──
+    let state = 'idle' // idle | recording | paused | processing | done
+
+    // ── Elements ──
+    const widget     = document.getElementById('widget')
+    const recDot     = document.getElementById('rec-dot')
+    const titleEl    = document.getElementById('meeting-title')
+    const statusLabel = document.getElementById('status-label')
+    const statusDetail = document.getElementById('status-detail')
+    const timerEl    = document.getElementById('timer')
+    const controlsEl = document.getElementById('controls')
+    const accentBar  = document.getElementById('accent-bar')
+    const resultSection = document.getElementById('result-section')
+    const btnStart   = document.getElementById('btn-start')
+    const btnClose   = document.getElementById('btn-close')
+
+    // ── Format duration ──
+    function fmt(sec) {
+      const h = Math.floor(sec / 3600)
+      const m = Math.floor((sec % 3600) / 60)
+      const s = sec % 60
+      if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0')
+      return m + ':' + String(s).padStart(2, '0')
+    }
+
+    // ── Render functions ──
+    function renderIdle(title) {
+      state = 'idle'
+      recDot.className = 'rec-dot idle'
+      titleEl.textContent = title || 'Ready to record'
+      statusLabel.className = 'status-label idle'
+      statusLabel.textContent = 'READY'
+      statusDetail.textContent = 'Click start to begin'
+      timerEl.textContent = '0:00'
+      accentBar.className = 'accent-bar'
+      resultSection.style.display = 'none'
+
+      controlsEl.innerHTML = `
+        <button class="btn start" id="btn-start" title="Start Recording" onclick="handleStart()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="6"/></svg>
+          <span>REC</span>
+        </button>
+        <button class="btn close-btn" onclick="handleClose()" title="Close">✕</button>
+      `
+    }
+
+    function renderRecording(title) {
+      state = 'recording'
+      recDot.className = 'rec-dot recording'
+      titleEl.textContent = title || 'Recording...'
+      statusLabel.className = 'status-label recording'
+      statusLabel.textContent = 'REC'
+      statusDetail.textContent = 'Capturing audio'
+      accentBar.className = 'accent-bar'
+
+      controlsEl.innerHTML = `
+        <button class="btn" onclick="handlePause()" title="Pause">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+        </button>
+        <button class="btn stop" onclick="handleStop()" title="Stop & Process">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+        </button>
+        <button class="btn close-btn" onclick="handleMinimize()" title="Minimize">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+      `
+    }
+
+    function renderPaused(title) {
+      state = 'paused'
+      recDot.className = 'rec-dot paused'
+      statusLabel.className = 'status-label paused'
+      statusLabel.textContent = 'PAUSED'
+      statusDetail.textContent = 'Recording paused'
+
+      controlsEl.innerHTML = `
+        <button class="btn" onclick="handleResume()" title="Resume" style="background: rgba(91, 79, 232, 0.15); border-color: rgba(91, 79, 232, 0.3); color: #5B4FE8;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+        </button>
+        <button class="btn stop" onclick="handleStop()" title="Stop & Process">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+        </button>
+        <button class="btn close-btn" onclick="handleMinimize()" title="Minimize">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+      `
+    }
+
+    function renderProcessing() {
+      state = 'processing'
+      recDot.className = 'rec-dot idle'
+      statusLabel.className = 'status-label'
+      statusLabel.textContent = 'PROCESSING'
+      statusLabel.style.color = '#5B4FE8'
+      statusDetail.textContent = 'AI is analyzing transcript...'
+      accentBar.innerHTML = '<div class="processing-bar" style="width: 100%;"></div>'
+
+      controlsEl.innerHTML = `
+        <div style="width: 24px; height: 24px; border: 2px solid rgba(91,79,232,0.3); border-top-color: #5B4FE8; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+      `
+      // Add spin keyframes
+      if (!document.getElementById('spin-style')) {
+        const style = document.createElement('style')
+        style.id = 'spin-style'
+        style.textContent = '@keyframes spin { to { transform: rotate(360deg); } }'
+        document.head.appendChild(style)
+      }
+    }
+
+    function renderDone(results) {
+      state = 'done'
+      recDot.className = 'rec-dot idle'
+      recDot.style.background = '#0D6B4F'
+      recDot.style.boxShadow = '0 0 8px rgba(13, 107, 79, 0.4)'
+      statusLabel.className = 'status-label done'
+      statusLabel.textContent = 'DONE'
+      statusDetail.textContent = 'Meeting processed'
+      accentBar.className = 'accent-bar'
+      accentBar.style.background = 'linear-gradient(90deg, #0D6B4F, #1A9B6F, #0D6B4F)'
+
+      controlsEl.innerHTML = `
+        <button class="btn close-btn" onclick="handleClose()" title="Close" style="width: 36px; height: 36px;">✕</button>
+      `
+
+      if (results) {
+        resultSection.style.display = 'block'
+        resultSection.innerHTML = `
+          ${results.tasks > 0 ? `<div class="result-item"><span class="emoji">✅</span> <span class="count">${results.tasks}</span> task${results.tasks > 1 ? 's' : ''} created</div>` : ''}
+          ${results.notes > 0 ? `<div class="result-item"><span class="emoji">📋</span> <span class="count">${results.notes}</span> decision${results.notes > 1 ? 's' : ''} logged</div>` : ''}
+          ${results.crm > 0 ? `<div class="result-item"><span class="emoji">📊</span> <span class="count">${results.crm}</span> CRM update${results.crm > 1 ? 's' : ''}</div>` : ''}
+          ${results.tasks === 0 && results.notes === 0 && results.crm === 0 ? '<div class="result-item"><span class="emoji">📝</span> Transcript saved</div>' : ''}
+        `
+      }
+
+      // Auto-close after 8 seconds
+      setTimeout(() => handleClose(), 8000)
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  AUDIO CAPTURE ENGINE — Dual-stream: mic (host) + system (participants)
+    //  Mic → getUserMedia → host chunks
+    //  System audio → desktopCapturer → participant chunks
+    // ══════════════════════════════════════════════════════════════════════
+
+    let micStream = null
+    let micRecorder = null
+    let sysStream = null
+    let sysRecorder = null
+    let micChunkInterval = null
+    let sysChunkInterval = null
+    let isCapturing = false
+
+    const CHUNK_INTERVAL = 30000 // 30 seconds
+
+    function getMimeType() {
+      return MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : 'audio/webm'
+    }
+
+    function createChunkedRecorder(stream, source) {
+      const mimeType = getMimeType()
+      const recorder = new MediaRecorder(stream, {
+        mimeType,
+        audioBitsPerSecond: 64000,
+      })
+
+      let chunks = []
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          chunks.push(event.data)
+        }
+      }
+
+      recorder.onstop = () => {
+        if (chunks.length > 0) {
+          const blob = new Blob(chunks, { type: mimeType })
+          sendAudioBlobToMain(blob, source)
+          chunks = []
+        }
+      }
+
+      // Attach flush interval
+      const interval = setInterval(() => {
+        if (recorder.state === 'recording') {
+          recorder.stop()
+          setTimeout(() => {
+            if (isCapturing && stream.active) {
+              chunks = []
+              recorder.start()
+              console.log(`🔄 ${source} chunk flushed, recorder restarted`)
+            }
+          }, 100)
+        }
+      }, CHUNK_INTERVAL)
+
+      return { recorder, interval }
+    }
+
+    async function startAudioCapture() {
+      isCapturing = true
+      const mimeType = getMimeType()
+
+      // ── 1. Microphone (Host) ──────────────────────────────────────────
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            channelCount: 1,
+            sampleRate: 16000,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          video: false,
+        })
+        console.log('🎙 Mic access granted')
+
+        const mic = createChunkedRecorder(micStream, 'host')
+        micRecorder = mic.recorder
+        micChunkInterval = mic.interval
+        micRecorder.start()
+        console.log('🎙 Mic recorder started')
+      } catch (err) {
+        console.error('❌ Mic access failed:', err.message)
+        statusDetail.textContent = 'Mic access denied — check permissions'
+      }
+
+      // ── 2. System Audio (Participants) ────────────────────────────────
+      try {
+        if (!window.widgetAPI || !window.widgetAPI.getDesktopSources) {
+          console.warn('⚠ No desktopCapturer access — skipping system audio')
+          return
+        }
+
+        const sources = await window.widgetAPI.getDesktopSources()
+        console.log(`🖥 Found ${sources.length} desktop sources`)
+
+        if (sources.length === 0) {
+          console.warn('⚠ No desktop sources found')
+          return
+        }
+
+        // Pick the first screen source (usually "Entire Screen")
+        const screenSource = sources.find(s => s.name === 'Entire Screen' || s.name === 'Screen 1') || sources[0]
+        console.log(`🖥 Using source: "${screenSource.name}" (${screenSource.id})`)
+
+        // Capture system audio through screen capture
+        // On Windows, chromeMediaSource: 'desktop' captures system audio loopback
+        sysStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+            }
+          },
+          video: {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              maxWidth: 1,
+              maxHeight: 1,
+              maxFrameRate: 1,
+            }
+          }
+        })
+
+        // We only need audio tracks — remove video tracks to save resources
+        sysStream.getVideoTracks().forEach(track => track.stop())
+
+        // Create a new stream with only audio
+        const audioOnlyStream = new MediaStream(sysStream.getAudioTracks())
+
+        console.log('🔊 System audio capture started')
+
+        const sys = createChunkedRecorder(audioOnlyStream, 'participant')
+        sysRecorder = sys.recorder
+        sysChunkInterval = sys.interval
+        sysRecorder.start()
+        console.log('🔊 System audio recorder started')
+
+      } catch (err) {
+        console.error('⚠ System audio capture failed (this is OK, mic still works):', err.message)
+        // System audio is optional — mic recording continues
+      }
+    }
+
+    function stopAudioCapture() {
+      isCapturing = false
+
+      // Stop mic
+      if (micChunkInterval) { clearInterval(micChunkInterval); micChunkInterval = null }
+      if (micRecorder && micRecorder.state !== 'inactive') micRecorder.stop()
+      if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null }
+
+      // Stop system audio
+      if (sysChunkInterval) { clearInterval(sysChunkInterval); sysChunkInterval = null }
+      if (sysRecorder && sysRecorder.state !== 'inactive') sysRecorder.stop()
+      if (sysStream) { sysStream.getTracks().forEach(t => t.stop()); sysStream = null }
+
+      console.log('⏹ All audio capture stopped')
+    }
+
+    function pauseAudioCapture() {
+      if (micRecorder && micRecorder.state === 'recording') micRecorder.pause()
+      if (sysRecorder && sysRecorder.state === 'recording') sysRecorder.pause()
+      console.log('⏸ Audio capture paused')
+    }
+
+    function resumeAudioCapture() {
+      if (micRecorder && micRecorder.state === 'paused') micRecorder.resume()
+      if (sysRecorder && sysRecorder.state === 'paused') sysRecorder.resume()
+      console.log('▶ Audio capture resumed')
+    }
+
+    async function sendAudioBlobToMain(blob, source) {
+      try {
+        const arrayBuffer = await blob.arrayBuffer()
+        const uint8Array = new Uint8Array(arrayBuffer)
+        // Convert to base64
+        let binary = ''
+        for (let i = 0; i < uint8Array.length; i++) {
+          binary += String.fromCharCode(uint8Array[i])
+        }
+        const base64 = btoa(binary)
+
+        console.log(`📤 Sending ${source} audio chunk: ${Math.round(blob.size / 1024)}KB`)
+
+        if (window.widgetAPI) {
+          window.widgetAPI.sendAudioChunk(base64, source)
+        }
+      } catch (err) {
+        console.error('Failed to send audio chunk:', err)
+      }
+    }
+
+    // ── Handlers (call to Electron main via preload) ──
+    function handleStart() {
+      if (window.widgetAPI) window.widgetAPI.startRecording()
+      // Start dual audio capture (mic + system)
+      startAudioCapture()
+    }
+
+    function handlePause() {
+      if (window.widgetAPI) window.widgetAPI.pauseRecording()
+      pauseAudioCapture()
+    }
+
+    function handleResume() {
+      if (window.widgetAPI) window.widgetAPI.resumeRecording()
+      resumeAudioCapture()
+    }
+
+    function handleStop() {
+      renderProcessing()
+      stopAudioCapture()
+      if (window.widgetAPI) window.widgetAPI.stopRecording()
+    }
+
+    function handleClose() {
+      stopAudioCapture()
+      if (window.widgetAPI) window.widgetAPI.closeWidget()
+    }
+
+    function handleMinimize() {
+      if (window.widgetAPI) window.widgetAPI.minimizeWidget()
+    }
+
+    // ── IPC listeners from main process ──
+    if (window.widgetAPI) {
+      window.widgetAPI.onStateChange((data) => {
+        if (data.state === 'recording') {
+          renderRecording(data.meetingTitle)
+        } else if (data.state === 'paused') {
+          renderPaused(data.meetingTitle)
+        } else if (data.state === 'processing') {
+          renderProcessing()
+        } else if (data.state === 'idle') {
+          renderIdle(data.meetingTitle)
+        }
+      })
+
+      window.widgetAPI.onDuration((seconds) => {
+        timerEl.textContent = fmt(seconds)
+      })
+
+      window.widgetAPI.onResults((results) => {
+        renderDone(results)
+      })
+
+      window.widgetAPI.onInit((data) => {
+        // Call renderIdle to generate buttons WITH onclick handlers
+        renderIdle(data.meetingTitle || 'Ready to record')
+        if (data.autoStart) {
+          // Small delay for visual effect
+          setTimeout(() => handleStart(), 600)
+        }
+      })
+    } else {
+      // No widgetAPI (opened outside electron) — still wire up initial buttons
+      renderIdle('Ready to record')
+    }
+  </script>
+</body>
+</html>
+
