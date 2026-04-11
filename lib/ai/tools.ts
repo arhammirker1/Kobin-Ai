@@ -277,6 +277,7 @@ export const READ_TOOL_NAMES = new Set<string>([
   "get_vault_files",
   "get_task_creation_context",
   "search_contacts",
+  "get_meeting_notes",
   // analyze_workspace is read-like but returns synthesized data
   "analyze_workspace",
 ])

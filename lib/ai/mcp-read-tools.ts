@@ -208,6 +208,36 @@ export const READ_TOOLS = [
       },
     },
   },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_meeting_notes",
+      description:
+        "Query past meeting recordings and AI analyses. Search by contact name, topic, or date. Returns summaries, decisions, action items, and CRM updates from meetings.",
+      parameters: {
+        type: "object",
+        properties: {
+          contact_name: {
+            type: "string",
+            description: "Filter by participant/contact name (fuzzy match)",
+          },
+          topic: {
+            type: "string",
+            description: "Search for a keyword or topic in meeting transcripts",
+          },
+          range: {
+            type: "string",
+            enum: ["last_7_days", "last_30_days", "last_90_days", "all"],
+            description: "Time range to search. Default: last_30_days",
+          },
+          limit: {
+            type: "number",
+            description: "Max results (default 5, max 10)",
+          },
+        },
+      },
+    },
+  },
 ] as const
 
 export type ReadToolName =
@@ -220,6 +250,7 @@ export type ReadToolName =
   | "get_vault_files"
   | "get_task_creation_context"
   | "search_contacts"
+  | "get_meeting_notes"
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -257,6 +288,8 @@ export async function executeReadTool(
       return execTaskCreationContext(args, founderId)
     case "search_contacts":
       return execSearchContacts(args, founderId)
+    case "get_meeting_notes":
+      return execMeetingNotes(args, founderId)
     default:
       return { content: `Unknown read tool: ${toolName}` }
   }
@@ -1147,6 +1180,147 @@ async function execSearchContacts(
     }
 
     lines.push("") // spacer between contacts
+  }
+
+  return { content: lines.join("\n") }
+}
+
+async function execMeetingNotes(
+  args: Record<string, any>,
+  founderId: string
+): Promise<ReadToolResult> {
+  const { contact_name, topic, range = "last_30_days", limit = 5 } = args
+  const cap = Math.min(limit, 10)
+  const now = new Date()
+
+  // Determine date filter
+  let since: string
+  switch (range) {
+    case "last_7_days":
+      since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+      break
+    case "last_90_days":
+      since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
+      break
+    case "all":
+      since = "1970-01-01T00:00:00.000Z"
+      break
+    default: // last_30_days
+      since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+  }
+
+  // Fetch analyses with their recordings
+  let query = supabaseAdmin
+    .from("meeting_analyses")
+    .select(`
+      id, summary, key_decisions, action_items, sentiment, topics,
+      crm_matches, tasks_created, notes_created, analyzed_at,
+      recording:meeting_recordings_raw!inner(
+        meeting_title, duration_seconds, started_at, participant_emails, combined_transcript
+      )
+    `)
+    .eq("user_id", founderId)
+    .gte("analyzed_at", since)
+    .order("analyzed_at", { ascending: false })
+    .limit(cap)
+
+  const { data: analyses, error } = await query
+  if (error) return { content: `Error fetching meeting notes: ${error.message}` }
+  if (!analyses || analyses.length === 0) {
+    return { content: `No meeting recordings found in the ${range.replace(/_/g, " ")} range.` }
+  }
+
+  // Filter by contact name if provided
+  let filtered = analyses
+  if (contact_name) {
+    const searchLower = contact_name.toLowerCase()
+    filtered = analyses.filter((a: any) => {
+      // Check CRM matches
+      const matchesContact = (a.crm_matches || []).some(
+        (m: any) => (m.name || "").toLowerCase().includes(searchLower)
+      )
+      // Check participant emails
+      const recording = Array.isArray(a.recording) ? a.recording[0] : a.recording
+      const matchesEmail = (recording?.participant_emails || []).some(
+        (e: string) => e.toLowerCase().includes(searchLower)
+      )
+      // Check meeting title
+      const matchesTitle = (recording?.meeting_title || "").toLowerCase().includes(searchLower)
+      return matchesContact || matchesEmail || matchesTitle
+    })
+  }
+
+  // Filter by topic if provided
+  if (topic) {
+    const topicLower = topic.toLowerCase()
+    filtered = filtered.filter((a: any) => {
+      const matchesTopic = (a.topics || []).some(
+        (t: string) => t.toLowerCase().includes(topicLower)
+      )
+      const recording = Array.isArray(a.recording) ? a.recording[0] : a.recording
+      const matchesTranscript = (recording?.combined_transcript || "")
+        .toLowerCase()
+        .includes(topicLower)
+      const matchesSummary = (a.summary || "").toLowerCase().includes(topicLower)
+      return matchesTopic || matchesTranscript || matchesSummary
+    })
+  }
+
+  if (filtered.length === 0) {
+    const filterDesc = [
+      contact_name ? `contact "${contact_name}"` : "",
+      topic ? `topic "${topic}"` : "",
+    ].filter(Boolean).join(" and ")
+    return { content: `No meetings found matching ${filterDesc}.` }
+  }
+
+  const lines: string[] = [`${filtered.length} meeting(s) found:`]
+
+  for (const a of filtered) {
+    const recording = Array.isArray(a.recording) ? a.recording[0] : a.recording
+    const title = recording?.meeting_title || "Untitled"
+    const duration = recording?.duration_seconds
+      ? `${Math.round(recording.duration_seconds / 60)}min`
+      : ""
+    const date = a.analyzed_at
+      ? new Date(a.analyzed_at).toLocaleDateString("en-US", {
+          month: "short", day: "numeric", year: "numeric",
+        })
+      : ""
+
+    lines.push(`\n## ${title} (${date}${duration ? ` · ${duration}` : ""})`)
+    lines.push(`Sentiment: ${a.sentiment || "neutral"} | Topics: ${(a.topics || []).join(", ") || "none"}`)
+
+    if (a.summary) lines.push(`Summary: ${a.summary}`)
+
+    // Decisions
+    const decisions = a.key_decisions || []
+    if (decisions.length > 0) {
+      lines.push(`Decisions (${decisions.length}):`)
+      for (const d of decisions) {
+        lines.push(`- ${d.decision}${d.decided_by ? ` (by ${d.decided_by})` : ""}`)
+      }
+    }
+
+    // Action items
+    const actions = a.action_items || []
+    if (actions.length > 0) {
+      lines.push(`Action items (${actions.length}):`)
+      for (const item of actions) {
+        lines.push(`- [${item.priority || "M"}] ${item.action}${item.assignee ? ` → ${item.assignee}` : ""}`)
+      }
+    }
+
+    // CRM changes
+    const crmChanges = (a.crm_matches || []).filter(
+      (m: any) => m.stage_before !== m.stage_after
+    )
+    if (crmChanges.length > 0) {
+      lines.push(`CRM updates:`)
+      for (const m of crmChanges) {
+        lines.push(`- ${m.name}: ${(m.stage_before || "").replace(/_/g, " ")} → ${(m.stage_after || "").replace(/_/g, " ")}`)
+      }
+    }
   }
 
   return { content: lines.join("\n") }

@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
 import {
-  Moon, Sun, User, Mail, Loader2, Unlink, Video,
+  Moon, Sun, User, Mail, Loader2, Unlink, Video, Mic,
   ExternalLink, AlertCircle, CheckCircle2, HardDrive, Cloud,
 } from "lucide-react"
 import { useTheme } from "next-themes"
@@ -324,6 +324,105 @@ function CRMIntelligenceCard() {
   )
 }
 
+function MeetingRecorderCard() {
+  const [isDesktop, setIsDesktop] = useState(false)
+  const [autoRecord, setAutoRecord] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const supabase = createClient()
+
+  useEffect(() => {
+    // Check if running inside Electron desktop app
+    const electron = (window as any).electron
+    setIsDesktop(!!electron?.isDesktop)
+
+    // Load meeting bot config
+    const loadConfig = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data } = await supabase
+        .from("meeting_bot_config")
+        .select("auto_record")
+        .eq("user_id", user.id)
+        .maybeSingle()
+      if (data) setAutoRecord(data.auto_record)
+    }
+    loadConfig()
+  }, [supabase])
+
+  const handleToggle = async (checked: boolean) => {
+    setSaving(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      await supabase.from("meeting_bot_config").upsert({
+        user_id: user.id,
+        auto_record: checked,
+        groq_whisper_enabled: true,
+      }, { onConflict: "user_id" })
+      setAutoRecord(checked)
+      toast.success(checked ? "Auto-recording enabled" : "Auto-recording disabled")
+    } catch { toast.error("Failed to save setting") }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Mic className="h-5 w-5" /> Meeting Recorder
+        </CardTitle>
+        <CardDescription>
+          Record meetings and let AI extract tasks, decisions, and CRM updates
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center gap-3">
+          {isDesktop ? (
+            <Badge variant="outline" className="border-green-500/40 text-green-600 dark:text-green-400">
+              <CheckCircle2 className="h-3 w-3 mr-1" /> Desktop app connected
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="border-amber-500/40 text-amber-600 dark:text-amber-400">
+              <AlertCircle className="h-3 w-3 mr-1" /> Desktop app required
+            </Badge>
+          )}
+        </div>
+
+        {!isDesktop && (
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Meeting recording requires the Kobin AI desktop app. Audio is captured locally on your device — only the transcript is sent to the cloud for AI processing.
+          </p>
+        )}
+
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5 flex-1 mr-4">
+            <Label htmlFor="auto-record" className="text-sm font-medium">Auto-record meetings</Label>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Automatically start recording when you join a meeting from the calendar.
+            </p>
+          </div>
+          <Switch
+            id="auto-record"
+            checked={autoRecord}
+            onCheckedChange={handleToggle}
+            disabled={saving || !isDesktop}
+          />
+        </div>
+
+        <div className="rounded-lg bg-muted/50 p-3 space-y-1">
+          <p className="text-xs font-medium">How it works</p>
+          <ul className="text-xs text-muted-foreground space-y-1">
+            <li>🎙 Your microphone captures what you say (host)</li>
+            <li>🔊 System audio captures what participants say</li>
+            <li>🤖 Groq Whisper transcribes audio ($0.04/hr)</li>
+            <li>📋 AI creates tasks, logs decisions, updates CRM</li>
+          </ul>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 export function SettingsView({ isClient }: { isClient?: boolean } = {}) {
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
@@ -429,6 +528,8 @@ export function SettingsView({ isClient }: { isClient?: boolean } = {}) {
         <GoogleIntegrationCard isClient={isClient} />
 
         {!isClient && <CRMIntelligenceCard />}
+
+        {!isClient && <MeetingRecorderCard />}
 
         {!isClient && <AIModeCard />}
       </div>

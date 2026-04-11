@@ -10,6 +10,12 @@
 # production
 /build
 
+/electron
+
+/meetily-main
+
+
+
 # debug
 npm-debug.log*
 yarn-debug.log*
