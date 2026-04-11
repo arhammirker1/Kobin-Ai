@@ -186,36 +186,113 @@ const EDGES = [
   ["lib-gmail-watch", "lib-google-token"],
 
   // --- DATABASE FK RELATIONS ---
-  ["db-profiles", "db-projects"],
-  ["db-profiles", "db-clients"],
-  ["db-profiles", "db-team-members"],
-  ["db-profiles", "db-google-integ"],
-  ["db-projects", "db-clients"],
-
-  ["db-chat-rooms", "db-chat-members"],
-  ["db-chat-rooms", "db-chat-messages"],
-  ["db-chat-rooms", "db-projects"],
-  ["db-chat-messages", "db-message-reactions"],
-  ["db-chat-messages", "db-tasks"],
-  ["db-chat-messages", "db-event-invites"],
-
-  ["db-relationships", "db-email-analyses"],
-  ["db-relationships", "db-gmail-threads"],
-
-  ["db-tasks", "db-task-comments"],
-  ["db-tasks", "db-projects"],
-  ["db-tasks", "db-vault-items"],
+  // ai_command_chats
+  ["db-ai-chats", "db-profiles"],
   
-  ["db-gmail-threads", "db-gmail-messages"],
+  // ai_memories
+  ["db-ai-memories", "db-profiles"],
+  
+  // chat_messages
+  ["db-chat-messages", "db-chat-rooms"],
+  ["db-chat-messages", "db-profiles"],
+  ["db-chat-messages", "db-event-invites"],
+  ["db-chat-messages", "db-tasks"],
+  
+  // chat_room_members
+  ["db-chat-members", "db-chat-rooms"],
+  ["db-chat-members", "db-profiles"],
+  
+  // chat_rooms
+  ["db-chat-rooms", "db-profiles"],
+  ["db-chat-rooms", "db-projects"],
+  
+  // clients
+  ["db-clients", "db-profiles"],
+  ["db-clients", "db-projects"],
+  
+  // crm_import_history
+  ["db-crm-import", "db-profiles"],
+  
+  // email_analyses
+  ["db-email-analyses", "db-profiles"],
+  ["db-email-analyses", "db-relationships"],
 
-  ["db-events", "db-event-invites"],
+  // event_invites
+  ["db-event-invites", "db-events"],
+  ["db-event-invites", "db-profiles"],
+  
+  // events
+  ["db-events", "db-profiles"],
   ["db-events", "db-clients"],
-  ["db-meetings-raw", "db-meeting-analyses"],
-  ["db-team-meetings", "db-team-meeting-participants"],
-
-  ["db-vault-folders", "db-vault-items"],
+  
+  // gmail_messages
+  ["db-gmail-messages", "db-profiles"],
+  ["db-gmail-messages", "db-gmail-threads"],
+  
+  // gmail_threads
+  ["db-gmail-threads", "db-profiles"],
+  ["db-gmail-threads", "db-relationships"],
+  
+  // google_integrations
+  ["db-google-integ", "db-profiles"],
+  
+  // linkedin_posts
+  ["db-linkedin", "db-profiles"],
+  
+  // meeting_analyses
+  ["db-meeting-analyses", "db-profiles"],
+  ["db-meeting-analyses", "db-meetings-raw"],
+  
+  // meeting_bot_config
+  ["db-meeting-bot-config", "db-profiles"],
+  
+  // meeting_recordings_raw
+  ["db-meetings-raw", "db-profiles"],
+  
+  // message_reactions
+  ["db-message-reactions", "db-chat-messages"],
+  ["db-message-reactions", "db-profiles"],
+  
+  // projects
+  ["db-projects", "db-profiles"],
+  
+  // push_subscriptions
+  ["db-push-subs", "db-profiles"],
+  
+  // relationships
+  ["db-relationships", "db-profiles"],
+  
+  // task_comments
+  ["db-task-comments", "db-tasks"],
+  ["db-task-comments", "db-profiles"],
+  
+  // tasks
+  ["db-tasks", "db-profiles"],
+  ["db-tasks", "db-vault-items"],
+  ["db-tasks", "db-projects"],
+  ["db-tasks", "db-chat-messages"],
+  
+  // team_meeting_participants
+  ["db-team-meeting-participants", "db-team-meetings"],
+  ["db-team-meeting-participants", "db-profiles"],
+  
+  // team_meetings
+  ["db-team-meetings", "db-profiles"],
+  
+  // team_members
+  ["db-team-members", "db-profiles"],
+  
+  // vault_folders
+  ["db-vault-folders", "db-profiles"],
   ["db-vault-folders", "db-projects"],
+  
+  // vault_items
+  ["db-vault-items", "db-profiles"],
+  ["db-vault-items", "db-vault-folders"],
   ["db-vault-items", "db-projects"],
+  
+  // vault_notes
+  ["db-vault-notes", "db-profiles"],
 
   // --- LOGIC TO DB CONNECTIONS ---
   ["api-command", "db-ai-chats"],
