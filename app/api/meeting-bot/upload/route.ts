@@ -8,6 +8,9 @@
 
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { processMeetingTranscript } from "@/lib/meeting-bot/process-meeting"
+
+export const maxDuration = 60 // Allow up to 60s for AI processing
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -125,36 +128,34 @@ export async function POST(req: NextRequest) {
 
     console.log(`✅ Meeting recording saved: ${recording.id} — "${meeting_title}"`)
 
-    // Trigger async processing (fire-and-forget to avoid timeout)
-    // Use the canonical app URL — req.url may be a deployment-preview URL
-    const host = req.headers.get("host") || "founder-assistant-three.vercel.app"
-    const protocol = host.includes("localhost") ? "http" : "https"
-    const processUrl = `${protocol}://${host}/api/meeting-bot/process`
-
-    console.log(`[upload] Triggering AI processing at: ${processUrl}`)
-
-    fetch(processUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ recording_id: recording.id }),
-    })
-      .then(async (res) => {
-        if (!res.ok) {
-          const errText = await res.text()
-          console.error(`[upload] Process trigger failed: ${res.status} — ${errText}`)
-        } else {
-          const result = await res.json()
-          console.log(`[upload] Process result:`, result)
-        }
+    // Run AI processing inline (Vercel kills fire-and-forget fetches after response)
+    console.log(`[upload] Starting AI processing for recording: ${recording.id}`)
+    let processingResult: any = null
+    try {
+      processingResult = await processMeetingTranscript(recording.id)
+      console.log(`[upload] ✅ AI processing complete:`, {
+        success: processingResult.success,
+        tasks: processingResult.tasks_created?.length || 0,
+        notes: processingResult.notes_created?.length || 0,
+        crm: processingResult.crm_updates?.length || 0,
       })
-      .catch(err => {
-        console.error("[upload] Failed to trigger processing:", err.message)
-      })
+    } catch (processErr: any) {
+      console.error(`[upload] AI processing failed:`, processErr.message)
+      // Don't fail the upload — recording is already saved
+    }
 
     return NextResponse.json({
       success: true,
       recording_id: recording.id,
-      message: "Recording saved. AI processing started.",
+      message: processingResult?.success
+        ? "Recording saved and AI processing complete."
+        : "Recording saved. AI processing may still be in progress.",
+      analysis: processingResult?.success ? {
+        summary: processingResult.summary,
+        tasks_created: processingResult.tasks_created?.length || 0,
+        notes_created: processingResult.notes_created?.length || 0,
+        crm_updates: processingResult.crm_updates?.length || 0,
+      } : undefined,
     })
   } catch (error: any) {
     console.error("Upload error:", error)

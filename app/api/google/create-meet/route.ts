@@ -162,6 +162,7 @@ export async function POST(request: Request) {
         relationship_id: relationship_id || null,
         google_event_id: googleEventId,
         google_meet_link: meetLink,
+        attendee_emails: attendee_emails.filter(Boolean),
       })
       .select()
       .single()
