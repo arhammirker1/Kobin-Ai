@@ -24,10 +24,7 @@
       border: 1px solid rgba(255, 255, 255, 0.06);
       border-radius: 18px;
       overflow: hidden;
-      box-shadow:
-        0 8px 32px rgba(0, 0, 0, 0.4),
-        0 2px 8px rgba(0, 0, 0, 0.2),
-        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      box-shadow: none;
       transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
       animation: slideDown 0.4s cubic-bezier(0.16, 1, 0.3, 1);
       -webkit-app-region: drag;
@@ -410,35 +407,36 @@
       }
     }
 
-    function renderDone(results) {
-      state = 'done'
-      recDot.className = 'rec-dot idle'
-      recDot.style.background = '#0D6B4F'
-      recDot.style.boxShadow = '0 0 8px rgba(13, 107, 79, 0.4)'
-      statusLabel.className = 'status-label done'
-      statusLabel.textContent = 'DONE'
-      statusDetail.textContent = 'Meeting processed'
-      accentBar.className = 'accent-bar'
-      accentBar.style.background = 'linear-gradient(90deg, #0D6B4F, #1A9B6F, #0D6B4F)'
+  function renderDone(results) {
+  state = 'done'
+  recDot.className = 'rec-dot idle'
+  recDot.style.background = '#0D6B4F'
+  recDot.style.boxShadow = '0 0 8px rgba(13, 107, 79, 0.4)'
+  accentBar.className = 'accent-bar'
+  accentBar.style.background = 'linear-gradient(90deg, #0D6B4F, #1A9B6F, #0D6B4F)'
 
-      controlsEl.innerHTML = `
-        <button class="btn close-btn" onclick="handleClose()" title="Close" style="width: 36px; height: 36px;">✕</button>
-      `
+  // Build inline summary
+  let summaryText = 'Transcript saved'
+  if (results && (results.tasks > 0 || results.notes > 0 || results.crm > 0)) {
+    const parts = []
+    if (results.tasks > 0) parts.push(`${results.tasks} task${results.tasks > 1 ? 's' : ''}`)
+    if (results.notes > 0) parts.push(`${results.notes} note${results.notes > 1 ? 's' : ''}`)
+    if (results.crm > 0) parts.push(`${results.crm} CRM update${results.crm > 1 ? 's' : ''}`)
+    summaryText = parts.join(' · ')
+  }
 
-      if (results) {
-        resultSection.style.display = 'block'
-        resultSection.innerHTML = `
-          ${results.tasks > 0 ? `<div class="result-item"><span class="emoji">✅</span> <span class="count">${results.tasks}</span> task${results.tasks > 1 ? 's' : ''} created</div>` : ''}
-          ${results.notes > 0 ? `<div class="result-item"><span class="emoji">📋</span> <span class="count">${results.notes}</span> decision${results.notes > 1 ? 's' : ''} logged</div>` : ''}
-          ${results.crm > 0 ? `<div class="result-item"><span class="emoji">📊</span> <span class="count">${results.crm}</span> CRM update${results.crm > 1 ? 's' : ''}</div>` : ''}
-          ${results.tasks === 0 && results.notes === 0 && results.crm === 0 ? '<div class="result-item"><span class="emoji">📝</span> Transcript saved</div>' : ''}
-        `
-      }
+  statusLabel.className = 'status-label done'
+  statusLabel.textContent = 'DONE'
+  statusDetail.textContent = summaryText
 
-      // Auto-close after 8 seconds
-      setTimeout(() => handleClose(), 8000)
-    }
+  resultSection.style.display = 'none'
 
+  controlsEl.innerHTML = `
+    <button class="btn close-btn" onclick="handleClose()" title="Close" style="width: 36px; height: 36px;">✕</button>
+  `
+
+  setTimeout(() => handleClose(), 8000)
+}
     // ══════════════════════════════════════════════════════════════════════
     //  AUDIO CAPTURE ENGINE — Dual-stream: mic (host) + system (participants)
     //  Mic → getUserMedia → host chunks
