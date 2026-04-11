@@ -7,7 +7,6 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/sonner"
 import { MeetingReminder } from "@/components/meeting-reminder"
 import { TaskAssignmentNotification } from "@/components/task-assignment-notification"
-import { PushProvider } from "@/components/push-provider"
 import { DesktopNotificationProvider } from "@/components/desktop-notification-provider"
 import "./globals.css"
 
@@ -35,7 +34,6 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
           {children}
           <MeetingReminder />
-          <PushProvider />
           <TaskAssignmentNotification />
           <DesktopNotificationProvider />
           <Toaster />

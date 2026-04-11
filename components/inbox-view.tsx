@@ -2199,35 +2199,6 @@ if (error) {
           }
         }).catch(() => {})
       }
-        const { data: members } = await supabase
-        .from("chat_room_members")
-        .select("user_id")
-        .eq("room_id", activeRoomId)
-        .neq("user_id", currentUser.id)
-
-      if (members?.length) {
-        const pushBody = file ? `📎 ${file.name}` : content
-        const senderName = currentUser.full_name || "Someone"
-        await Promise.all(
-          members.map((m) =>
-            fetch("/api/push/send-to-user", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                user_id: m.user_id,
-                payload: {
-                  type: "inbox_message",
-                  title: senderName,
-                  body: pushBody,
-                  room_id: activeRoomId,
-                  sender_name: senderName,
-                  message_preview: pushBody,
-                },
-              }),
-            }).catch(() => {})
-          )
-        )
-      }
     }
   }, [activeRoomId, currentUser, replyTo, editingMsg, supabase])
 

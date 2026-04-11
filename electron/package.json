@@ -31,13 +31,14 @@
       "output": "dist",
       "buildResources": "../build-resources"
     },
-    "files": [
-      "main.js",
-      "preload.js",
-      "widget-preload.js",
-      "recorder-widget.html",
-      "node_modules/**/*"
-    ],
+"files": [
+  "main.js",
+  "preload.js",
+  "widget-preload.js",
+  "notif-preload.js",
+  "recorder-widget.html",
+  "node_modules/**/*"
+],
     "extraResources": [
       {
         "from": "../build-resources/tray-icon.png",

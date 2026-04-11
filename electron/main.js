@@ -1054,22 +1054,43 @@ ipcMain.handle('check-for-updates', () => {
 const notifWindows = []
 
 function showBrandedNotification(options) {
-  const { title = '', body = '', tab = 'Inbox', roomId = null, type = 'default', meetingLink = null, meetingTitle = '' } = options
+  const {
+    title = '',
+    body = '',
+    tab = 'Inbox',
+    roomId = null,
+    type = 'default',
+    meetingLink = null,
+    meetingTitle = '',
+    count = 0,
+    roomType = 'group',
+    priority = '',
+    priorityEmoji = '',
+  } = options
 
-const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize
-const NOTIF_W = 380
-const NOTIF_H = 110
-const MARGIN = 16
+  const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize
+  const NOTIF_W = 380
+  const MARGIN = 16
 
-// Stack notifications upward from bottom-right
-const activeCount = notifWindows.filter(w => !w.isDestroyed()).length
-const yOffset = activeCount * (NOTIF_H + 8)
+  const isMeeting = type === 'meeting' || title.toLowerCase().includes('meeting')
+  const isTask    = type === 'task'
+  const isInbox   = type === 'inbox'
+  const isDM      = roomType === 'direct'
+  const isBatched = count > 1
 
-const win = new BrowserWindow({
-  width: NOTIF_W,
-  height: NOTIF_H,
-  x: sw - NOTIF_W - MARGIN,
-  y: sh - NOTIF_H - MARGIN - yOffset,
+  // Height depends on content
+  const hasJoinBtn = isMeeting && meetingLink
+  let NOTIF_H = isBatched ? 120 : 110
+  if (hasJoinBtn) NOTIF_H += 50
+
+  const activeCount = notifWindows.filter(w => !w.isDestroyed()).length
+  const yOffset = activeCount * (NOTIF_H + 8)
+
+  const win = new BrowserWindow({
+    width: NOTIF_W,
+    height: NOTIF_H,
+    x: sw - NOTIF_W - MARGIN,
+    y: sh - NOTIF_H - MARGIN - yOffset,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
@@ -1081,47 +1102,72 @@ const win = new BrowserWindow({
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: path.join(__dirname, 'notif-preload.js'),
     },
   })
 
   win.setAlwaysOnTop(true, 'floating', 2)
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 
-  // Determine accent color and icon based on notification type
-  const isMeeting = title.toLowerCase().includes('meeting') || type === 'meeting'
-  const isTask = type === 'task' || title.toLowerCase().includes('task')
-  const isUrgent = title.toLowerCase().includes('now') || title.toLowerCase().includes('🔴')
-
-  let accent = '#4C3FD4'
+  // ── Visual config per type ──────────────────────────────────────────────
+  let accent    = '#4C3FD4'
   let iconColor = '#4C3FD4'
-  let iconBg = 'rgba(76,63,212,.12)'
-  let appLabel = 'Kobin AI'
-  let iconSVG = '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'
+  let iconBg    = 'rgba(76,63,212,.12)'
+  let appLabel  = 'Kobin AI'
+  let iconSVG   = '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'
 
-  if (isMeeting || isUrgent) {
-    accent = isUrgent ? '#E24B4A' : '#EF9F27'
+  if (isMeeting) {
+    const isUrgent = title.toLowerCase().includes('now')
+    accent    = isUrgent ? '#E24B4A' : '#EF9F27'
     iconColor = isUrgent ? '#E24B4A' : '#BA7517'
-    iconBg = isUrgent ? 'rgba(226,75,74,.12)' : 'rgba(239,159,39,.12)'
-    appLabel = 'Calendar'
-    iconSVG = '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>'
+    iconBg    = isUrgent ? 'rgba(226,75,74,.12)' : 'rgba(239,159,39,.12)'
+    appLabel  = 'Calendar'
+    iconSVG   = '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>'
   } else if (isTask) {
-    accent = '#4C3FD4'
+    const isUrgent = priority === 'urgent'
+    const isHigh   = priority === 'high'
+    accent    = isUrgent ? '#E24B4A' : isHigh ? '#EF9F27' : '#4C3FD4'
+    iconColor = accent
+    iconBg    = isUrgent ? 'rgba(226,75,74,.12)' : isHigh ? 'rgba(239,159,39,.12)' : 'rgba(76,63,212,.12)'
+    appLabel  = 'Tasks'
+    iconSVG   = '<polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>'
+  } else if (isInbox) {
+    accent    = '#4C3FD4'
     iconColor = '#4C3FD4'
-    iconBg = 'rgba(76,63,212,.12)'
-    appLabel = 'Tasks'
-    iconSVG = '<polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>'
+    iconBg    = 'rgba(76,63,212,.12)'
+    appLabel  = isDM ? 'Inbox · Direct Message' : 'Inbox · Channel'
+    iconSVG   = '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'
   }
 
-  const hasJoinBtn = isMeeting && meetingLink
-  const extraHeight = hasJoinBtn ? 50 : 0
-  win.setSize(NOTIF_W, NOTIF_H + extraHeight)
+  // ── Avatar initials (for DMs) ───────────────────────────────────────────
+  const getInitials = (name) => {
+    const parts = name.trim().split(' ')
+    return parts.length >= 2
+      ? `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
+      : (parts[0][0] || '?').toUpperCase()
+  }
 
+  const showAvatar = isDM && isInbox
+  const avatarInitials = showAvatar ? getInitials(title) : ''
+
+  // ── Badge for batched messages ──────────────────────────────────────────
+  const badgeHTML = isBatched
+    ? `<div style="min-width:20px;height:20px;background:${accent};color:#fff;font-size:10px;font-weight:600;border-radius:10px;padding:0 5px;display:flex;align-items:center;justify-content:center;flex-shrink:0">${count > 99 ? '99+' : count}</div>`
+    : ''
+
+  // ── Icon or avatar ──────────────────────────────────────────────────────
+  const iconHTML = showAvatar
+    ? `<div style="width:32px;height:32px;border-radius:50%;background:${iconBg};display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:11px;font-weight:600;color:${iconColor}">${avatarInitials}</div>`
+    : `<div style="width:32px;height:32px;border-radius:9px;background:${iconBg};display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${iconColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${iconSVG}</svg></div>`
+
+  // ── Join button ─────────────────────────────────────────────────────────
   const joinBtnHTML = hasJoinBtn ? `
     <div style="display:flex;gap:6px;margin-top:8px">
       <button onclick="handleJoin()" style="flex:1;padding:6px 0;font-size:11px;font-weight:500;border-radius:7px;border:none;cursor:pointer;background:#F0EDE6;color:#0E0E0D;font-family:Inter,sans-serif">Join meeting</button>
       <button onclick="handleDismiss()" style="flex:1;padding:6px 0;font-size:11px;font-weight:500;border-radius:7px;border:none;cursor:pointer;background:rgba(240,237,230,.08);color:#F0EDE6;font-family:Inter,sans-serif">Dismiss</button>
-    </div>
-  ` : ''
+    </div>` : ''
+
+  const cleanTitle = title.replace(/[🔴📅📋🟠]/gu, '').trim()
 
   const html = `<!DOCTYPE html>
 <html>
@@ -1129,7 +1175,7 @@ const win = new BrowserWindow({
 <meta charset="UTF-8">
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family: Inter, -apple-system, sans-serif; background: transparent; overflow: hidden; cursor: pointer; }
+  body { font-family: Inter, -apple-system, sans-serif; background: transparent; overflow: hidden; cursor: pointer; -webkit-user-select: none; }
   .notif {
     background: #1A1A18;
     border: 1px solid rgba(240,237,230,.08);
@@ -1137,18 +1183,19 @@ const win = new BrowserWindow({
     overflow: hidden;
     animation: slideIn .3s cubic-bezier(.16,1,.3,1);
     transition: transform .15s ease, opacity .15s ease;
+    height: 100%;
   }
-  .notif:hover { transform: translateX(-2px); }
-  @keyframes slideIn { from { opacity:0; transform:translateY(-10px) scale(.97); } to { opacity:1; transform:translateY(0) scale(1); } }
+  .notif:hover { transform: translateX(-2px); background: #202020; }
+  @keyframes slideIn { from { opacity:0; transform:translateY(-8px) scale(.97); } to { opacity:1; transform:translateY(0) scale(1); } }
   .accent { height: 2px; background: ${accent}; }
   .body { padding: 11px 13px 12px; display:flex; flex-direction:column; }
   .top { display:flex; align-items:flex-start; gap:10px; }
-  .icon { width:32px; height:32px; border-radius:9px; background:${iconBg}; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
   .content { flex:1; min-width:0; }
-  .app-label { font-size:10px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:#6B6860; margin-bottom:2px; }
-  .title { font-size:13px; font-weight:600; color:#F0EDE6; line-height:1.3; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .app-label { font-size:10px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:#6B6860; margin-bottom:3px; }
+  .notif-title { font-size:13px; font-weight:600; color:#F0EDE6; line-height:1.3; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .body-text { font-size:12px; color:#888580; line-height:1.45; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
-  .time { font-size:10px; color:#B4B2A9; flex-shrink:0; white-space:nowrap; }
+  .right-col { display:flex; flex-direction:column; align-items:flex-end; gap:4px; flex-shrink:0; }
+  .time { font-size:10px; color:#6B6860; white-space:nowrap; }
 </style>
 </head>
 <body>
@@ -1156,34 +1203,35 @@ const win = new BrowserWindow({
   <div class="accent"></div>
   <div class="body">
     <div class="top">
-      <div class="icon">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${iconColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${iconSVG}</svg>
-      </div>
+      ${iconHTML}
       <div class="content">
         <div class="app-label">${appLabel}</div>
-        <div class="title">${title.replace(/[🔴📅📋🟠]/gu, '').trim()}</div>
+        <div class="notif-title">${cleanTitle}</div>
         <div class="body-text">${body}</div>
       </div>
-      <div class="time">now</div>
+      <div class="right-col">
+        <div class="time">now</div>
+        ${badgeHTML}
+      </div>
     </div>
     ${joinBtnHTML}
   </div>
 </div>
 <script>
   function handleClick() {
-    fetch('kobin-notif://click?tab=${encodeURIComponent(tab)}&roomId=${encodeURIComponent(roomId || '')}').catch(()=>{})
-    setTimeout(() => window.close(), 100)
+    if (window.notifAPI) window.notifAPI.click('${tab}', '${roomId || ''}')
+    handleDismiss()
   }
   function handleJoin() {
-    fetch('kobin-notif://join?url=${encodeURIComponent(meetingLink || '')}&title=${encodeURIComponent(meetingTitle || title)}').catch(()=>{})
-    setTimeout(() => window.close(), 100)
+    if (window.notifAPI) window.notifAPI.join('${meetingLink || ''}', '${(meetingTitle || title).replace(/'/g, "\\'")}')
+    handleDismiss()
   }
   function handleDismiss() {
     const el = document.getElementById('notif')
     el.style.transition = 'all .25s ease'
     el.style.opacity = '0'
     el.style.transform = 'translateX(16px) scale(.97)'
-    setTimeout(() => window.close(), 260)
+    setTimeout(() => { if (window.notifAPI) window.notifAPI.dismiss() }, 250)
   }
   setTimeout(() => handleDismiss(), ${isMeeting ? 15000 : 6000})
 <\/script>
@@ -1192,63 +1240,52 @@ const win = new BrowserWindow({
 
   win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
 
-  // Handle click navigation via a custom protocol workaround
-  win.webContents.on('will-navigate', (event, url) => {
-    event.preventDefault()
-
-    if (url.startsWith('kobin-notif://click')) {
-      const u = new URL(url)
-      const clickTab = u.searchParams.get('tab') || 'Inbox'
-      const clickRoom = u.searchParams.get('roomId') || null
-      if (mainWindow) {
-        if (mainWindow.isMinimized()) mainWindow.restore()
-        mainWindow.show()
-        mainWindow.focus()
-        mainWindow.webContents.send('notification-click', { roomId: clickRoom, tab: clickTab })
-      }
+  ipcMain.once('notif:click', (_, { tab: clickTab, roomId: clickRoom }) => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+      mainWindow.webContents.send('notification-click', { roomId: clickRoom || null, tab: clickTab || 'Inbox' })
     }
+    if (!win.isDestroyed()) win.close()
+  })
 
-    if (url.startsWith('kobin-notif://join')) {
-      const u = new URL(url)
-      const meetUrl = decodeURIComponent(u.searchParams.get('url') || '')
-      const meetTitle = decodeURIComponent(u.searchParams.get('title') || 'Meeting')
+  ipcMain.once('notif:join', async (_, { url: meetUrl, title: meetTitleArg }) => {
+    if (!win.isDestroyed()) win.close()
+    if (!meetUrl) return
+    shell.openExternal(meetUrl)
 
-      if (meetUrl) {
-        // Open the meeting in system browser — same as clicking a meeting link in the app
-        shell.openExternal(meetUrl)
-
-        // Trigger recording widget with participant lookup — same flow as the app
-        setTimeout(async () => {
-          let participantEmails = []
-
-          try {
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              const eventData = await mainWindow.webContents.executeJavaScript(`
-                (async () => {
-                  try {
-                    const res = await fetch('/api/meeting-bot/lookup-event?meet_url=${encodeURIComponent(meetUrl)}');
-                    if (res.ok) return await res.json();
-                    return null;
-                  } catch(e) { return null; }
-                })()
-              `)
-              if (eventData?.attendee_emails?.length > 0) {
-                participantEmails = eventData.attendee_emails
-              }
-            }
-          } catch (e) {
-            logger.warn('Could not lookup event participants from notif join:', e.message)
+    setTimeout(async () => {
+      let participantEmails = []
+      try {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          const eventData = await mainWindow.webContents.executeJavaScript(`
+            (async () => {
+              try {
+                const res = await fetch('/api/meeting-bot/lookup-event?meet_url=' + encodeURIComponent('${meetUrl}'));
+                if (res.ok) return await res.json();
+                return null;
+              } catch(e) { return null; }
+            })()
+          `)
+          if (eventData?.attendee_emails?.length > 0) {
+            participantEmails = eventData.attendee_emails
           }
-
-          showRecordingWidget({
-            meetingUrl: meetUrl,
-            meetingTitle: meetTitle,
-            autoStart: false,
-            participantEmails,
-          })
-        }, 1500)
+        }
+      } catch (e) {
+        logger.warn('Could not lookup participants from notif join:', e.message)
       }
-    }
+      showRecordingWidget({
+        meetingUrl: meetUrl,
+        meetingTitle: meetTitleArg || 'Meeting',
+        autoStart: false,
+        participantEmails,
+      })
+    }, 1500)
+  })
+
+  ipcMain.once('notif:dismiss', () => {
+    if (!win.isDestroyed()) win.close()
   })
 
   notifWindows.push(win)
@@ -1257,7 +1294,7 @@ const win = new BrowserWindow({
     if (idx > -1) notifWindows.splice(idx, 1)
   })
 
-  logger.info(`[Notif] Branded notification shown: "${title}"`)
+  logger.info(`[Notif] Shown: "${cleanTitle}" count=${count}`)
   return { success: true }
 }
 

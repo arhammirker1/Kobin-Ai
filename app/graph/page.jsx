@@ -81,55 +81,51 @@ const NODES = [
   { id: "lib-push", label: "lib/web-push/send", group: "lib-infra", desc: "VAPID push notification sender" },
   { id: "lib-inbox-dm", label: "lib/ai/inbox-dm", group: "lib-infra", desc: "AI room DM + founder broadcast helpers" },
 
-  // Database Tables — Profiles & Auth
-  { id: "db-profiles", label: "profiles", group: "db", desc: "User profiles — id (FK auth.users), email, full_name, avatar_url, user_type [founder|team_member|client], ai_mode [quiet|balanced|aggressive], settings JSONB" },
-  { id: "db-team-members", label: "team_members", group: "db", desc: "Team membership — user_id FK, founder_id FK, position, permissions (can_view_tasks, can_create_tasks, can_view_calendar, can_view_linkedin, can_view_relationships, can_view_vault, can_view_analytics, can_access_inbox, can_perform_tasks)" },
-  { id: "db-push-subscriptions", label: "push_subscriptions", group: "db", desc: "Web Push subscriptions — user_id FK, endpoint UNIQUE, p256dh, auth, last_notified_at" },
+  // Database Tables — Core & Profiles
+  { id: "db-profiles", label: "profiles", group: "db-core", desc: "User profiles — auth ID, email, roles, ai_mode, settings" },
+  { id: "db-clients", label: "clients", group: "db-core", desc: "Client organizations & portal access" },
+  { id: "db-projects", label: "projects", group: "db-core", desc: "Workspace projects" },
+  { id: "db-team-members", label: "team_members", group: "db-core", desc: "Team membership, access controls and permissions" },
+  { id: "db-push-subs", label: "push_subscriptions", group: "db-core", desc: "Web Push tokens" },
+  { id: "db-linkedin", label: "linkedin_posts", group: "db-core", desc: "LinkedIn post scheduler" },
 
-  // Database Tables — CRM & Relationships
-  { id: "db-relationships", label: "relationships", group: "db", desc: "CRM contacts — user_id FK, full_name, company, role, relationship_type [lead|client|investor|partner|talent], pipeline_stage [new_lead|contacted|meeting_booked|proposal|negotiating|closed_won|closed_lost], deal_value, close_probability (0-100), lead_score, lead_status [cold], ghosting detection, tags[]" },
-  { id: "db-clients", label: "clients", group: "db", desc: "Client records — founder_id FK, name, company, email, phone, status, portal_email, has_portal_access, can_create_tasks, contract_value, contract_start/end, project_id FK, portal_user_id FK, tags[], industry, website, address" },
-  { id: "db-email-analyses", label: "email_analyses", group: "db", desc: "AI email analysis results — user_id FK, gmail_message_id, contact_id FK, sender_email, direction [inbound|outbound], intent, intent_confidence (0-100), sentiment [positive|neutral|negative], signals JSONB, reasoning, thread_subject" },
-  { id: "db-crm-import-history", label: "crm_import_history", group: "db", desc: "CSV import audit log — user_id FK, file_name, rows_imported, rows_skipped" },
+  // Database Tables — CRM & Pipeline
+  { id: "db-relationships", label: "relationships", group: "db-crm", desc: "CRM pipeline contacts, investors, leads" },
+  { id: "db-email-analyses", label: "email_analyses", group: "db-crm", desc: "AI insights, intent & sentiment on emails" },
+  { id: "db-crm-import", label: "crm_import_history", group: "db-crm", desc: "Bulk import logs and processing stats" },
 
-  // Database Tables — Tasks & Projects
-  { id: "db-projects", label: "projects", group: "db", desc: "Projects — user_id FK, name, description, status [active|completed|archived|on-hold], color, priority [low|medium|high|urgent], start_date, end_date, due_date, created_by FK" },
-  { id: "db-tasks", label: "tasks", group: "db", desc: "Tasks — user_id FK, created_by FK, assigned_to FK, title, bucket [today], status, priority, deadline, due_date, project_id FK, is_completed, notes, resources JSONB, deliverable_required, deliverable_description, source_message_id FK (chat_messages), vault_attachments JSONB" },
-  { id: "db-task-comments", label: "task_comments", group: "db", desc: "Task comments — task_id FK, user_id FK (profiles), content, created_at, updated_at" },
+  // Database Tables — Task Tracking
+  { id: "db-tasks", label: "tasks", group: "db-task", desc: "Action items, due dates, project association" },
+  { id: "db-task-comments", label: "task_comments", group: "db-task", desc: "Team discussions and notes on tasks" },
 
-  // Database Tables — Chat & Messaging
-  { id: "db-chat-rooms", label: "chat_rooms", group: "db", desc: "Chat rooms — type [direct|group|project], project_id FK, founder_id FK, created_by FK, dm_key UNIQUE (for direct messages)" },
-  { id: "db-chat-room-members", label: "chat_room_members", group: "db", desc: "Room membership — room_id FK, user_id FK (profiles), joined_at, last_read_at" },
-  { id: "db-chat-messages", label: "chat_messages", group: "db", desc: "Chat messages — room_id FK, sender_id FK (profiles), content, file attachments (file_url, file_name, file_type, file_size), reply_to_id FK, message_type [text|event_invite|task_ref|ai_response], is_ai, ai_model, task_id FK, invite_id FK, extracted_task_id FK" },
-  { id: "db-message-reactions", label: "message_reactions", group: "db", desc: "Message emoji reactions — message_id FK, user_id FK (profiles), emoji" },
-  { id: "db-ai-command-chats", label: "ai_command_chats", group: "db", desc: "AI command chat sessions — user_id FK, title, messages JSONB (array of messages)" },
+  // Database Tables — Chat Spaces
+  { id: "db-chat-rooms", label: "chat_rooms", group: "db-chat", desc: "Organized team chat & project channels" },
+  { id: "db-chat-members", label: "chat_room_members", group: "db-chat", desc: "Room participation" },
+  { id: "db-chat-messages", label: "chat_messages", group: "db-chat", desc: "Rich messages, bot responses, mentions" },
+  { id: "db-message-reactions", label: "message_reactions", group: "db-chat", desc: "Emoji reactions" },
 
-  // Database Tables — Calendar & Events
-  { id: "db-events", label: "events", group: "db", desc: "Calendar events — user_id FK, title, description, start_time, end_time, type, meeting_link, purpose, outcome, relationship_id FK, client_id FK, google_event_id, google_meet_link, attendee_emails[], meeting_id" },
-  { id: "db-event-invites", label: "event_invites", group: "db", desc: "Event invitations — event_id FK, invitee_user_id FK (profiles), inviter_user_id FK (profiles), status [pending|accepted|declined], responded_at" },
-  { id: "db-team-meetings", label: "team_meetings", group: "db", desc: "Team meetings — founder_id FK, team_member_id FK, title, description, start_time, end_time, meeting_type [individual|joint], meeting_link" },
-  { id: "db-team-meeting-participants", label: "team_meeting_participants", group: "db", desc: "Team meeting participants — meeting_id FK, participant_id FK (auth.users)" },
+  // Database Tables — Google Connect
+  { id: "db-google-integ", label: "google_integrations", group: "db-gmail", desc: "OAuth tokens, Vault Drive ID, sync flags" },
+  { id: "db-gmail-threads", label: "gmail_threads", group: "db-gmail", desc: "Local cache of important synced threads" },
+  { id: "db-gmail-messages", label: "gmail_messages", group: "db-gmail", desc: "Raw parsed email storage" },
 
-  // Database Tables — Meetings & Recording
-  { id: "db-meeting-recordings-raw", label: "meeting_recordings_raw", group: "db", desc: "Raw meeting recordings — user_id FK, meeting_title, meeting_url, calendar_event_id, participant_emails[], participant_names[], host_segments JSONB, participant_segments JSONB, combined_transcript, duration_seconds, started_at, ended_at, processing_status [pending|processing|completed|failed], processing_error" },
-  { id: "db-meeting-analyses", label: "meeting_analyses", group: "db", desc: "AI meeting analysis — user_id FK, recording_id FK (meeting_recordings_raw) UNIQUE, summary, key_decisions JSONB, action_items JSONB, sentiment, topics[], crm_matches JSONB, tasks_created UUID[], notes_created UUID[]" },
-  { id: "db-meeting-bot-config", label: "meeting_bot_config", group: "db", desc: "Meeting bot settings — user_id FK UNIQUE, bot_name (default 'Kobin AI'), auto_record, groq_whisper_enabled" },
+  // Database Tables — Meeting & Calendar
+  { id: "db-events", label: "events", group: "db-meeting", desc: "Calendar events and generated meet links" },
+  { id: "db-event-invites", label: "event_invites", group: "db-meeting", desc: "RSVP tracking for events" },
+  { id: "db-meetings-raw", label: "meeting_recordings_raw", group: "db-meeting", desc: "Uploaded/Live audio transcript segments" },
+  { id: "db-meeting-analyses", label: "meeting_analyses", group: "db-meeting", desc: "AI generated meeting summaries & extracted tasks" },
+  { id: "db-team-meetings", label: "team_meetings", group: "db-meeting", desc: "Internal team 1on1 / standups" },
+  { id: "db-team-meeting-participants", label: "team_meeting_participants", group: "db-meeting", desc: "Attendees for team meetings" },
+  { id: "db-meeting-bot-config", label: "meeting_bot_config", group: "db-meeting", desc: "Bot recording capabilities & toggles" },
 
-  // Database Tables — Gmail & Google Integration
-  { id: "db-gmail-threads", label: "gmail_threads", group: "db", desc: "Cached Gmail threads — id (text), user_id FK, subject, snippet, sender_email, sender_name, is_unread, has_attachment, received_at, last_message_at, message_count, relationship_id FK, labels[], synced from Gmail API" },
-  { id: "db-gmail-messages", label: "gmail_messages", group: "db", desc: "Cached Gmail messages — id (text), thread_id, user_id FK, from_email, from_name, to_emails[], subject, body_text, body_html, is_unread, sent_at" },
-  { id: "db-google-integrations", label: "google_integrations", group: "db", desc: "Google OAuth tokens — user_id FK UNIQUE, google_email, access_token, refresh_token, token_expires_at, is_connected, drive_vault_folder_id, drive_connected, gmail_connected, gmail_sync_token, gmail_last_synced_at, gmail_history_id, gmail_watch_expiration" },
+  // Database Tables — Intelligent Vault
+  { id: "db-vault-folders", label: "vault_folders", group: "db-vault", desc: "Drive folders synchronized in-app" },
+  { id: "db-vault-items", label: "vault_items", group: "db-vault", desc: "Files, Google Docs, URL Links" },
+  { id: "db-vault-notes", label: "vault_notes", group: "db-vault", desc: "Actionable internal notes" },
 
-  // Database Tables — Vault & Files
-  { id: "db-vault-folders", label: "vault_folders", group: "db", desc: "Drive folders — founder_id FK, project_id FK, name, drive_folder_id, parent_folder_id FK (self-ref), folder_type [root|project|internal|client_uploads|deliverables|custom]" },
-  { id: "db-vault-items", label: "vault_items", group: "db", desc: "Vault files/links — founder_id FK, project_id FK, folder_id FK, item_type [file|link|note], title, description, document_type, drive_file_id, drive_file_url, link_url, note_content, added_by FK, added_by_type [founder|team|client]" },
-  { id: "db-vault-notes", label: "vault_notes", group: "db", desc: "Quick notes — user_id FK, title, content, tags[], is_decision boolean" },
-
-  // Database Tables — LinkedIn
-  { id: "db-linkedin-posts", label: "linkedin_posts", group: "db", desc: "LinkedIn posts — user_id FK, content, status [Draft], scheduled_for, published_at" },
-
-  // Database Tables — AI Memory
-  { id: "db-ai-memories", label: "ai_memories", group: "db", desc: "AI long-term memory — founder_id FK, memory_type [preference|pattern|workflow|fact], key, value, confidence (0-1), times_observed, last_seen_at" },
+  // Database Tables — AI Subsystem
+  { id: "db-ai-chats", label: "ai_command_chats", group: "db-ai", desc: "Command bar memory for chat sessions" },
+  { id: "db-ai-memories", label: "ai_memories", group: "db-ai", desc: "Long-term persistent context/facts memory" },
 ]
 
 const EDGES = [
@@ -189,107 +185,56 @@ const EDGES = [
   ["lib-google-drive", "lib-google-token"],
   ["lib-gmail-watch", "lib-google-token"],
 
-  // Profiles & Auth → DB
-  ["lib-supabase-admin", "db-profiles"],
-  ["lib-supabase-admin", "db-team-members"],
-  ["lib-supabase-admin", "db-push-subscriptions"],
-  ["lib-supabase-admin", "db-google-integrations"],
+  // --- DATABASE FK RELATIONS ---
+  ["db-profiles", "db-projects"],
+  ["db-profiles", "db-clients"],
+  ["db-profiles", "db-team-members"],
+  ["db-profiles", "db-google-integ"],
+  ["db-projects", "db-clients"],
 
-  // CRM → DB
-  ["lib-supabase-admin", "db-relationships"],
-  ["lib-supabase-admin", "db-clients"],
-  ["lib-supabase-admin", "db-email-analyses"],
-  ["lib-supabase-admin", "db-crm-import-history"],
-  ["comp-crm", "db-relationships"],
-  ["comp-crm", "db-clients"],
-  ["comp-crm", "db-email-analyses"],
-  ["api-gmail-sync", "db-relationships"],
-  ["api-gmail-sync", "db-gmail-threads"],
-  ["api-gmail-sync", "db-gmail-messages"],
-  ["api-analyze-email", "db-email-analyses"],
-  ["api-analyze-email", "db-relationships"],
-  ["api-draft", "db-relationships"],
+  ["db-chat-rooms", "db-chat-members"],
+  ["db-chat-rooms", "db-chat-messages"],
+  ["db-chat-rooms", "db-projects"],
+  ["db-chat-messages", "db-message-reactions"],
+  ["db-chat-messages", "db-tasks"],
+  ["db-chat-messages", "db-event-invites"],
 
-  // Tasks & Projects → DB
-  ["lib-supabase-admin", "db-projects"],
-  ["lib-supabase-admin", "db-tasks"],
-  ["lib-supabase-admin", "db-task-comments"],
-  ["comp-task", "db-tasks"],
-  ["comp-task", "db-projects"],
-  ["comp-taskform", "db-tasks"],
-  ["lib-executor", "db-tasks"],
-  ["lib-executor", "db-projects"],
+  ["db-relationships", "db-email-analyses"],
+  ["db-relationships", "db-gmail-threads"],
 
-  // Chat → DB
-  ["lib-supabase-admin", "db-chat-rooms"],
-  ["lib-supabase-admin", "db-chat-room-members"],
-  ["lib-supabase-admin", "db-chat-messages"],
-  ["lib-supabase-admin", "db-message-reactions"],
-  ["lib-supabase-admin", "db-ai-command-chats"],
-  ["comp-inbox", "db-chat-rooms"],
-  ["comp-inbox", "db-chat-messages"],
-  ["comp-inbox", "db-chat-room-members"],
-  ["api-chat", "db-ai-command-chats"],
-  ["api-command", "db-chat-rooms"],
-  ["api-command", "db-chat-messages"],
+  ["db-tasks", "db-task-comments"],
+  ["db-tasks", "db-projects"],
+  ["db-tasks", "db-vault-items"],
+  
+  ["db-gmail-threads", "db-gmail-messages"],
 
-  // Calendar & Events → DB
-  ["lib-supabase-admin", "db-events"],
-  ["lib-supabase-admin", "db-event-invites"],
-  ["lib-supabase-admin", "db-team-meetings"],
-  ["lib-supabase-admin", "db-team-meeting-participants"],
-  ["comp-calendar", "db-events"],
-  ["comp-calendar", "db-event-invites"],
-  ["comp-meeting", "db-events"],
-  ["comp-meeting", "db-event-invites"],
-  ["api-google-meet", "db-events"],
-  ["api-proactive", "db-events"],
+  ["db-events", "db-event-invites"],
+  ["db-events", "db-clients"],
+  ["db-meetings-raw", "db-meeting-analyses"],
+  ["db-team-meetings", "db-team-meeting-participants"],
 
-  // Meeting Recording → DB
-  ["lib-supabase-admin", "db-meeting-recordings-raw"],
-  ["lib-supabase-admin", "db-meeting-analyses"],
-  ["lib-supabase-admin", "db-meeting-bot-config"],
-  ["api-meeting-upload", "db-meeting-recordings-raw"],
-  ["api-meeting-process", "db-meeting-recordings-raw"],
-  ["api-meeting-process", "db-meeting-analyses"],
-  ["api-meeting-process", "db-tasks"],
-  ["api-meeting-transcribe", "db-meeting-recordings-raw"],
-  ["cron-digest", "db-meeting-analyses"],
+  ["db-vault-folders", "db-vault-items"],
+  ["db-vault-folders", "db-projects"],
+  ["db-vault-items", "db-projects"],
 
-  // Gmail & Google → DB
-  ["lib-supabase-admin", "db-gmail-threads"],
-  ["lib-supabase-admin", "db-gmail-messages"],
-  ["lib-gmail-analyze", "db-gmail-threads"],
-  ["lib-gmail-analyze", "db-gmail-messages"],
-  ["lib-gmail-analyze", "db-email-analyses"],
-  ["lib-gmail-watch", "db-google-integrations"],
-  ["api-gmail-threads", "db-gmail-threads"],
-  ["api-gmail-thread", "db-gmail-messages"],
-  ["api-gmail-reply", "db-gmail-messages"],
-  ["api-gmail-webhook", "db-gmail-threads"],
-  ["api-gmail-webhook", "db-gmail-messages"],
+  // --- LOGIC TO DB CONNECTIONS ---
+  ["api-command", "db-ai-chats"],
+  ["lib-memory", "db-ai-memories"],
+  ["lib-supabase-admin", "db-profiles"], ["lib-supabase-admin", "db-projects"], ["lib-supabase-admin", "db-tasks"], 
+  ["lib-supabase-client", "db-tasks"], ["lib-supabase-client", "db-chat-messages"], ["lib-supabase-client", "db-chat-rooms"],
+
+  ["api-gmail-sync", "db-gmail-threads"], ["api-gmail-sync", "db-gmail-messages"],
+  ["lib-gmail-analyze", "db-email-analyses"], ["lib-gmail-analyze", "db-relationships"],
   ["api-gmail-contact", "db-relationships"],
+  ["api-gmail-webhook", "db-relationships"],
 
-  // Vault → DB
-  ["lib-supabase-admin", "db-vault-folders"],
-  ["lib-supabase-admin", "db-vault-items"],
-  ["lib-supabase-admin", "db-vault-notes"],
-  ["lib-google-drive", "db-vault-folders"],
-  ["comp-vault", "db-vault-folders"],
-  ["comp-vault", "db-vault-items"],
-  ["comp-vault", "db-vault-notes"],
+  ["api-meeting-upload", "db-meetings-raw"],
+  ["api-meeting-process", "db-meeting-analyses"], ["api-meeting-process", "db-meetings-raw"], ["api-meeting-process", "db-tasks"], ["api-meeting-process", "db-relationships"],
 
-  // LinkedIn → DB
-  ["lib-supabase-admin", "db-linkedin-posts"],
+  ["lib-google-drive", "db-vault-folders"], ["lib-google-drive", "db-vault-items"],
+  ["lib-google-token", "db-google-integ"],
 
-  // AI Memory → DB
-  ["lib-supabase-admin", "db-ai-memories"],
-  ["lib-memory", "db-ai-memories"],
-  ["api-warm", "db-ai-memories"],
-
-  // AI Chat → DB
-  ["lib-memory", "db-ai-memories"],
-  ["api-warm", "db-ai-memories"],
+  ["lib-push", "db-push-subs"],
 ]
 
 const GROUP_META = {
@@ -302,10 +247,19 @@ const GROUP_META = {
   "api-auth":   { color: "#54B8F5", label: "Auth / Google", shape: "circle" },
   "lib-ai":     { color: "#A855F7", label: "Lib / AI", shape: "hexagon" },
   "lib-infra":  { color: "#6B7280", label: "Lib / Infra", shape: "hexagon" },
-  db:           { color: "#EC4899", label: "Database Tables", shape: "square" },
+  "db-core":    { color: "#4B5563", label: "DB / Core", shape: "square" },
+  "db-chat":    { color: "#10B981", label: "DB / Chat", shape: "square" },
+  "db-crm":     { color: "#F59E0B", label: "DB / CRM", shape: "square" },
+  "db-task":    { color: "#3B82F6", label: "DB / Task", shape: "square" },
+  "db-gmail":   { color: "#EF4444", label: "DB / Gmail", shape: "square" },
+  "db-meeting": { color: "#8B5CF6", label: "DB / Meeting", shape: "square" },
+  "db-vault":   { color: "#14B8A6", label: "DB / Vault", shape: "square" },
+  "db-ai":      { color: "#EC4899", label: "DB / AI", shape: "square" },
 }
 
-const NODE_RADIUS = { page: 14, component: 11, "api-ai": 9, "api-gmail": 8, cron: 8, "api-meeting": 8, "api-auth": 8, "lib-ai": 10, "lib-infra": 9, db: 9 }
+// Helper mappings
+const NODE_RADIUS = { page: 14, component: 11, "api-ai": 9, "api-gmail": 8, cron: 8, "api-meeting": 8, "api-auth": 8, "lib-ai": 10, "lib-infra": 9 }
+const DEFAULT_RADIUS = 9
 
 export default function KobinKnowledgeGraph() {
   const svgRef = useRef(null)
@@ -315,6 +269,10 @@ export default function KobinKnowledgeGraph() {
   const [search, setSearch] = useState("")
   const [filter, setFilter] = useState("all")
   const [tooltip, setTooltip] = useState(null)
+  
+  // Interactive Controls
+  const [spacing, setSpacing] = useState(100)
+  const [charge, setCharge] = useState(-200)
 
   const filteredNodeIds = new Set(
     NODES.filter(n => {
@@ -333,6 +291,22 @@ export default function KobinKnowledgeGraph() {
     })
     return connected
   }, [])
+
+  // Update forces dynamically without resetting simulation fully
+  useEffect(() => {
+    if (!simRef.current) return
+    const sim = simRef.current
+    
+    sim.force("link").distance(d => {
+      const sg = d.source.group, tg = d.target.group
+      if (sg === tg) return spacing * 0.6
+      if (sg.startsWith("db") && tg.startsWith("db")) return spacing * 0.8
+      return spacing
+    })
+    
+    sim.force("charge").strength(charge)
+    sim.alpha(0.3).restart()
+  }, [spacing, charge])
 
   useEffect(() => {
     const svg = d3.select(svgRef.current)
@@ -370,16 +344,12 @@ export default function KobinKnowledgeGraph() {
       .map(([s, t]) => ({ source: s, target: t }))
 
     const sim = d3.forceSimulation(nodes)
-      .force("link", d3.forceLink(links).id(d => d.id).distance(d => {
-        const sg = d.source.group, tg = d.target.group
-        if (sg === tg) return 60
-        return 100
-      }).strength(0.3))
-      .force("charge", d3.forceManyBody().strength(-180))
+      .force("link", d3.forceLink(links).id(d => d.id).distance(spacing).strength(0.3))
+      .force("charge", d3.forceManyBody().strength(charge))
       .force("center", d3.forceCenter(W / 2, H / 2))
-      .force("collision", d3.forceCollide(d => (NODE_RADIUS[d.group] || 9) + 8))
-      .force("x", d3.forceX(W / 2).strength(0.03))
-      .force("y", d3.forceY(H / 2).strength(0.03))
+      .force("collision", d3.forceCollide(d => (NODE_RADIUS[d.group] || DEFAULT_RADIUS) + 12))
+      .force("x", d3.forceX(W / 2).strength(0.04))
+      .force("y", d3.forceY(H / 2).strength(0.04))
 
     simRef.current = sim
 
@@ -407,20 +377,20 @@ export default function KobinKnowledgeGraph() {
       .on("mouseleave", () => { setHovered(null); setTooltip(null) })
 
     nodeG.append("circle")
-      .attr("r", d => NODE_RADIUS[d.group] || 9)
+      .attr("r", d => NODE_RADIUS[d.group] || DEFAULT_RADIUS)
       .attr("fill", d => GROUP_META[d.group]?.color || "#888")
       .attr("fill-opacity", 0.15)
       .attr("stroke", d => GROUP_META[d.group]?.color || "#888")
       .attr("stroke-width", 1.5)
 
     nodeG.append("circle")
-      .attr("r", d => (NODE_RADIUS[d.group] || 9) * 0.45)
+      .attr("r", d => (NODE_RADIUS[d.group] || DEFAULT_RADIUS) * 0.45)
       .attr("fill", d => GROUP_META[d.group]?.color || "#888")
       .attr("fill-opacity", 0.9)
 
     nodeG.append("text")
       .text(d => d.label.split("/").pop().replace(".tsx", "").replace(".ts", ""))
-      .attr("x", d => (NODE_RADIUS[d.group] || 9) + 4)
+      .attr("x", d => (NODE_RADIUS[d.group] || DEFAULT_RADIUS) + 4)
       .attr("y", 4)
       .attr("fill", "#C8C4B8")
       .attr("font-size", "9px")
@@ -437,7 +407,7 @@ export default function KobinKnowledgeGraph() {
     })
 
     return () => sim.stop()
-  }, [])
+  }, []) // Initial mount
 
   // Update visual state based on selection/filter
   useEffect(() => {
@@ -477,12 +447,35 @@ export default function KobinKnowledgeGraph() {
           </div>
           <span style={{ color: "#F0EFEC", fontSize: 13, fontWeight: 600, letterSpacing: "0.05em" }}>KOBIN AI — KNOWLEDGE GRAPH</span>
         </div>
-        <div style={{ display: "flex", gap: 8, marginLeft: "auto", alignItems: "center" }}>
+        
+        {/* Controls */}
+        <div style={{ display: "flex", gap: 16, marginLeft: "auto", alignItems: "center" }}>
+          
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 10, color: "#888" }}>Spacing</span>
+            <input 
+              type="range" min="30" max="250" value={spacing} 
+              onChange={e => setSpacing(Number(e.target.value))}
+              style={{ width: 80, accentColor: "#5B4FE8" }} 
+            />
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 10, color: "#888" }}>Repulsion</span>
+            <input 
+              type="range" min="-500" max="-50" value={charge} 
+              onChange={e => setCharge(Number(e.target.value))}
+              style={{ width: 80, accentColor: "#5B4FE8" }} 
+            />
+          </div>
+          
+          <div style={{ height: 16, width: 1, background: "#333" }} />
+
           <input
             placeholder="search nodes…"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            style={{ background: "#1C1C1A", border: "1px solid #333", borderRadius: 6, padding: "4px 10px", color: "#C8C4B8", fontSize: 11, outline: "none", width: 160 }}
+            style={{ background: "#1C1C1A", border: "1px solid #333", borderRadius: 6, padding: "4px 10px", color: "#C8C4B8", fontSize: 11, outline: "none", width: 140 }}
           />
           <select
             value={filter}
@@ -497,7 +490,7 @@ export default function KobinKnowledgeGraph() {
             <option value="cron">Cron Jobs</option>
             <option value="db">Database Tables</option>
           </select>
-          <span style={{ fontSize: 10, color: "#555", borderLeft: "1px solid #333", paddingLeft: 8 }}>{filteredNodeIds.size} nodes visible</span>
+          <span style={{ fontSize: 10, color: "#555", paddingLeft: 4 }}>{filteredNodeIds.size} nodes</span>
         </div>
       </div>
 
@@ -510,7 +503,7 @@ export default function KobinKnowledgeGraph() {
           <div style={{
             position: "absolute", left: tooltip.x, top: tooltip.y,
             background: "#1C1C1A", border: `1px solid ${GROUP_META[tooltip.node.group]?.color || "#444"}40`,
-            borderRadius: 8, padding: "8px 12px", maxWidth: 240, pointerEvents: "none", zIndex: 10,
+            borderRadius: 8, padding: "8px 12px", maxWidth: 260, pointerEvents: "none", zIndex: 10,
             boxShadow: `0 0 20px ${GROUP_META[tooltip.node.group]?.color || "#5B4FE8"}20`
           }}>
             <div style={{ fontSize: 10, color: GROUP_META[tooltip.node.group]?.color, marginBottom: 3, textTransform: "uppercase", letterSpacing: "0.08em" }}>
@@ -524,7 +517,7 @@ export default function KobinKnowledgeGraph() {
         {/* Selected node panel */}
         {selectedNode && (
           <div style={{
-            position: "absolute", right: 12, top: 12, bottom: 12, width: 240,
+            position: "absolute", right: 12, top: 12, bottom: 12, width: 280,
             background: "#141413", border: "1px solid #2A2A28", borderRadius: 10, padding: 16,
             overflow: "auto", display: "flex", flexDirection: "column", gap: 12
           }}>
@@ -532,30 +525,33 @@ export default function KobinKnowledgeGraph() {
               <div style={{ fontSize: 9, color: GROUP_META[selectedNode.group]?.color, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>
                 {GROUP_META[selectedNode.group]?.label}
               </div>
-              <div style={{ fontSize: 12, color: "#F0EFEC", fontWeight: 600, marginBottom: 6 }}>{selectedNode.label}</div>
-              <div style={{ fontSize: 10, color: "#888780", lineHeight: 1.5 }}>{selectedNode.desc}</div>
+              <div style={{ fontSize: 14, color: "#F0EFEC", fontWeight: 600, marginBottom: 8, wordBreak: "break-all" }}>{selectedNode.label}</div>
+              <div style={{ fontSize: 11, color: "#9ca3af", lineHeight: 1.6, background: "#1c1c1a", padding: "10px", borderRadius: "8px", border: "1px solid #2A2A28" }}>{selectedNode.desc}</div>
             </div>
-            <div style={{ borderTop: "1px solid #2A2A28", paddingTop: 10 }}>
-              <div style={{ fontSize: 9, color: "#555", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.08em" }}>Connected nodes</div>
+            <div style={{ borderTop: "1px solid #2A2A28", paddingTop: 12 }}>
+              <div style={{ fontSize: 9, color: "#555", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>Dependencies & Relationships</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {Array.from(connectedNodes)
                 .filter(id => id !== selectedNode.id)
                 .map(id => {
                   const n = NODES.find(x => x.id === id)
                   if (!n) return null
                   const isEdge = EDGES.some(([s, t]) => (s === selectedNode.id && t === id))
-                  const isIncoming = EDGES.some(([s, t]) => (s === id && t === selectedNode.id))
                   return (
                     <div
                       key={id}
                       onClick={() => setSelected(id)}
-                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0", cursor: "pointer", borderBottom: "1px solid #1C1C1A" }}
+                      style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", cursor: "pointer", borderRadius: "6px", background: hovered === id ? "#222" : "transparent" }}
+                      onMouseEnter={() => setHovered(id)}
+                      onMouseLeave={() => setHovered(null)}
                     >
-                      <span style={{ fontSize: 8, color: "#555" }}>{isEdge ? "→" : "←"}</span>
-                      <div style={{ width: 6, height: 6, borderRadius: "50%", background: GROUP_META[n.group]?.color, flexShrink: 0 }} />
-                      <span style={{ fontSize: 10, color: "#C8C4B8" }}>{n.label.split("/").pop()}</span>
+                      <span style={{ fontSize: 10, color: "#666", width: 12 }}>{isEdge ? "→" : "←"}</span>
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: GROUP_META[n.group]?.color, flexShrink: 0 }} />
+                      <span style={{ fontSize: 11, color: "#C8C4B8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.label.split("/").pop()}</span>
                     </div>
                   )
                 }).filter(Boolean)}
+                </div>
             </div>
           </div>
         )}
@@ -563,18 +559,19 @@ export default function KobinKnowledgeGraph() {
         {/* Legend */}
         <div style={{
           position: "absolute", left: 12, bottom: 12,
-          background: "#141413", border: "1px solid #2A2A28", borderRadius: 8, padding: "10px 12px",
-          display: "flex", flexDirection: "column", gap: 5
+          background: "#141413", border: "1px solid #2A2A28", borderRadius: 8, padding: "10px 14px",
+          display: "flex", flexDirection: "column", gap: 6,
+          maxHeight: "calc(100vh - 80px)", overflowY: "auto"
         }}>
-          <div style={{ fontSize: 9, color: "#555", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 2 }}>Layers</div>
+          <div style={{ fontSize: 9, color: "#555", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Layers</div>
           {Object.entries(GROUP_META).map(([key, meta]) => (
-            <div key={key} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <div style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color }} />
-              <span style={{ fontSize: 9, color: "#888780" }}>{meta.label}</span>
+            <div key={key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: meta.color }} />
+              <span style={{ fontSize: 10, color: "#888780" }}>{meta.label}</span>
             </div>
           ))}
-          <div style={{ borderTop: "1px solid #2A2A28", marginTop: 4, paddingTop: 6, fontSize: 9, color: "#444" }}>
-            scroll to zoom · drag to pan<br />click node to inspect
+          <div style={{ borderTop: "1px solid #2A2A28", marginTop: 6, paddingTop: 8, fontSize: 9, color: "#555", lineHeight: 1.4 }}>
+            <b>Scroll</b> to zoom<br/><b>Drag</b> to pan<br/><b>Click</b> node to inspect
           </div>
         </div>
       </div>
