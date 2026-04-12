@@ -236,11 +236,18 @@ function renderMarkdown(text: string) {
 function ToolActivityBar({ activities }: { activities: ToolActivity[] }) {
   if (activities.length === 0) return null
 
+  const allDone = activities.every(a => a.status === "done")
+
   return (
-    <div className="flex flex-col gap-1.5 mb-3">
+    <div
+      className={cn(
+        "flex flex-col gap-1.5 mb-3 transition-opacity duration-700",
+        allDone ? "opacity-40" : "opacity-100"
+      )}
+    >
       {activities.map((act, i) => {
-        const isRead   = act.actionType === "read"
-        const isDone   = act.status === "done"
+        const isRead = act.actionType === "read"
+        const isDone = act.status === "done"
 
         return (
           <div
@@ -248,24 +255,16 @@ function ToolActivityBar({ activities }: { activities: ToolActivity[] }) {
             className={cn(
               "flex items-center gap-2.5 px-3 py-2 rounded-xl border text-xs transition-all duration-300",
               isDone
-                ? "border-border/40 dark:border-[#2A2A28] bg-transparent opacity-50"
+                ? "border-border/30 dark:border-[#2A2A28]/60 bg-transparent"
                 : isRead
                   ? "border-violet-500/20 bg-violet-500/5 dark:bg-violet-500/[0.06]"
                   : "border-amber-500/20 bg-amber-500/5 dark:bg-amber-500/[0.06]"
             )}
           >
             {isDone ? (
-              <CheckCircle2
-                size={11}
-                className="text-emerald-500 shrink-0"
-              />
+              <CheckCircle2 size={11} className="text-emerald-500 shrink-0" />
             ) : (
-              <div
-                className={cn(
-                  "shrink-0",
-                  isRead ? "text-violet-400" : "text-amber-400"
-                )}
-              >
+              <div className={cn("shrink-0", isRead ? "text-violet-400" : "text-amber-400")}>
                 <ToolIcon tool={act.tool} size={11} />
               </div>
             )}
@@ -274,7 +273,7 @@ function ToolActivityBar({ activities }: { activities: ToolActivity[] }) {
               className={cn(
                 "flex-1 font-medium",
                 isDone
-                  ? "text-muted-foreground/50 line-through"
+                  ? "text-muted-foreground/40"
                   : isRead
                     ? "text-violet-300 dark:text-violet-300"
                     : "text-amber-300 dark:text-amber-300"
@@ -534,10 +533,10 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
         if (done) break
 
         const raw = decoder.decode(value)
-        const lines = raw.split("\n\n").filter(Boolean)
+        // Extract only "data: ..." lines — the padding comment lines are ignored
+        const dataLines = raw.split("\n").filter(l => l.startsWith("data: "))
 
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue
+        for (const line of dataLines) {
           try {
             const parsed = JSON.parse(line.slice(6))
 
@@ -546,9 +545,10 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
               // ── Typewriter text ──────────────────────────────────────
               case "delta": {
                 accumulated += parsed.content
-                // Once text starts flowing, clear live activities from
-                // the streaming overlay (they stay in the frozen snapshot)
-                setLiveActivities([])
+                // Keep tool pills visible while text streams — they fade
+                // via CSS opacity on the ToolActivityBar (done status).
+                // We do NOT clear liveActivities here so checkmarks stay
+                // visible alongside the growing text.
                 updateLastMessage(accumulated, collectedActions, currentActivities)
                 break
               }
@@ -569,9 +569,16 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
 
               // ── Tool done ────────────────────────────────────────────
               case "tool_done": {
-                currentActivities = currentActivities.map(a =>
-                  a.tool === parsed.tool ? { ...a, status: "done" as const } : a
-                )
+                // Mark the first still-running instance of this tool done.
+                // Handles edge case of same tool running in two separate steps.
+                let marked = false
+                currentActivities = currentActivities.map(a => {
+                  if (!marked && a.tool === parsed.tool && a.status === "running") {
+                    marked = true
+                    return { ...a, status: "done" as const }
+                  }
+                  return a
+                })
                 setLiveActivities([...currentActivities])
                 updateLastMessage(accumulated, collectedActions, currentActivities)
                 break
@@ -604,7 +611,8 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
               }
 
               case "done": {
-                // Stream complete
+                // Stream finished — clear live overlay; frozen snapshot stays in message
+                setLiveActivities([])
                 break
               }
 

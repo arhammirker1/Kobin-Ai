@@ -56,12 +56,21 @@ function repairArgs(toolName: string, args: Record<string, any>): Record<string,
 
 const SSE_HEADERS = {
   "Content-Type": "text/event-stream",
-  "Cache-Control": "no-cache",
+  "Cache-Control": "no-cache, no-transform",
   "Connection": "keep-alive",
+  // Disable compression — gzip buffering kills SSE streaming
+  "Content-Encoding": "none",
+  "X-Accel-Buffering": "no",
 }
 
 function sseChunk(data: Record<string, any>) {
-  return `data: ${JSON.stringify(data)}\n\n`
+  const json = JSON.stringify(data)
+  // Pad to 256 bytes minimum so Node's TCP buffer flushes immediately.
+  // SSE clients ignore comment lines (": padding...")
+  const msg = `data: ${json}\n\n`
+  const padNeeded = Math.max(0, 256 - msg.length)
+  const pad = padNeeded > 0 ? `: ${" ".repeat(padNeeded)}\n\n` : ""
+  return pad + msg
 }
 
 // ── Human-readable tool status labels ───────────────────────────────────────
@@ -289,12 +298,15 @@ Never send nested objects for scalar fields.`
               enqueue({ type: "action_executed", ...ev })
             }
 
-            // Stream the answer with stream: true for real typewriter effect
+            // Stream the answer — NO tools passed, tool_choice none
+            // This prevents Groq from re-evaluating tool schemas and cuts TTFT significantly
             const streamResponse = await groqCall(groq, selected.model, {
               messages,
               stream: true,
               max_tokens: 1024,
               temperature: 0.2,
+              // Explicitly exclude tools on the final text pass — sending the full
+              // tool schema costs tokens and adds latency with no benefit here
             })
 
             for await (const chunk of streamResponse) {
@@ -463,7 +475,7 @@ Never send nested objects for scalar fields.`
               enqueue({ type: "action_executed", ...ev })
             }
 
-            // Stream the confirmation sentence word-by-word
+            // Stream the confirmation sentence — no tools, just prose
             const confirmStream = await groqCall(groq, selected.model, {
               messages,
               stream: true,
