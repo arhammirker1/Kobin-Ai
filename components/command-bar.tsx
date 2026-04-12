@@ -5,7 +5,8 @@ import { cn } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/client"
 import {
   Plus, X, Loader2, Send, ChevronLeft, Trash2, MessageSquare, Clock,
-  CheckCircle2, AlertTriangle
+  CheckCircle2, AlertTriangle, Database, Zap, Search, Users, Calendar,
+  FolderOpen, BarChart2, FileText, Layers
 } from "lucide-react"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -15,6 +16,7 @@ interface Message {
   content: string
   timestamp: number
   actionEvents?: ActionEvent[]
+  toolActivity?: ToolActivity[]
 }
 
 interface ActionEvent {
@@ -32,6 +34,14 @@ interface ActionEvent {
     description: string
   }
   [key: string]: any
+}
+
+// A live tool status shown while the agent is "thinking"
+interface ToolActivity {
+  tool: string
+  actionType: "read" | "action"
+  label: string
+  status: "running" | "done"
 }
 
 interface PendingConfirmation {
@@ -54,12 +64,25 @@ interface CommandBarProps {
   onClose: () => void
 }
 
+// ── Tool icon map ─────────────────────────────────────────────────────────────
+
+function ToolIcon({ tool, size = 11 }: { tool: string; size?: number }) {
+  const props = { size, className: "shrink-0" }
+  if (tool.includes("task"))       return <FileText {...props} />
+  if (tool.includes("project"))    return <Layers {...props} />
+  if (tool.includes("team") || tool.includes("workload")) return <Users {...props} />
+  if (tool.includes("calendar"))   return <Calendar {...props} />
+  if (tool.includes("vault"))      return <FolderOpen {...props} />
+  if (tool.includes("crm") || tool.includes("deal") || tool.includes("contact")) return <BarChart2 {...props} />
+  if (tool.includes("search") || tool.includes("message")) return <Search {...props} />
+  if (tool.includes("workspace") || tool.includes("overview")) return <Database {...props} />
+  return <Zap {...props} />
+}
+
 // ── Compression helpers ────────────────────────────────────────────────────────
-// Simple LZ-style run-length encoding for chat messages — reduces size ~40-60%
 
 function compressMessages(messages: Message[]): string {
   const json = JSON.stringify(messages)
-  // Base64 encode after basic compression (remove whitespace)
   return btoa(unescape(encodeURIComponent(json)))
 }
 
@@ -89,7 +112,6 @@ const SUGGESTED = [
 // ── Markdown-lite renderer ─────────────────────────────────────────────────────
 
 function renderInline(text: string): React.ReactNode {
-  // Handle <br> and <br/> tags
   const withBr = text.split(/<br\s*\/?>/gi)
   if (withBr.length > 1) {
     return (
@@ -121,7 +143,6 @@ function renderInlineBold(text: string): React.ReactNode {
 }
 
 function renderMarkdown(text: string) {
-  // Pre-process: replace literal \n with newlines, normalize <br> to newlines for table detection
   const normalized = text.replace(/\\n/g, "\n")
   const lines = normalized.split("\n")
   const elements: React.ReactNode[] = []
@@ -130,22 +151,16 @@ function renderMarkdown(text: string) {
   while (i < lines.length) {
     const line = lines[i]
 
-    // Detect markdown table: line with | chars and next line is separator |---|
     if (line.includes("|") && lines[i + 1]?.match(/^\|[\s\-|:]+\|$/)) {
-      // Collect table rows
       const tableLines: string[] = []
       while (i < lines.length && lines[i].includes("|")) {
         tableLines.push(lines[i])
         i++
       }
-
       const parseRow = (row: string) =>
         row.split("|").map(c => c.trim()).filter((_, idx, arr) => idx > 0 && idx < arr.length - 1)
-
       const headerRow = parseRow(tableLines[0])
-      // tableLines[1] is separator, skip it
       const bodyRows = tableLines.slice(2).map(parseRow)
-
       elements.push(
         <div key={`table-${i}`} className="overflow-x-auto my-3 rounded-xl border border-border dark:border-[#2E2E2C]">
           <table className="w-full text-xs border-collapse">
@@ -176,29 +191,13 @@ function renderMarkdown(text: string) {
     }
 
     if (line.startsWith("### ")) {
-      elements.push(
-        <p key={i} className="text-xs font-bold text-foreground dark:text-[#F0EFEC] mt-3 mb-1 uppercase tracking-widest">
-          {line.slice(4)}
-        </p>
-      )
+      elements.push(<p key={i} className="text-xs font-bold text-foreground dark:text-[#F0EFEC] mt-3 mb-1 uppercase tracking-widest">{line.slice(4)}</p>)
     } else if (line.startsWith("## ")) {
-      elements.push(
-        <p key={i} className="text-sm font-bold text-foreground dark:text-[#F0EFEC] mt-3 mb-1">
-          {line.slice(3)}
-        </p>
-      )
+      elements.push(<p key={i} className="text-sm font-bold text-foreground dark:text-[#F0EFEC] mt-3 mb-1">{line.slice(3)}</p>)
     } else if (line.startsWith("# ")) {
-      elements.push(
-        <p key={i} className="text-base font-bold text-foreground dark:text-[#F0EFEC] mt-3 mb-1">
-          {line.slice(2)}
-        </p>
-      )
+      elements.push(<p key={i} className="text-base font-bold text-foreground dark:text-[#F0EFEC] mt-3 mb-1">{line.slice(2)}</p>)
     } else if (line.startsWith("**") && line.endsWith("**") && !line.slice(2, -2).includes("**")) {
-      elements.push(
-        <p key={i} className="text-sm font-semibold text-foreground dark:text-[#F0EFEC] mt-2">
-          {line.slice(2, -2)}
-        </p>
-      )
+      elements.push(<p key={i} className="text-sm font-semibold text-foreground dark:text-[#F0EFEC] mt-2">{line.slice(2, -2)}</p>)
     } else if (line.startsWith("- ") || line.startsWith("• ")) {
       elements.push(
         <div key={i} className="flex items-start gap-2 py-0.5">
@@ -231,12 +230,85 @@ function renderMarkdown(text: string) {
   return <div className="space-y-0.5">{elements}</div>
 }
 
+// ── Tool Activity Bar ─────────────────────────────────────────────────────────
+// Shown while the agent is fetching data / executing actions
+
+function ToolActivityBar({ activities }: { activities: ToolActivity[] }) {
+  if (activities.length === 0) return null
+
+  return (
+    <div className="flex flex-col gap-1.5 mb-3">
+      {activities.map((act, i) => {
+        const isRead   = act.actionType === "read"
+        const isDone   = act.status === "done"
+
+        return (
+          <div
+            key={`${act.tool}-${i}`}
+            className={cn(
+              "flex items-center gap-2.5 px-3 py-2 rounded-xl border text-xs transition-all duration-300",
+              isDone
+                ? "border-border/40 dark:border-[#2A2A28] bg-transparent opacity-50"
+                : isRead
+                  ? "border-violet-500/20 bg-violet-500/5 dark:bg-violet-500/[0.06]"
+                  : "border-amber-500/20 bg-amber-500/5 dark:bg-amber-500/[0.06]"
+            )}
+          >
+            {isDone ? (
+              <CheckCircle2
+                size={11}
+                className="text-emerald-500 shrink-0"
+              />
+            ) : (
+              <div
+                className={cn(
+                  "shrink-0",
+                  isRead ? "text-violet-400" : "text-amber-400"
+                )}
+              >
+                <ToolIcon tool={act.tool} size={11} />
+              </div>
+            )}
+
+            <span
+              className={cn(
+                "flex-1 font-medium",
+                isDone
+                  ? "text-muted-foreground/50 line-through"
+                  : isRead
+                    ? "text-violet-300 dark:text-violet-300"
+                    : "text-amber-300 dark:text-amber-300"
+              )}
+            >
+              {act.label}
+            </span>
+
+            {!isDone && (
+              <div className="flex gap-0.5 items-center">
+                {[0, 1, 2].map(j => (
+                  <span
+                    key={j}
+                    className={cn(
+                      "w-1 h-1 rounded-full animate-bounce",
+                      isRead ? "bg-violet-400" : "bg-amber-400"
+                    )}
+                    style={{ animationDelay: `${j * 120}ms` }}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export function CommandBar({ open, onClose }: CommandBarProps) {
   const supabase = createClient()
 
-  // View state: "list" | "chat"
   const [view, setView] = useState<"list" | "chat">("list")
   const [sessions, setSessions] = useState<ChatSession[]>([])
   const [activeSession, setActiveSession] = useState<ChatSession | null>(null)
@@ -244,8 +316,10 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
   const [input, setInput] = useState("")
   const [isStreaming, setIsStreaming] = useState(false)
   const [loadingSessions, setLoadingSessions] = useState(false)
-  const [savingId, setSavingId] = useState<string | null>(null)
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null)
+
+  // Live tool activities for the current streaming message
+  const [liveActivities, setLiveActivities] = useState<ToolActivity[]>([])
 
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -287,19 +361,18 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
       setMessages([])
       setInput("")
       setView("list")
+      setLiveActivities([])
       setTimeout(() => inputRef.current?.focus(), 100)
     }
   }, [open])
 
   useEffect(() => {
-    if (sidebarOpen) {
-      loadSessions()
-    }
+    if (sidebarOpen) loadSessions()
   }, [sidebarOpen])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages])
+  }, [messages, liveActivities])
 
   // ── Keyboard ───────────────────────────────────────────────────────────────
 
@@ -324,9 +397,7 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
   ): Promise<string | null> => {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return null
-
     const compressed = compressMessages(msgs)
-
     if (sessionId) {
       await supabase
         .from("ai_command_chats")
@@ -343,12 +414,11 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
     }
   }, [supabase])
 
-  // ── Confirm delete handler ──────────────────────────────────────────────────
+  // ── Confirm delete/send handler ────────────────────────────────────────────
 
   const handleConfirm = useCallback(async () => {
     if (!pendingConfirmation) return
     setPendingConfirmation(prev => prev ? { ...prev, loading: true } : null)
-
     try {
       if (pendingConfirmation.tool === "send_message_confirmed") {
         const res = await fetch("/api/ai/send-message", {
@@ -365,7 +435,6 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
           timestamp: Date.now(),
         }])
       } else {
-        // Delete task
         const res = await fetch("/api/ai/command", {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
@@ -407,13 +476,20 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
     setInput("")
     setView("chat")
     setPendingConfirmation(null)
+    setLiveActivities([])
 
     const userMsg: Message = { role: "user", content: question, timestamp: Date.now() }
     const nextMessages = [...messages, userMsg]
     setMessages(nextMessages)
     setIsStreaming(true)
 
-    const assistantMsg: Message = { role: "assistant", content: "", timestamp: Date.now() }
+    // Placeholder assistant message
+    const assistantMsg: Message = {
+      role: "assistant",
+      content: "",
+      timestamp: Date.now(),
+      toolActivity: [],
+    }
     setMessages(prev => [...prev, assistantMsg])
 
     try {
@@ -422,7 +498,7 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: question,
-          history: messages.slice(-20).map((m) => ({ role: m.role, content: m.content })),
+          history: messages.slice(-20).map(m => ({ role: m.role, content: m.content })),
         }),
       })
 
@@ -432,91 +508,153 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
       const decoder = new TextDecoder()
       let accumulated = ""
       const collectedActions: ActionEvent[] = []
+      // Track live activities locally so we can update them
+      let currentActivities: ToolActivity[] = []
+
+      const updateLastMessage = (
+        content: string,
+        acts: ActionEvent[],
+        toolActs: ToolActivity[]
+      ) => {
+        setMessages(prev => {
+          const updated = [...prev]
+          updated[updated.length - 1] = {
+            role: "assistant",
+            content,
+            timestamp: Date.now(),
+            actionEvents: acts.length > 0 ? [...acts] : undefined,
+            toolActivity: toolActs.length > 0 ? [...toolActs] : undefined,
+          }
+          return updated
+        })
+      }
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
+
         const raw = decoder.decode(value)
         const lines = raw.split("\n\n").filter(Boolean)
+
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue
           try {
             const parsed = JSON.parse(line.slice(6))
-            if (parsed.type === "delta") {
-              accumulated += parsed.content
-              setMessages(prev => {
-                const updated = [...prev]
-                updated[updated.length - 1] = {
-                  role: "assistant",
-                  content: accumulated,
-                  timestamp: Date.now(),
-                  actionEvents: collectedActions.length > 0 ? [...collectedActions] : undefined,
+
+            switch (parsed.type) {
+
+              // ── Typewriter text ──────────────────────────────────────
+              case "delta": {
+                accumulated += parsed.content
+                // Once text starts flowing, clear live activities from
+                // the streaming overlay (they stay in the frozen snapshot)
+                setLiveActivities([])
+                updateLastMessage(accumulated, collectedActions, currentActivities)
+                break
+              }
+
+              // ── Tool started ─────────────────────────────────────────
+              case "tool_started": {
+                const newAct: ToolActivity = {
+                  tool: parsed.tool,
+                  actionType: parsed.actionType,
+                  label: parsed.label,
+                  status: "running",
                 }
-                return updated
-              })
-            } else if (parsed.type === "action_executed") {
-              const { type, ...actionData } = parsed
-              collectedActions.push(actionData as ActionEvent)
-
-              // Dispatch custom events for SWR invalidation
-              if (actionData.tool?.includes("task")) {
-                window.dispatchEvent(new Event("tasks-updated"))
-              }
-              if (actionData.tool?.includes("project")) {
-                window.dispatchEvent(new Event("projects-updated"))
+                currentActivities = [...currentActivities, newAct]
+                setLiveActivities([...currentActivities])
+                updateLastMessage(accumulated, collectedActions, currentActivities)
+                break
               }
 
-              // Handle confirmation (delete or send message)
-              if (actionData.needs_confirmation && actionData.confirmation_action) {
-                setPendingConfirmation({
-                  description: actionData.confirmation_action.description,
-                  task_id: actionData.confirmation_action.resolved_id,
-                  tool: actionData.confirmation_action.tool,
-                  args: actionData.confirmation_action.args || {},
-                  loading: false,
-                })
+              // ── Tool done ────────────────────────────────────────────
+              case "tool_done": {
+                currentActivities = currentActivities.map(a =>
+                  a.tool === parsed.tool ? { ...a, status: "done" as const } : a
+                )
+                setLiveActivities([...currentActivities])
+                updateLastMessage(accumulated, collectedActions, currentActivities)
+                break
+              }
+
+              // ── Action executed (task created, etc.) ─────────────────
+              case "action_executed": {
+                const { type: _t, ...actionData } = parsed
+                collectedActions.push(actionData as ActionEvent)
+
+                if (actionData.tool?.includes("task")) {
+                  window.dispatchEvent(new Event("tasks-updated"))
+                }
+                if (actionData.tool?.includes("project")) {
+                  window.dispatchEvent(new Event("projects-updated"))
+                }
+
+                if (actionData.needs_confirmation && actionData.confirmation_action) {
+                  setPendingConfirmation({
+                    description: actionData.confirmation_action.description,
+                    task_id: actionData.confirmation_action.resolved_id,
+                    tool: actionData.confirmation_action.tool,
+                    args: actionData.confirmation_action.args || {},
+                    loading: false,
+                  })
+                }
+
+                updateLastMessage(accumulated, collectedActions, currentActivities)
+                break
+              }
+
+              case "done": {
+                // Stream complete
+                break
+              }
+
+              case "error": {
+                accumulated = accumulated || parsed.message || "Something went wrong."
+                updateLastMessage(accumulated, collectedActions, currentActivities)
+                break
               }
             }
-          } catch {}
+          } catch {
+            // malformed SSE line, skip
+          }
         }
       }
 
-      // Attach collected actions to final message
-      setMessages(prev => {
-        const updated = [...prev]
-        updated[updated.length - 1] = {
-          role: "assistant",
+      // Freeze final state
+      setLiveActivities([])
+      const finalMsgs = [
+        ...nextMessages,
+        {
+          role: "assistant" as const,
           content: accumulated,
           timestamp: Date.now(),
           actionEvents: collectedActions.length > 0 ? collectedActions : undefined,
-        }
-        return updated
-      })
+          toolActivity: currentActivities.length > 0 ? currentActivities : undefined,
+        },
+      ]
 
       // Save to DB
-      const finalMsgs = [...nextMessages, { role: "assistant" as const, content: accumulated, timestamp: Date.now() }]
       const title = question.slice(0, 50) + (question.length > 50 ? "…" : "")
       const sessionId = await saveSession(activeSession?.id || null, finalMsgs, title)
-
       if (sessionId && !activeSession) {
         setActiveSession({ id: sessionId, title, messages: finalMsgs, updated_at: new Date().toISOString() })
       }
-
-      // Refresh session list in background
       loadSessions()
 
     } catch {
+      setLiveActivities([])
       setMessages(prev => {
         const updated = [...prev]
         updated[updated.length - 1] = {
           role: "assistant",
           content: "Something went wrong. Please try again.",
-          timestamp: Date.now()
+          timestamp: Date.now(),
         }
         return updated
       })
     } finally {
       setIsStreaming(false)
+      setLiveActivities([])
     }
   }, [input, messages, isStreaming, activeSession, saveSession, loadSessions])
 
@@ -528,17 +666,14 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
     setView("chat")
   }
 
-  // ── New chat ───────────────────────────────────────────────────────────────
-
   const newChat = () => {
     setActiveSession(null)
     setMessages([])
     setInput("")
     setView("list")
     setSidebarOpen(false)
+    setLiveActivities([])
   }
-
-  // ── Delete session ─────────────────────────────────────────────────────────
 
   const deleteSession = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -546,8 +681,6 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
     setSessions(prev => prev.filter(s => s.id !== id))
     if (activeSession?.id === id) newChat()
   }
-
-  // ── Format time ───────────────────────────────────────────────────────────
 
   const formatTime = (iso: string) => {
     const d = new Date(iso)
@@ -561,19 +694,17 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
 
   if (!open) return null
 
-  const isDark = typeof document !== "undefined" && document.documentElement.classList.contains("dark")
-
   return (
     <div
       className="fixed inset-0 z-50 flex flex-col items-center justify-end pb-8"
       onClick={onClose}
     >
-      {/* Backdrop - only when chat is expanded */}
+      {/* Backdrop */}
       {view === "chat" && (
         <div className="absolute inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-sm transition-opacity" />
       )}
 
-      {/* Chat panel - expands upward when in chat mode */}
+      {/* Chat panel */}
       {view === "chat" && (
         <div
           className="relative mb-3 rounded-2xl border shadow-2xl overflow-hidden flex flex-col
@@ -582,7 +713,7 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
           style={{ width: 680, height: 420 }}
           onClick={e => e.stopPropagation()}
         >
-          {/* Chat panel header */}
+          {/* Header */}
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-border dark:border-[#252523] shrink-0">
             <div className="flex items-center gap-2">
               <button
@@ -622,6 +753,7 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
                     Y
                   </div>
                 )}
+
                 <div className={cn("max-w-[80%]", msg.role === "user" && "items-end flex flex-col")}>
                   {msg.role === "user" ? (
                     <div className="px-3.5 py-2.5 rounded-2xl rounded-tr-sm text-sm text-foreground dark:text-[#F0EFEC] bg-accent dark:bg-[#2A2A28] border border-border dark:border-[#3A3A38] shadow-sm">
@@ -629,6 +761,7 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
                     </div>
                   ) : (
                     <div>
+                      {/* ── Action events (task created, etc.) ────────── */}
                       {msg.actionEvents && msg.actionEvents.length > 0 && (
                         <div className="flex flex-col gap-2 mb-3">
                           {msg.actionEvents.map((action, ai) => (
@@ -664,16 +797,36 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
                           ))}
                         </div>
                       )}
-                      {msg.content ? renderMarkdown(msg.content) : (
-                        <div className="flex items-center gap-1.5 py-2">
-                          {[0, 1, 2].map(j => (
-                            <span key={j} className="w-1.5 h-1.5 rounded-full animate-bounce"
-                              style={{ background: "#7C3AED", animationDelay: `${j * 150}ms` }} />
-                          ))}
-                        </div>
+
+                      {/* ── Frozen tool activity (historical messages) ── */}
+                      {msg.toolActivity && msg.toolActivity.length > 0 && msg.content && (
+                        <ToolActivityBar activities={msg.toolActivity} />
                       )}
+
+                      {/* ── Live tool activity overlay (streaming now) ── */}
+                      {i === messages.length - 1 && isStreaming && liveActivities.length > 0 && (
+                        <ToolActivityBar activities={liveActivities} />
+                      )}
+
+                      {/* ── Text content ─────────────────────────────── */}
+                      {msg.content ? (
+                        renderMarkdown(msg.content)
+                      ) : (
+                        // Loading indicator: shown only if no tool activity yet
+                        liveActivities.length === 0 && i === messages.length - 1 && isStreaming ? (
+                          <div className="flex items-center gap-1.5 py-2">
+                            {[0, 1, 2].map(j => (
+                              <span key={j} className="w-1.5 h-1.5 rounded-full animate-bounce"
+                                style={{ background: "#7C3AED", animationDelay: `${j * 150}ms` }} />
+                            ))}
+                          </div>
+                        ) : null
+                      )}
+
+                      {/* ── Typewriter cursor ────────────────────────── */}
                       {i === messages.length - 1 && isStreaming && msg.content && (
-                        <span className="inline-block w-0.5 h-3.5 ml-0.5 align-middle animate-pulse rounded-full" style={{ background: "#7C3AED" }} />
+                        <span className="inline-block w-0.5 h-3.5 ml-0.5 align-middle animate-pulse rounded-full"
+                          style={{ background: "#7C3AED" }} />
                       )}
                     </div>
                   )}
@@ -681,6 +834,7 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
               </div>
             ))}
 
+            {/* Confirm / cancel buttons */}
             {pendingConfirmation && !isStreaming && (
               <div className="flex items-center gap-2 ml-9">
                 <button
@@ -692,8 +846,12 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
                       : "bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/30"
                   }`}
                 >
-                  {pendingConfirmation.loading ? <Loader2 size={11} className="animate-spin" />
-                    : pendingConfirmation.tool === "send_message_confirmed" ? <Send size={11} /> : <Trash2 size={11} />}
+                  {pendingConfirmation.loading
+                    ? <Loader2 size={11} className="animate-spin" />
+                    : pendingConfirmation.tool === "send_message_confirmed"
+                      ? <Send size={11} />
+                      : <Trash2 size={11} />
+                  }
                   {pendingConfirmation.tool === "send_message_confirmed" ? "Confirm Send" : "Confirm Delete"}
                 </button>
                 <button
@@ -705,12 +863,13 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
                 </button>
               </div>
             )}
+
             <div ref={messagesEndRef} />
           </div>
         </div>
       )}
 
-      {/* Collapsible history panel - slides in from left above the bar */}
+      {/* History panel */}
       {sidebarOpen && (
         <div
           className="relative mb-2 rounded-2xl border shadow-xl overflow-hidden flex flex-col
@@ -779,13 +938,12 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
         </div>
       )}
 
-      {/* ── Floating input bar ── */}
+      {/* Floating input bar */}
       <div
         className="relative"
         style={{ width: 680 }}
         onClick={e => e.stopPropagation()}
       >
-        {/* Glow effects */}
         <div className="absolute -top-3 left-1/4 w-32 h-6 rounded-full blur-2xl opacity-60 pointer-events-none"
           style={{ background: "radial-gradient(ellipse, #ef4444 0%, transparent 70%)" }} />
         <div className="absolute -top-3 right-1/4 w-32 h-6 rounded-full blur-2xl opacity-60 pointer-events-none"
@@ -798,7 +956,6 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
           "focus-within:border-ring/50 dark:focus-within:border-[#444442]",
           "focus-within:shadow-xl"
         )}>
-          {/* History toggle button */}
           <button
             onClick={() => setSidebarOpen(v => !v)}
             className={cn(
@@ -812,10 +969,8 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
             <span>History</span>
           </button>
 
-          {/* Divider */}
           <div className="w-px h-5 bg-border dark:bg-[#333331] shrink-0 self-center" />
 
-          {/* Textarea */}
           <textarea
             ref={inputRef}
             value={input}
@@ -843,7 +998,6 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
             }}
           />
 
-          {/* Send button */}
           <button
             onClick={() => sendMessage()}
             disabled={!input.trim() || isStreaming}
@@ -866,11 +1020,8 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
           </button>
         </div>
 
-        {/* Footer hints */}
         <div className="flex items-center justify-between mt-1.5 px-2">
-          <span className="text-[10px] text-muted-foreground/50">
-            ✦ Llama 3.3 70B
-          </span>
+          <span className="text-[10px] text-muted-foreground/50">✦ Llama 3.3 70B</span>
           <div className="flex items-center gap-3 text-[10px] text-muted-foreground/50">
             <span>↵ send</span>
             <span>⇧↵ newline</span>

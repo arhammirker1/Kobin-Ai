@@ -64,17 +64,32 @@ function sseChunk(data: Record<string, any>) {
   return `data: ${JSON.stringify(data)}\n\n`
 }
 
-function makeStream(fn: (ctrl: ReadableStreamDefaultController) => Promise<void>): Response {
-  const enc = new TextEncoder()
-  const readable = new ReadableStream({
-    start(ctrl) {
-      fn(ctrl).catch(err => {
-        ctrl.enqueue(enc.encode(sseChunk({ type: "error", message: String(err) })))
-        ctrl.close()
-      })
-    },
-  })
-  return new Response(readable, { headers: SSE_HEADERS })
+// ── Human-readable tool status labels ───────────────────────────────────────
+
+const READ_TOOL_LABELS: Record<string, string> = {
+  get_workspace_overview:    "Scanning your workspace…",
+  get_tasks:                 "Reading your tasks…",
+  get_projects:              "Loading projects…",
+  get_team_workload:         "Checking team workload…",
+  get_crm_pipeline:          "Reviewing CRM pipeline…",
+  get_calendar:              "Checking your calendar…",
+  get_vault_files:           "Browsing vault files…",
+  get_task_creation_context: "Gathering context…",
+  search_contacts:           "Looking up contact…",
+  get_meeting_notes:         "Fetching meeting notes…",
+  analyze_workspace:         "Analyzing workspace…",
+}
+
+const ACTION_TOOL_LABELS: Record<string, string> = {
+  create_task:          "Creating task…",
+  update_task:          "Updating task…",
+  delete_task:          "Finding task to delete…",
+  create_project:       "Creating project…",
+  update_project:       "Updating project…",
+  search_messages:      "Searching messages…",
+  update_deal_stage:    "Updating deal stage…",
+  send_message_to_room: "Preparing message…",
+  analyze_workspace:    "Running workspace analysis…",
 }
 
 async function groqCall(groq: any, model: string, payload: Record<string, any>) {
@@ -89,7 +104,7 @@ async function groqCall(groq: any, model: string, payload: Record<string, any>) 
   }
 }
 
-// ── Request-level tool memoization ─────────────────────────────────────────────
+// ── Request-level tool memoization ──────────────────────────────────────────
 
 type ToolMemoKey = string
 type ToolMemoValue = { content: string; teamData?: any[]; projectData?: any[] }
@@ -100,7 +115,6 @@ function memoKey(toolName: string, args: Record<string, any>): ToolMemoKey {
 
 function createToolMemoizer() {
   const memo = new Map<ToolMemoKey, Promise<ToolMemoValue>>()
-  
   return {
     async getOrExecute<T extends ToolMemoValue>(
       key: ToolMemoKey,
@@ -111,16 +125,14 @@ function createToolMemoizer() {
         return memo.get(key) as Promise<T>
       }
       const promise = executor()
-      memo.set(key, promise as ToolMemoValue)
+      memo.set(key, promise as unknown as Promise<ToolMemoValue>)
       return promise
     },
-    clear() {
-      memo.clear()
-    }
+    clear() { memo.clear() },
   }
 }
 
-// ── Confirmed delete (called by frontend after user confirms) ─────────────
+// ── Confirmed delete handler ─────────────────────────────────────────────────
 
 export async function DELETE(request: Request) {
   try {
@@ -136,38 +148,45 @@ export async function DELETE(request: Request) {
   }
 }
 
-// ── Main POST handler ─────────────────────────────────────────────────────
+// ── Main POST handler ────────────────────────────────────────────────────────
 
 export async function POST(request: Request) {
+  // ── Auth ───────────────────────────────────────────────────────────────────
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  let bodyParsed: any
   try {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    bodyParsed = await request.json()
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
+  }
 
-    const { message, history = [] } = await request.json()
-    if (!message?.trim()) return NextResponse.json({ error: "Message required" }, { status: 400 })
+  const { message, history = [] } = bodyParsed
+  if (!message?.trim()) return NextResponse.json({ error: "Message required" }, { status: 400 })
 
-    // Resolve founder
-    let founder_id = user.id
-    const { data: profile } = await supabaseAdmin
-      .from("profiles").select("user_type").eq("id", user.id).single()
+  // ── Resolve founder ────────────────────────────────────────────────────────
+  let founder_id = user.id
+  const { data: profile } = await supabaseAdmin
+    .from("profiles").select("user_type").eq("id", user.id).single()
 
-    if (profile?.user_type === "team_member") {
-      const { data: tm } = await supabaseAdmin
-        .from("team_members").select("founder_id")
-        .eq("user_id", user.id).eq("is_active", true).single()
-      if (tm?.founder_id) founder_id = tm.founder_id
-    }
+  if (profile?.user_type === "team_member") {
+    const { data: tm } = await supabaseAdmin
+      .from("team_members").select("founder_id")
+      .eq("user_id", user.id).eq("is_active", true).single()
+    if (tm?.founder_id) founder_id = tm.founder_id
+  }
 
-    // Build mini context + memory context (both Redis-cached)
-    const [miniContext, memoryContext] = await Promise.all([
-      buildMiniContext(founder_id),
-      buildMemoryContext(founder_id),
-    ])
+  // ── Build context (both Redis-cached, run in parallel) ────────────────────
+  const [miniContext, memoryContext] = await Promise.all([
+    buildMiniContext(founder_id),
+    buildMemoryContext(founder_id),
+  ])
 
-    const actionContext: ActionContext = { founder_id, user_id: user.id, team: [], projects: [] }
+  const actionContext: ActionContext = { founder_id, user_id: user.id, team: [], projects: [] }
 
-    const systemPrompt = `You are the AI manager for Kobin Ai — an agency OS. You execute actions and answer questions about the workspace.
+  const systemPrompt = `You are the AI manager for Kobin Ai — an agency OS. You execute actions and answer questions about the workspace.
 
 ${miniContext}
 ${memoryContext ? `\n${memoryContext}` : ""}
@@ -200,213 +219,298 @@ vault_file_names must be an array of strings.
 deliverable_required must be a boolean.
 Never send nested objects for scalar fields.`
 
-    const cappedHistory = packHistory(history, 2000)
-    const selected = selectModelForRequest({
-      intent: "command",
-      message,
-      historyCount: cappedHistory.length,
-    })
+  const cappedHistory = packHistory(history, 2000)
+  const selected = selectModelForRequest({
+    intent: "command",
+    message,
+    historyCount: cappedHistory.length,
+  })
 
-    const messages: any[] = [
-      { role: "system", content: systemPrompt },
-      ...cappedHistory,
-      { role: "user", content: message },
-    ]
+  const messages: any[] = [
+    { role: "system", content: systemPrompt },
+    ...cappedHistory,
+    { role: "user", content: message },
+  ]
 
-    const groq = getGroqClient()
-    const actionEvents: Array<Record<string, any>> = []
-    const createActionsExecuted = new Set<string>()
-    let lastActionMessage = ""
+  const groq = getGroqClient()
 
-    console.log(`[CMD] model=${selected.model} tier=${selected.tier} history=${cappedHistory.length}`)
+  console.log(`[CMD] model=${selected.model} tier=${selected.tier} history=${cappedHistory.length}`)
 
-    // ── Agentic loop (max 4 steps) ────────────────────────────────────────
-    for (let step = 0; step < 4; step++) {
+  // ── Everything from here runs INSIDE the stream ──────────────────────────
+  const enc = new TextEncoder()
 
-      let response: any
-      try {
-        response = await groqCall(groq, selected.model, {
-          messages,
-          tools: ALL_TOOLS as any,
-          tool_choice: "auto",
-          max_tokens: 1024,
-          temperature: 0.2,
-        })
-      } catch (apiErr: any) {
-        // Schema validation error from Groq — retry without tools
-        const msg = apiErr?.message || ""
-        if (apiErr?.status === 400 && msg.includes("tool_use_failed")) {
-          console.warn(`[CMD] step=${step} schema error — retrying no-tools`)
-          response = await groqCall(groq, selected.model, { messages, max_tokens: 800, temperature: 0 })
-        } else {
-          throw apiErr
+  const readable = new ReadableStream({
+    async start(ctrl) {
+      const enqueue = (payload: Record<string, any>) => {
+        try {
+          ctrl.enqueue(enc.encode(sseChunk(payload)))
+        } catch {
+          // controller may be closed if client disconnected
         }
       }
 
-      const choice = response.choices[0]
-      const toolCalls = choice?.message?.tool_calls
+      const actionEvents: Array<Record<string, any>> = []
+      const createActionsExecuted = new Set<string>()
+      let lastActionMessage = ""
 
-      // No tool calls → text response
-      if (!toolCalls || toolCalls.length === 0) {
-        const content = choice?.message?.content || ""
-        console.log(`[CMD] step=${step} text response`)
+      try {
+        // ── Agentic loop (max 4 steps) ───────────────────────────────────
+        for (let step = 0; step < 4; step++) {
 
-        return makeStream(async (ctrl) => {
-          const enc = new TextEncoder()
-          // Flush any action events first
-          for (const ev of actionEvents) {
-            ctrl.enqueue(enc.encode(sseChunk({ type: "action_executed", ...ev })))
-          }
-          if (content) {
-            ctrl.enqueue(enc.encode(sseChunk({ type: "delta", content })))
-          }
-          ctrl.enqueue(enc.encode(sseChunk({ type: "done" })))
-          ctrl.close()
-        })
-      }
-
-      // Has tool calls — execute them
-      console.log(`[CMD] step=${step} tools=${toolCalls.map((tc: any) => tc.function.name).join(",")}`)
-
-      // Detect mixed read+action batch — defer action tools
-      const hasRead   = toolCalls.some((tc: any) => READ_TOOL_NAMES.has(tc.function.name))
-      const hasAction = toolCalls.some((tc: any) => !READ_TOOL_NAMES.has(tc.function.name))
-      const isMixed   = hasRead && hasAction
-
-      // Initialize memoizer for this step
-      const toolMemo = createToolMemoizer()
-      const toolResults: Array<{ tool_call_id: string; role: "tool"; content: string }> = []
-
-      // Separate read and action tool calls
-      const readCalls = toolCalls.filter((tc: any) => READ_TOOL_NAMES.has(tc.function.name))
-      const actionCalls = toolCalls.filter((tc: any) => !READ_TOOL_NAMES.has(tc.function.name))
-
-      // ── Execute READ tools in PARALLEL ────────────────────────────────────
-      if (readCalls.length > 0) {
-        console.log(`[CMD] Executing ${readCalls.length} read tool(s) in parallel`)
-        const startTime = Date.now()
-
-        const readPromises = readCalls.map(async (tc: any) => {
-          const toolName = tc.function.name
-          let toolArgs: Record<string, any> = {}
-          try { toolArgs = JSON.parse(tc.function.arguments) } catch {}
-          toolArgs = repairArgs(toolName, toolArgs)
-
-          const key = memoKey(toolName, toolArgs)
-          const result = await toolMemo.getOrExecute(key, () =>
-            executeReadTool(toolName as ReadToolName, toolArgs, founder_id)
-          )
-
-          // Update actionContext with returned data
-          if (result.teamData)    actionContext.team     = result.teamData
-          if (result.projectData) actionContext.projects = result.projectData
-
-          return {
-            tool_call_id: tc.id,
-            role: "tool" as const,
-            content: result.content
-          }
-        })
-
-        const readResults = await Promise.all(readPromises)
-        toolResults.push(...readResults)
-
-        const elapsed = Date.now() - startTime
-        console.log(`[CMD] Read tools completed in ${elapsed}ms`)
-      }
-
-      // ── Execute ACTION tools SEQUENTIALLY (required for state mutations) ──
-      for (const tc of actionCalls) {
-        const toolName = tc.function.name
-        let toolArgs: Record<string, any> = {}
-        try { toolArgs = JSON.parse(tc.function.arguments) } catch {}
-        toolArgs = repairArgs(toolName, toolArgs)
-
-        if (isMixed) {
-          // Defer action tools when mixed with read tools
-          console.log(`[CMD] deferred ${toolName} (mixed batch)`)
-          toolResults.push({
-            tool_call_id: tc.id, role: "tool",
-            content: JSON.stringify({ success: false, message: `Deferred: call ${toolName} again after read results.` }),
-          })
-        } else {
-          // Action tool
-          if ((toolName === "create_task" || toolName === "create_project") && createActionsExecuted.has(toolName)) {
-            console.log(`[CMD] BLOCKED duplicate ${toolName}`)
-            toolResults.push({
-              tool_call_id: tc.id, role: "tool",
-              content: JSON.stringify({ success: false, message: `${toolName} already executed this request.` }),
+          // ── Non-streaming call to get tool decisions ───────────────────
+          let response: any
+          try {
+            response = await groqCall(groq, selected.model, {
+              messages,
+              tools: ALL_TOOLS as any,
+              tool_choice: "auto",
+              max_tokens: 1024,
+              temperature: 0.2,
             })
-            continue
-          }
-          if (toolName === "create_task" || toolName === "create_project") {
-            createActionsExecuted.add(toolName)
+          } catch (apiErr: any) {
+            const msg = apiErr?.message || ""
+            if (apiErr?.status === 400 && msg.includes("tool_use_failed")) {
+              console.warn(`[CMD] step=${step} schema error — retrying no-tools`)
+              response = await groqCall(groq, selected.model, { messages, max_tokens: 800, temperature: 0 })
+            } else {
+              throw apiErr
+            }
           }
 
-          const result: ActionResult = await executeAction(toolName as AIToolName, toolArgs, actionContext)
-          if (result.message) lastActionMessage = result.message
-          toolResults.push({ tool_call_id: tc.id, role: "tool", content: JSON.stringify(result) })
+          const choice = response.choices[0]
+          const toolCalls = choice?.message?.tool_calls
 
-          if (result.success) {
-            actionEvents.push({
-              tool: toolName,
-              ...result.data,
-              needs_confirmation: result.needs_confirmation,
-              confirmation_action: result.confirmation_action,
+          // ── No tool calls → stream final text answer word-by-word ──────
+          if (!toolCalls || toolCalls.length === 0) {
+            console.log(`[CMD] step=${step} → streaming text response`)
+
+            // Flush any action events first
+            for (const ev of actionEvents) {
+              enqueue({ type: "action_executed", ...ev })
+            }
+
+            // Stream the answer with stream: true for real typewriter effect
+            const streamResponse = await groqCall(groq, selected.model, {
+              messages,
+              stream: true,
+              max_tokens: 1024,
+              temperature: 0.2,
             })
 
-            // Bust relevant caches after mutations + learn from actions
-            if (toolName === "create_task" || toolName === "update_task") {
-              await bust(CK.miniContext(founder_id), CK.teamWorkload(founder_id))
-              if (toolName === "create_task") {
-                await learnFromAction(founder_id, "task_created", result.data || {})
+            for await (const chunk of streamResponse) {
+              const delta = chunk.choices[0]?.delta?.content
+              if (delta) {
+                enqueue({ type: "delta", content: delta })
               }
             }
-            if (toolName === "create_project" || toolName === "update_project") {
-              await bust(CK.miniContext(founder_id), CK.projects(founder_id))
+
+            enqueue({ type: "done" })
+            ctrl.close()
+            return
+          }
+
+          // ── Has tool calls ─────────────────────────────────────────────
+          console.log(`[CMD] step=${step} tools=${toolCalls.map((tc: any) => tc.function.name).join(",")}`)
+
+          const hasRead   = toolCalls.some((tc: any) => READ_TOOL_NAMES.has(tc.function.name))
+          const hasAction = toolCalls.some((tc: any) => !READ_TOOL_NAMES.has(tc.function.name))
+          const isMixed   = hasRead && hasAction
+
+          const readCalls   = toolCalls.filter((tc: any) =>  READ_TOOL_NAMES.has(tc.function.name))
+          const actionCalls = toolCalls.filter((tc: any) => !READ_TOOL_NAMES.has(tc.function.name))
+
+          const toolMemo = createToolMemoizer()
+          const toolResults: Array<{ tool_call_id: string; role: "tool"; content: string }> = []
+
+          // ── READ tools in parallel, with per-tool status events ────────
+          if (readCalls.length > 0) {
+            // Fire status events for every read tool immediately
+            for (const tc of readCalls) {
+              const label = READ_TOOL_LABELS[tc.function.name] ?? "Reading data…"
+              enqueue({
+                type: "tool_started",
+                tool: tc.function.name,
+                actionType: "read",
+                label,
+              })
+            }
+
+            const startTime = Date.now()
+
+            const readPromises = readCalls.map(async (tc: any) => {
+              const toolName = tc.function.name
+              let toolArgs: Record<string, any> = {}
+              try { toolArgs = JSON.parse(tc.function.arguments) } catch {}
+              toolArgs = repairArgs(toolName, toolArgs)
+
+              const key = memoKey(toolName, toolArgs)
+              const result = await toolMemo.getOrExecute(key, () =>
+                executeReadTool(toolName as ReadToolName, toolArgs, founder_id)
+              )
+
+              if (result.teamData)    actionContext.team     = result.teamData
+              if (result.projectData) actionContext.projects = result.projectData
+
+              // Signal this specific tool is done
+              enqueue({ type: "tool_done", tool: toolName, actionType: "read" })
+
+              return {
+                tool_call_id: tc.id,
+                role: "tool" as const,
+                content: result.content,
+              }
+            })
+
+            const readResults = await Promise.all(readPromises)
+            toolResults.push(...readResults)
+
+            console.log(`[CMD] Read tools done in ${Date.now() - startTime}ms`)
+          }
+
+          // ── ACTION tools sequentially, with per-tool status events ─────
+          for (const tc of actionCalls) {
+            const toolName = tc.function.name
+            let toolArgs: Record<string, any> = {}
+            try { toolArgs = JSON.parse(tc.function.arguments) } catch {}
+            toolArgs = repairArgs(toolName, toolArgs)
+
+            if (isMixed) {
+              // Defer — read tools need to run first
+              console.log(`[CMD] deferred ${toolName} (mixed batch)`)
+              toolResults.push({
+                tool_call_id: tc.id,
+                role: "tool",
+                content: JSON.stringify({
+                  success: false,
+                  message: `Deferred: call ${toolName} again after read results.`,
+                }),
+              })
+              continue
+            }
+
+            // Guard against duplicate create calls
+            if (
+              (toolName === "create_task" || toolName === "create_project") &&
+              createActionsExecuted.has(toolName)
+            ) {
+              console.log(`[CMD] BLOCKED duplicate ${toolName}`)
+              toolResults.push({
+                tool_call_id: tc.id,
+                role: "tool",
+                content: JSON.stringify({
+                  success: false,
+                  message: `${toolName} already executed this request.`,
+                }),
+              })
+              continue
+            }
+            if (toolName === "create_task" || toolName === "create_project") {
+              createActionsExecuted.add(toolName)
+            }
+
+            // Fire status event before executing
+            const actionLabel = ACTION_TOOL_LABELS[toolName] ?? "Executing…"
+            enqueue({
+              type: "tool_started",
+              tool: toolName,
+              actionType: "action",
+              label: actionLabel,
+            })
+
+            const result: ActionResult = await executeAction(
+              toolName as AIToolName,
+              toolArgs,
+              actionContext
+            )
+
+            // Signal action done
+            enqueue({ type: "tool_done", tool: toolName, actionType: "action" })
+
+            if (result.message) lastActionMessage = result.message
+            toolResults.push({
+              tool_call_id: tc.id,
+              role: "tool",
+              content: JSON.stringify(result),
+            })
+
+            if (result.success) {
+              actionEvents.push({
+                tool: toolName,
+                ...result.data,
+                needs_confirmation: result.needs_confirmation,
+                confirmation_action: result.confirmation_action,
+              })
+
+              // Bust caches + learn from actions
+              if (toolName === "create_task" || toolName === "update_task") {
+                await bust(CK.miniContext(founder_id), CK.teamWorkload(founder_id))
+                if (toolName === "create_task") {
+                  await learnFromAction(founder_id, "task_created", result.data || {})
+                }
+              }
+              if (toolName === "create_project" || toolName === "update_project") {
+                await bust(CK.miniContext(founder_id), CK.projects(founder_id))
+              }
             }
           }
-        }
-      }
 
-      messages.push(choice.message)
-      messages.push(...toolResults)
+          messages.push(choice.message)
+          messages.push(...toolResults)
 
-      // If we executed an action successfully, stream the result immediately
-      if (actionEvents.length > 0 && !isMixed) {
-        return makeStream(async (ctrl) => {
-          const enc = new TextEncoder()
-          for (const ev of actionEvents) {
-            ctrl.enqueue(enc.encode(sseChunk({ type: "action_executed", ...ev })))
+          // If we executed a non-mixed action, stream back the result immediately
+          if (actionEvents.length > 0 && !isMixed) {
+            for (const ev of actionEvents) {
+              enqueue({ type: "action_executed", ...ev })
+            }
+
+            // Stream the confirmation sentence word-by-word
+            const confirmStream = await groqCall(groq, selected.model, {
+              messages,
+              stream: true,
+              max_tokens: 256,
+              temperature: 0.2,
+            })
+            for await (const chunk of confirmStream) {
+              const delta = chunk.choices[0]?.delta?.content
+              if (delta) enqueue({ type: "delta", content: delta })
+            }
+
+            enqueue({ type: "done" })
+            ctrl.close()
+            return
           }
-          ctrl.enqueue(enc.encode(sseChunk({ type: "delta", content: lastActionMessage || "Done." })))
-          ctrl.enqueue(enc.encode(sseChunk({ type: "done" })))
-          ctrl.close()
+        }
+
+        // ── Max steps exhausted — stream whatever we have ────────────────
+        console.log(`[CMD] max steps reached, streaming final`)
+        for (const ev of actionEvents) {
+          enqueue({ type: "action_executed", ...ev })
+        }
+
+        const finalStream = await groqCall(groq, selected.model, {
+          messages,
+          stream: true,
+          max_tokens: 1024,
+          temperature: 0.5,
         })
-      }
-    }
+        for await (const chunk of finalStream) {
+          const delta = chunk.choices[0]?.delta?.content
+          if (delta) enqueue({ type: "delta", content: delta })
+        }
 
-    // Exhausted loop — stream final response
-    console.log(`[CMD] max steps reached, streaming final`)
-    return makeStream(async (ctrl) => {
-      const enc = new TextEncoder()
-      for (const ev of actionEvents) {
-        ctrl.enqueue(enc.encode(sseChunk({ type: "action_executed", ...ev })))
-      }
-      const stream = await groqCall(groq, selected.model, { messages, stream: true, max_tokens: 1024, temperature: 0.5 })
-      for await (const chunk of stream) {
-        const delta = chunk.choices[0]?.delta?.content || ""
-        if (delta) ctrl.enqueue(enc.encode(sseChunk({ type: "delta", content: delta })))
-      }
-      ctrl.enqueue(enc.encode(sseChunk({ type: "done" })))
-      ctrl.close()
-    })
+        enqueue({ type: "done" })
+        ctrl.close()
 
-  } catch (err) {
-    console.error("[CMD] error:", err)
-    return NextResponse.json({
-      error: "AI command failed",
-      user_message: "I hit a temporary issue. Please retry.",
-    }, { status: 500 })
-  }
+      } catch (err) {
+        console.error("[CMD] stream error:", err)
+        enqueue({
+          type: "error",
+          message: "I hit a temporary issue. Please retry.",
+        })
+        ctrl.close()
+      }
+    },
+  })
+
+  return new Response(readable, { headers: SSE_HEADERS })
 }
