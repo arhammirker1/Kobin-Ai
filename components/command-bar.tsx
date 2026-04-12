@@ -319,6 +319,8 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
 
   // Live tool activities for the current streaming message
   const [liveActivities, setLiveActivities] = useState<ToolActivity[]>([])
+  // True during the gap between all tools finishing and first delta arriving
+  const [thinkingAfterTools, setThinkingAfterTools] = useState(false)
 
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -361,6 +363,7 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
       setInput("")
       setView("list")
       setLiveActivities([])
+      setThinkingAfterTools(false)
       setTimeout(() => inputRef.current?.focus(), 100)
     }
   }, [open])
@@ -476,6 +479,7 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
     setView("chat")
     setPendingConfirmation(null)
     setLiveActivities([])
+    setThinkingAfterTools(false)
 
     const userMsg: Message = { role: "user", content: question, timestamp: Date.now() }
     const nextMessages = [...messages, userMsg]
@@ -545,10 +549,10 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
               // ── Typewriter text ──────────────────────────────────────
               case "delta": {
                 accumulated += parsed.content
-                // Keep tool pills visible while text streams — they fade
-                // via CSS opacity on the ToolActivityBar (done status).
-                // We do NOT clear liveActivities here so checkmarks stay
-                // visible alongside the growing text.
+                // First delta means model is now typing — clear the thinking indicator.
+                // Keep tool pills (liveActivities) visible so checkmarks stay
+                // alongside the growing text; they fade via allDone opacity.
+                setThinkingAfterTools(false)
                 updateLastMessage(accumulated, collectedActions, currentActivities)
                 break
               }
@@ -581,6 +585,12 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
                 })
                 setLiveActivities([...currentActivities])
                 updateLastMessage(accumulated, collectedActions, currentActivities)
+                // If every tool is now done and we have no text yet,
+                // show the "composing answer" thinking indicator
+                const allNowDone = currentActivities.every(a => a.status === "done")
+                if (allNowDone && !accumulated) {
+                  setThinkingAfterTools(true)
+                }
                 break
               }
 
@@ -611,8 +621,9 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
               }
 
               case "done": {
-                // Stream finished — clear live overlay; frozen snapshot stays in message
+                // Stream finished — clear live overlay and thinking indicator
                 setLiveActivities([])
+                setThinkingAfterTools(false)
                 break
               }
 
@@ -663,6 +674,7 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
     } finally {
       setIsStreaming(false)
       setLiveActivities([])
+      setThinkingAfterTools(false)
     }
   }, [input, messages, isStreaming, activeSession, saveSession, loadSessions])
 
@@ -820,14 +832,30 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
                       {msg.content ? (
                         renderMarkdown(msg.content)
                       ) : (
-                        // Loading indicator: shown only if no tool activity yet
-                        liveActivities.length === 0 && i === messages.length - 1 && isStreaming ? (
-                          <div className="flex items-center gap-1.5 py-2">
-                            {[0, 1, 2].map(j => (
-                              <span key={j} className="w-1.5 h-1.5 rounded-full animate-bounce"
-                                style={{ background: "#7C3AED", animationDelay: `${j * 150}ms` }} />
-                            ))}
-                          </div>
+                        i === messages.length - 1 && isStreaming ? (
+                          thinkingAfterTools ? (
+                            // Tools are done, model is composing the answer
+                            <div className="flex items-center gap-2 py-1.5">
+                              <div className="flex gap-0.5 items-center">
+                                {[0, 1, 2].map(j => (
+                                  <span
+                                    key={j}
+                                    className="w-1 h-1 rounded-full animate-bounce bg-violet-400/60"
+                                    style={{ animationDelay: `${j * 120}ms` }}
+                                  />
+                                ))}
+                              </div>
+                              <span className="text-[11px] text-muted-foreground/50 italic">Composing answer…</span>
+                            </div>
+                          ) : liveActivities.length === 0 ? (
+                            // No tools fired yet — initial thinking dots
+                            <div className="flex items-center gap-1.5 py-2">
+                              {[0, 1, 2].map(j => (
+                                <span key={j} className="w-1.5 h-1.5 rounded-full animate-bounce"
+                                  style={{ background: "#7C3AED", animationDelay: `${j * 150}ms` }} />
+                              ))}
+                            </div>
+                          ) : null
                         ) : null
                       )}
 
