@@ -113,6 +113,22 @@ const TYPE_CONFIG: Record<ItemType, { icon: React.ReactNode; badge: string; colo
   note: { icon: <StickyNote size={14} />, badge: "Note", color: "bg-amber-500/10 text-amber-400 border-amber-500/20" },
 }
 
+const DOC_TYPE_OVERRIDES: Partial<Record<string, { icon: React.ReactNode; badge: string; color: string }>> = {
+  "Code":         { icon: <Code size={14} />,     badge: "Code",    color: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },
+  "Design Asset": { icon: <Image size={14} />,    badge: "Design",  color: "bg-pink-500/10 text-pink-400 border-pink-500/20" },
+  "Spreadsheet":  { icon: <FileIcon size={14} />, badge: "Sheet",   color: "bg-green-500/10 text-green-400 border-green-500/20" },
+  "Presentation": { icon: <FileIcon size={14} />, badge: "Slides",  color: "bg-orange-500/10 text-orange-400 border-orange-500/20" },
+  "Contract":     { icon: <FileText size={14} />, badge: "Contract",color: "bg-red-500/10 text-red-400 border-red-500/20" },
+  "Report":       { icon: <FileText size={14} />, badge: "Report",  color: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20" },
+}
+
+function getTypeConfig(item: { item_type: ItemType; document_type?: string }) {
+  if (item.item_type === "file" && item.document_type && DOC_TYPE_OVERRIDES[item.document_type]) {
+    return DOC_TYPE_OVERRIDES[item.document_type]!
+  }
+  return TYPE_CONFIG[item.item_type]
+}
+
 const ADDED_BY_COLOR: Record<AddedByType, string> = {
   founder: "bg-violet-500/10 text-violet-400",
   team:    "bg-blue-500/10 text-blue-400",
@@ -194,11 +210,41 @@ export function VaultView() {
   const [uploading, setUploading]         = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const handleFileSelect = async (file: File | null) => {
+    setUploadFile(file)
+    if (!file) return
+    if (!aiLabelMode) return
+    setIsAiLabeling(true)
+    try {
+      const res = await fetch("/api/vault/ai-label", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename: file.name, fileType: file.type }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setAddForm(f => ({
+          ...f,
+          title: data.title || f.title,
+          description: data.description || f.description,
+          document_type: data.document_type || f.document_type,
+        }))
+      }
+    } catch {}
+    setIsAiLabeling(false)
+  }
+
+  // PDF page
+
   // PDF page
   const [pdfPage, setPdfPage]             = useState(1)
 
   // menu
   const [menuItemId, setMenuItemId]       = useState<string | null>(null)
+
+  // AI labeling
+  const [aiLabelMode, setAiLabelMode]     = useState(true)
+  const [isAiLabeling, setIsAiLabeling]   = useState(false)
 
   // ── Init ───────────────────────────────────────────────────────────────────
 
@@ -332,11 +378,6 @@ export function VaultView() {
       setDocContent(item.note_content || "")
     } else if (item.item_type === "link") {
       viewer = "link"
-    } else if (item.drive_file_url) {
-      const url = item.drive_file_url.toLowerCase()
-      if (item.document_type === "Code") viewer = "code"
-      else if (item.document_type === "Design Asset") viewer = "image"
-      else viewer = "approval" // default for file deliverables
     } else {
       viewer = "approval"
     }
@@ -1112,7 +1153,7 @@ export function VaultView() {
                 <p className="text-[11px] text-white/20 text-center py-6">Start typing to search your vault semantically</p>
               )}
               {searchResults.map((result) => {
-                const tc = TYPE_CONFIG[result.item_type]
+                const tc = getTypeConfig(result)
                 return (
                   <button
                     key={result.id}
@@ -1205,24 +1246,82 @@ export function VaultView() {
                   </Select>
                 </div>
                 {addItemType === "file" && (
-                  <div>
-                    <label className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1.5 block">File *</label>
-                    <div onClick={() => fileInputRef.current?.click()} className={cn("border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all", uploadFile ? "border-violet-500/40 bg-violet-500/5" : "border-white/10 hover:border-violet-500/30 hover:bg-white/3")}>
-                      {uploadFile ? (
-                        <div className="flex items-center justify-center gap-2 text-[12px]">
-                          <FileText size={13} className="text-violet-400" />
-                          <span className="text-white/60 truncate max-w-[180px]">{uploadFile.name}</span>
-                          <button onClick={(e) => { e.stopPropagation(); setUploadFile(null) }} className="text-white/30 hover:text-white/60 ml-1"><X size={11} /></button>
-                        </div>
-                      ) : (
-                        <div className="space-y-1">
-                          <Upload size={18} className="mx-auto text-white/15" />
-                          <p className="text-[11px] text-white/25">Click to select · any format</p>
-                          <p className="text-[9px] text-white/15">Auto-analysed and vectorised by Kobin AI</p>
-                        </div>
-                      )}
+                  <div className="space-y-3">
+                    {/* File drop zone */}
+                    <div>
+                      <label className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1.5 block">File *</label>
+                      <div onClick={() => fileInputRef.current?.click()} className={cn("border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all", uploadFile ? "border-violet-500/40 bg-violet-500/5" : "border-white/10 hover:border-violet-500/30 hover:bg-white/3")}>
+                        {uploadFile ? (
+                          <div className="flex items-center justify-center gap-2 text-[12px]">
+                            <FileText size={13} className="text-violet-400" />
+                            <span className="text-white/60 truncate max-w-[180px]">{uploadFile.name}</span>
+                            <button onClick={(e) => { e.stopPropagation(); handleFileSelect(null) }} className="text-white/30 hover:text-white/60 ml-1"><X size={11} /></button>
+                          </div>
+                        ) : (
+                          <div className="space-y-1">
+                            <Upload size={18} className="mx-auto text-white/15" />
+                            <p className="text-[11px] text-white/25">Click to select · any format</p>
+                          </div>
+                        )}
+                      </div>
+                      <input ref={fileInputRef} type="file" className="hidden" onChange={(e) => handleFileSelect(e.target.files?.[0] || null)} />
                     </div>
-                    <input ref={fileInputRef} type="file" className="hidden" onChange={(e) => setUploadFile(e.target.files?.[0] || null)} />
+
+                    {/* AI label toggle */}
+                    <div className="flex items-center justify-between px-1">
+                      <div className="flex items-center gap-2">
+                        <Sparkles size={11} className={aiLabelMode ? "text-violet-400" : "text-white/20"} />
+                        <span className="text-[10px] text-white/40">AI auto-label</span>
+                        {isAiLabeling && <Loader2 size={10} className="animate-spin text-violet-400" />}
+                      </div>
+                      <button
+                        onClick={() => setAiLabelMode(v => !v)}
+                        className={cn("w-8 h-4 rounded-full transition-colors relative", aiLabelMode ? "bg-violet-500" : "bg-white/10")}
+                      >
+                        <span className={cn("absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all", aiLabelMode ? "left-4" : "left-0.5")} />
+                      </button>
+                    </div>
+
+                    {/* Title — shown after file picked */}
+                    {(uploadFile || !aiLabelMode) && (
+                      <>
+                        <div>
+                          <label className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1.5 flex items-center gap-1.5">
+                            Title *
+                            {isAiLabeling && <span className="text-violet-400/60 normal-case font-normal">AI writing…</span>}
+                          </label>
+                          <Input
+                            placeholder={isAiLabeling ? "Analyzing file…" : "Enter a clear title…"}
+                            value={addForm.title}
+                            disabled={isAiLabeling}
+                            onChange={(e) => setAddForm((f) => ({ ...f, title: e.target.value }))}
+                            className="bg-white/5 border-white/8 text-white/80 placeholder:text-white/20 focus:border-violet-500/40 h-9 text-[12px] disabled:opacity-50"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1.5 block">Description *</label>
+                          <textarea
+                            placeholder={isAiLabeling ? "Analyzing file…" : "What is this? Add context so your team knows…"}
+                            value={addForm.description}
+                            disabled={isAiLabeling}
+                            onChange={(e) => setAddForm((f) => ({ ...f, description: e.target.value }))}
+                            rows={2}
+                            className="w-full rounded-lg border border-white/8 bg-white/5 px-3 py-2 text-[12px] text-white/80 placeholder:text-white/20 outline-none focus:border-violet-500/30 resize-none disabled:opacity-50"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1.5 block">Document Type</label>
+                          <Select value={addForm.document_type} onValueChange={(v) => setAddForm((f) => ({ ...f, document_type: v }))}>
+                            <SelectTrigger className="h-9 text-[12px] bg-white/5 border-white/8 text-white/70">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="bg-[#1c1c1a] border-white/10">
+                              {DOCUMENT_TYPES.map((t) => <SelectItem key={t} value={t} className="text-white/70 text-[12px]">{t}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
                 {addItemType === "link" && (
@@ -1278,7 +1377,7 @@ function VaultCard({
   onOpen: () => void; onMenuToggle: () => void; onDelete: () => void; onMenuClose: () => void
 }) {
   const menuRef = useRef<HTMLDivElement>(null)
-  const tc = TYPE_CONFIG[item.item_type]
+  const tc = getTypeConfig(item)
 
   useEffect(() => {
     if (!menuOpen) return
@@ -1440,20 +1539,39 @@ function ApprovalViewer({
   item: VaultItem; status: ApprovalStatus; note: string
   onSetNote: (v: string) => void; onApprove: () => void; onRequestChanges: () => void
 }) {
+  const tc = getTypeConfig(item)
+  const previewUrl = item.drive_file_id
+    ? `https://drive.google.com/file/d/${item.drive_file_id}/preview`
+    : null
+
   return (
-    <div className="max-w-xl mx-auto space-y-4">
-      {/* File preview */}
-      <div className="flex items-center gap-4 p-4 bg-white/3 border border-white/8 rounded-xl">
-        <div className="w-12 h-14 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-lg shrink-0" />
-        <div>
-          <p className="text-[13px] font-semibold text-white/80 mb-1">{item.title}</p>
-          <p className="text-[11px] text-white/30">{item.document_type} · {formatDate(item.created_at)}</p>
-          {item.drive_file_url && (
-            <a href={item.drive_file_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 mt-2 text-[11px] text-violet-400 hover:underline">
-              <ExternalLink size={10} />Open in Drive
-            </a>
-          )}
+    <div className="max-w-2xl mx-auto space-y-4">
+      {/* Drive iframe preview */}
+      {previewUrl && (
+        <div className="w-full rounded-xl overflow-hidden border border-white/8 bg-white/3" style={{ height: 380 }}>
+          <iframe
+            src={previewUrl}
+            className="w-full h-full border-0"
+            title={item.title}
+            allow="autoplay"
+          />
         </div>
+      )}
+      {/* File metadata row */}
+      <div className="flex items-center gap-4 p-4 bg-white/3 border border-white/8 rounded-xl">
+        <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border", tc.color.split(" ")[0], tc.color.split(" ")[2])}>
+          <span className={tc.color.split(" ")[1]}>{tc.icon}</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[13px] font-semibold text-white/80 mb-0.5 truncate">{item.title}</p>
+          <p className="text-[11px] text-white/30">{item.document_type} · {item.added_by_type} · {formatDate(item.created_at)}</p>
+        </div>
+        {item.drive_file_url && (
+          <a href={item.drive_file_url} target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-[11px] text-white/50 hover:text-white/80 shrink-0 transition-colors">
+            <ExternalLink size={11} />Open in Drive
+          </a>
+        )}
       </div>
 
       {/* Approval box */}
@@ -1490,6 +1608,100 @@ function ApprovalViewer({
           </div>
         )}
         <textarea value={note} onChange={(e) => onSetNote(e.target.value)} placeholder="Add a note for the client (optional)…" rows={2} className="w-full bg-white/4 border border-white/8 rounded-lg px-3 py-2 text-[11px] text-white/60 placeholder:text-white/20 outline-none focus:border-violet-500/30 resize-none" />
+      </div>
+    </div>
+  )
+}
+
+function CommentsPanel({ itemId }: { itemId: string }) {
+  const supabase = createClient()
+  const [comments, setComments] = useState<Array<{ id: string; content: string; user_name: string; created_at: string }>>([])
+  const [newComment, setNewComment] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+  const [userId, setUserId] = useState<string | null>(null)
+  const [userName, setUserName] = useState("You")
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) {
+        setUserId(data.user.id)
+        supabase.from("profiles").select("full_name").eq("id", data.user.id).single()
+          .then(({ data: p }) => { if (p?.full_name) setUserName(p.full_name) })
+      }
+    })
+    loadComments()
+  }, [itemId])
+
+  const loadComments = async () => {
+    const { data } = await supabase
+      .from("vault_comments")
+      .select("id, content, created_at, profile:profiles!vault_comments_user_id_fkey(full_name)")
+      .eq("vault_item_id", itemId)
+      .order("created_at", { ascending: true })
+    if (data) {
+      setComments(data.map((c: any) => ({
+        id: c.id,
+        content: c.content,
+        user_name: c.profile?.full_name || "Team",
+        created_at: c.created_at,
+      })))
+    }
+  }
+
+  const handleSubmit = async () => {
+    if (!newComment.trim() || !userId) return
+    setSubmitting(true)
+    const { data, error } = await supabase.from("vault_comments").insert({
+      vault_item_id: itemId,
+      user_id: userId,
+      content: newComment.trim(),
+    }).select("id, content, created_at").single()
+    if (!error && data) {
+      setComments(prev => [...prev, { id: data.id, content: data.content, user_name: userName, created_at: data.created_at }])
+      setNewComment("")
+    }
+    setSubmitting(false)
+  }
+
+  const initials = (name: string) => name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase()
+
+  return (
+    <div className="flex flex-col gap-3 h-full">
+      <div className="flex-1 space-y-3 overflow-y-auto">
+        {comments.length === 0 && (
+          <p className="text-[10px] text-white/20 text-center py-4">No comments yet — add one below</p>
+        )}
+        {comments.map((c) => (
+          <div key={c.id} className="flex gap-2.5">
+            <div className="w-6 h-6 rounded-full bg-violet-500/80 flex items-center justify-center text-[8px] font-bold text-white shrink-0">
+              {initials(c.user_name)}
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[11px] font-semibold text-white/70">{c.user_name}</span>
+                <span className="text-[9px] text-white/20">{formatDate(c.created_at)}</span>
+              </div>
+              <p className="text-[11px] text-white/50 leading-relaxed">{c.content}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="border-t border-white/5 pt-3 flex gap-2">
+        <textarea
+          value={newComment}
+          onChange={e => setNewComment(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit() } }}
+          placeholder="Add a comment…"
+          rows={2}
+          className="flex-1 bg-white/5 border border-white/8 rounded-lg px-2.5 py-2 text-[11px] text-white/70 placeholder:text-white/20 outline-none focus:border-violet-500/30 resize-none"
+        />
+        <button
+          onClick={handleSubmit}
+          disabled={submitting || !newComment.trim()}
+          className="w-8 h-8 bg-violet-500 hover:bg-violet-600 rounded-lg flex items-center justify-center self-end transition-colors disabled:opacity-40"
+        >
+          <Send size={11} className="text-white" />
+        </button>
       </div>
     </div>
   )
@@ -1617,18 +1829,7 @@ function RightPanel({
         )}
 
         {tab === "comments" && (
-          <div className="space-y-3">
-            <div className="flex gap-2.5">
-              <div className="w-6 h-6 rounded-full bg-violet-500 flex items-center justify-center text-[8px] font-bold text-white shrink-0">AM</div>
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-[11px] font-semibold text-white/70">You</span>
-                  <span className="text-[9px] text-white/20">Just now</span>
-                </div>
-                <p className="text-[11px] text-white/50 leading-relaxed">Comments will appear here once added.</p>
-              </div>
-            </div>
-          </div>
+          <CommentsPanel itemId={item.id} />
         )}
 
         {tab === "activity" && (

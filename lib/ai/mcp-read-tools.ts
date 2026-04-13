@@ -1371,7 +1371,7 @@ export async function execVaultSemanticSearch(
     // Generate embedding via OpenAI
 // REPLACE with:
     const embedRes = await fetch(
-      "https://api-inference.huggingface.co/models/BAAI/bge-small-en-v1.5",
+      "https://router.huggingface.co/hf-inference/models/BAAI/bge-small-en-v1.5",
       {
         method: "POST",
         headers: {
