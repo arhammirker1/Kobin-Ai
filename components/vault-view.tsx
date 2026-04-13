@@ -186,76 +186,74 @@ const TEXT_DOC_TYPES = new Set(["Note", "Content", "Brief", "SOP", "Reference", 
 function getViewerType(item: VaultItem): ViewerType {
   console.log(`[Vault/Viewer] Detecting type for "${item.title}" | item_type=${item.item_type} | doc_type=${item.document_type}`)
 
-  // Notes always go to TipTap doc viewer
-  if (item.item_type === "note") {
-    console.log(`[Vault/Viewer] → doc (note item_type)`)
-    return "doc"
-  }
-  if (item.item_type === "link") {
-    console.log(`[Vault/Viewer] → link`)
-    return "link"
-  }
+  if (item.item_type === "note") { console.log(`[Vault/Viewer] → doc (note)`); return "doc" }
+  if (item.item_type === "link") { console.log(`[Vault/Viewer] → link`); return "link" }
 
-  // Extract file extension from title (AI labels may strip extensions)
+  // PRIORITY 1: Extract extension from storage_path (original filename preserved)
+  // Format: founderId/folderId/1776097343923_command-bar.tsx → "tsx"
+  const storagePath = item.storage_path || ""
+  const storageFilename = storagePath.split("/").pop() || ""
+  const storageExtMatch = storageFilename.match(/\.([a-z0-9]+)$/i)
+  const storageExt = storageExtMatch ? storageExtMatch[1].toLowerCase() : ""
+
+  // PRIORITY 2: Extension from title
   const titleLower = (item.title || "").toLowerCase()
-  const ext = titleLower.includes(".") ? titleLower.split(".").pop() || "" : ""
+  const titleExt = titleLower.includes(".") ? (titleLower.split(".").pop() || "") : ""
+
+  // Use storage_path ext first — it's the ground truth
+  const ext = storageExt || titleExt
   const dt = item.document_type || ""
 
-  // Spreadsheets
-  const spreadsheetExts = ["xlsx", "xls", "csv", "tsv"]
-  if (spreadsheetExts.includes(ext) || dt === "Spreadsheet") {
-    console.log(`[Vault/Viewer] → spreadsheet`)
+  console.log(`[Vault/Viewer] ext="${ext}" (storage="${storageExt}", title="${titleExt}") doc_type="${dt}"`)
+
+  // ── Spreadsheets ─────────────────────────────────────────────────────────
+  if (["xlsx", "xls", "csv", "tsv"].includes(ext)) {
+    console.log(`[Vault/Viewer] → spreadsheet (ext match)`)
+    return "spreadsheet"
+  }
+  if (dt === "Spreadsheet") {
+    console.log(`[Vault/Viewer] → spreadsheet (doc_type match)`)
     return "spreadsheet"
   }
 
-  // Word docs
-  if (ext === "docx") {
-    console.log(`[Vault/Viewer] → docx`)
-    return "docx"
-  }
+  // ── Word docs ─────────────────────────────────────────────────────────────
+  if (ext === "docx") { console.log(`[Vault/Viewer] → docx`); return "docx" }
 
-  // Images
-  const imageExts = ["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "avif"]
-  if (imageExts.includes(ext) || dt === "Design Asset") {
+  // ── Images ────────────────────────────────────────────────────────────────
+  if (["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "avif"].includes(ext) || dt === "Design Asset") {
     console.log(`[Vault/Viewer] → image`)
     return "image"
   }
 
-  // PDF
-  if (ext === "pdf") {
-    console.log(`[Vault/Viewer] → pdf`)
-    return "pdf"
+  // ── PDF ───────────────────────────────────────────────────────────────────
+  if (ext === "pdf") { console.log(`[Vault/Viewer] → pdf`); return "pdf" }
+
+  // ── Plain text / markdown → TipTap ───────────────────────────────────────
+  if (["txt", "md", "mdx"].includes(ext)) {
+    console.log(`[Vault/Viewer] → doc (.${ext})`)
+    return "doc"
   }
 
-  // Code files
+  // ── Code → Monaco ────────────────────────────────────────────────────────
   const codeExts = [
     "js", "ts", "tsx", "jsx", "py", "rb", "go", "rs", "java",
     "cpp", "c", "h", "css", "scss", "html", "json", "yaml",
-    "yml", "sql", "sh", "bash", "txt", "md", "env", "toml",
-    "graphql", "gql", "mdx", "swift", "kt", "r", "scala",
+    "yml", "sql", "sh", "bash", "env", "toml",
+    "graphql", "gql", "swift", "kt", "r", "scala",
   ]
   if (codeExts.includes(ext) || dt === "Code") {
-    // txt/md go to TipTap for rich editing; others go to Monaco
-    if (["txt", "md", "mdx"].includes(ext)) {
-      console.log(`[Vault/Viewer] → doc (text file: .${ext})`)
-      return "doc"
-    }
     console.log(`[Vault/Viewer] → code`)
     return "code"
   }
 
-  // ── FIX 1: Text-type document_type with content ────────────────────────────
-  // Handles the case where AI labeled a .txt upload as document_type="Note"
-  // but the title has no extension (AI stripped it).
+  // ── Text doc_type + content → TipTap ─────────────────────────────────────
   const hasTextContent = !!(item.note_content || item.extracted_text)
   if (TEXT_DOC_TYPES.has(dt) && hasTextContent) {
     console.log(`[Vault/Viewer] → doc (text doc_type="${dt}" with content)`)
     return "doc"
   }
-
-  // Also treat any file where we ONLY have extracted_text and no binary viewer as doc
   if (item.extracted_text && !item.drive_file_url && !item.storage_path) {
-    console.log(`[Vault/Viewer] → doc (only extracted_text available, no binary URL)`)
+    console.log(`[Vault/Viewer] → doc (extracted_text only, no binary URL)`)
     return "doc"
   }
 
@@ -310,6 +308,7 @@ export function VaultView() {
   const [aiWriterPrompt, setAiWriterPrompt] = useState("")
   const [aiWriterResponse, setAiWriterResponse] = useState("")
   const [aiWriterLoading, setAiWriterLoading] = useState(false)
+  const noteEditorInsertRef = useRef<((content: string) => void) | null>(null)
 
   // Doc editor
   const [docTitle, setDocTitle] = useState("")
@@ -588,8 +587,10 @@ export function VaultView() {
 
   // ── File select & AI labeling ──────────────────────────────────────────────
 
+  const MAX_UPLOAD_BYTES = 4 * 1024 * 1024 // 4MB — Next.js/Vercel serverless limit
+
   const handleFileSelect = async (file: File | null) => {
-    setUploadFile(file)
+    setUploadFile(null)
     setExtractedText("")
     setAddForm(f => ({ ...f, title: "", description: "", document_type: "Content" }))
 
@@ -599,6 +600,20 @@ export function VaultView() {
     }
 
     console.log(`[Vault/Upload] File selected: "${file.name}" | size=${file.size} | type="${file.type}"`)
+
+    // Guard: reject files over the server limit before any processing
+    if (file.size > MAX_UPLOAD_BYTES) {
+      const sizeMB = (file.size / 1024 / 1024).toFixed(1)
+      toast.error(
+        `File too large (${sizeMB}MB). Maximum upload size is 4MB. Please compress or split the file.`,
+        { duration: 6000 }
+      )
+      if (fileInputRef.current) fileInputRef.current.value = ""
+      console.warn(`[Vault/Upload] Rejected: ${file.name} is ${sizeMB}MB, exceeds 4MB limit`)
+      return
+    }
+
+    setUploadFile(file)
 
     if (!aiLabelMode) {
       console.log("[Vault/Upload] AI labeling OFF — skipping auto-label")
@@ -695,8 +710,15 @@ export function VaultView() {
         if (extractedText) formData.append("extracted_text", extractedText)
 
         const res = await fetch("/api/vault/upload-internal", { method: "POST", body: formData })
+        if (!res.ok) {
+          if (res.status === 413) {
+            const sizeMB = (uploadFile.size / 1024 / 1024).toFixed(1)
+            throw new Error(`File too large (${sizeMB}MB). Maximum size is 4MB. Please compress it and try again.`)
+          }
+          const json = await res.json().catch(() => ({ message: "Upload failed" }))
+          throw new Error(json.message || `Upload failed (${res.status})`)
+        }
         const json = await res.json()
-        if (!res.ok) throw new Error(json.message)
 
         storagePath = json.storage_path
         if (!extractedText && json.extracted_text) {
@@ -846,10 +868,18 @@ export function VaultView() {
 
   const insertAIResponse = () => {
     if (!aiWriterResponse) return
-    setDocContent((prev) => prev + "\n\n" + aiWriterResponse)
+
+    if (noteEditorInsertRef.current) {
+      // Inject directly into live TipTap editor — preserves cursor position
+      noteEditorInsertRef.current("\n\n" + aiWriterResponse)
+    } else {
+      // Fallback: update raw docContent (plain text / non-TipTap mode)
+      setDocContent((prev) => prev + "\n\n" + aiWriterResponse)
+    }
+
     setAiWriterResponse("")
     setAiWriterPrompt("")
-    toast.success("Inserted into document")
+    toast.success("Content inserted into document")
   }
 
   // ── Search overlay ─────────────────────────────────────────────────────────
@@ -1256,6 +1286,7 @@ export function VaultView() {
                         createdAt={activeItem?.created_at}
                         className="flex-1"
                         onAIWrite={() => setAiWriterOpen(true)}
+                        editorInsertRef={noteEditorInsertRef}
                       />
                       {aiWriterOpen && (
                         <AIWriterPanel
@@ -1986,19 +2017,35 @@ function CommentsPanel({ itemId }: { itemId: string }) {
 
   const loadComments = async () => {
     console.log(`[Vault/Comments] Loading comments for item=${itemId}`)
+    // Step 1: fetch comments without join (avoids FK naming issues)
     const { data, error } = await supabase
       .from("vault_comments")
-      .select("id, content, created_at, profile:profiles!vault_comments_user_id_fkey(full_name)")
+      .select("id, content, created_at, user_id")
       .eq("vault_item_id", itemId)
       .order("created_at", { ascending: true })
+
     if (error) {
       console.error("[Vault/Comments] Load error:", error)
       return
     }
-    setComments((data || []).map((c: any) => ({
+    if (!data || data.length === 0) {
+      setComments([])
+      return
+    }
+
+    // Step 2: resolve profile names for unique user_ids
+    const userIds = [...new Set(data.map((c: any) => c.user_id))]
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, full_name")
+      .in("id", userIds)
+
+    const nameMap = Object.fromEntries((profiles || []).map((p: any) => [p.id, p.full_name]))
+
+    setComments(data.map((c: any) => ({
       id: c.id,
       content: c.content,
-      user_name: c.profile?.full_name || "Team",
+      user_name: nameMap[c.user_id] || "Team",
       created_at: c.created_at,
     })))
   }

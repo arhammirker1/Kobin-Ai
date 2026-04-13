@@ -48,7 +48,7 @@ async function loadTipTap() {
             heading: { levels: [1, 2, 3] },
             bulletList: { keepMarks: true },
             orderedList: { keepMarks: true },
-            code: false,
+            // code: true (default) — do NOT disable, toggleCode() needs it
             codeBlock: false,
         }),
         placeholder.default.configure({
@@ -79,6 +79,8 @@ interface NoteEditorProps {
     className?: string
     /** Enable the AI Writer button */
     onAIWrite?: () => void
+    /** Ref that gets assigned an insert function — call it to inject content into the editor */
+    editorInsertRef?: React.MutableRefObject<((content: string) => void) | null>
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -158,6 +160,7 @@ export default function NoteEditor({
             createdAt={createdAt}
             className={className}
             onAIWrite={onAIWrite}
+            editorInsertRef={editorInsertRef}
         />
     )
 }
@@ -166,7 +169,7 @@ export default function NoteEditor({
 
 function TipTapEditorInner({
     title, content, onTitleChange, onContentChange,
-    onSave, isSaving, projectName, createdAt, className, onAIWrite,
+    onSave, isSaving, projectName, createdAt, className, onAIWrite, editorInsertRef,
 }: NoteEditorProps) {
     const editor = useEditor({
         extensions: TipTapExtensions,
@@ -180,6 +183,20 @@ function TipTapEditorInner({
             onContentChange(editor.getHTML())
         },
     })
+
+    // ── Wire editorInsertRef so vault-view can inject AI content ───────────────
+    useEffect(() => {
+        if (!editorInsertRef) return
+        editorInsertRef.current = (rawContent: string) => {
+            if (!editor) return
+            // Convert plain-text paragraphs to TipTap-compatible content
+            // TipTap insertContent handles plain strings correctly
+            editor.chain().focus().insertContent(rawContent).run()
+        }
+        return () => {
+            if (editorInsertRef) editorInsertRef.current = null
+        }
+    }, [editor, editorInsertRef])
 
     // ── Toolbar helpers ─────────────────────────────────────────────────────────
     const tools: Array<{

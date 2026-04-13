@@ -23,6 +23,14 @@ async function extractPdfText(buffer: Buffer): Promise<string> {
   }
 }
 
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: "50mb",
+    },
+  },
+}
+
 export async function POST(request: Request) {
   try {
     const supabase = await createClient()
