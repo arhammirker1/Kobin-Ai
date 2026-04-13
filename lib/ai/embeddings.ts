@@ -15,31 +15,32 @@ import crypto from "crypto"
 
 // ── OpenAI embedding call ────────────────────────────────────────────────────
 
+
+// REPLACE with:
 export async function generateEmbedding(text: string): Promise<number[]> {
   const clean = text.replace(/\s+/g, " ").trim().slice(0, 8000)
 
-  const res = await fetch("https://api.openai.com/v1/embeddings", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY!}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "text-embedding-3-small",
-      input: clean,
-      encoding_format: "float",
-    }),
-  })
+  const res = await fetch(
+    "https://api-inference.huggingface.co/models/BAAI/bge-small-en-v1.5",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.HUGGINGFACE_API_KEY!}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ inputs: clean }),
+    }
+  )
 
   if (!res.ok) {
     const err = await res.text()
-    throw new Error(`OpenAI embedding error: ${err}`)
+    throw new Error(`HuggingFace embedding error: ${err}`)
   }
 
   const data = await res.json()
-  return data.data[0].embedding as number[]
+  // HF returns either a flat array or [[...]] depending on the model
+  return Array.isArray(data[0]) ? data[0] : data
 }
-
 // ── Build embeddable text from a vault item ──────────────────────────────────
 
 export function buildEmbeddingText(item: {

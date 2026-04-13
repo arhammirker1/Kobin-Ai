@@ -1369,25 +1369,26 @@ export async function execVaultSemanticSearch(
 
   try {
     // Generate embedding via OpenAI
-    const embedRes = await fetch("https://api.openai.com/v1/embeddings", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY!}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "text-embedding-3-small",
-        input: query.slice(0, 2000),
-      }),
-    })
+// REPLACE with:
+    const embedRes = await fetch(
+      "https://api-inference.huggingface.co/models/BAAI/bge-small-en-v1.5",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.HUGGINGFACE_API_KEY!}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ inputs: query.slice(0, 2000) }),
+      }
+    )
 
     if (!embedRes.ok) {
-      // Fallback to keyword search if embedding fails
       return execVaultKeyword(args, founderId)
     }
 
     const embedData = await embedRes.json()
-    const vector = `[${embedData.data[0].embedding.join(",")}]`
+    const embedding = Array.isArray(embedData[0]) ? embedData[0] : embedData
+    const vector = `[${embedding.join(",")}]`
 
     // RPC similarity search
     const { data: similarities } = await supabaseAdmin.rpc("vault_semantic_search", {
