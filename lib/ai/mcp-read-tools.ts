@@ -1403,9 +1403,12 @@ export async function execVaultSemanticSearch(
     }
 
     const itemIds = similarities.map((s: any) => s.vault_item_id)
+    console.log(`[VaultSearch/MCP] ${itemIds.length} candidates via vector for "${query}"`)
+
+    // Include note_content + extracted_text so AI can actually summarize documents
     let q = supabaseAdmin
       .from("vault_items")
-      .select("id, title, description, item_type, document_type, project_id")
+      .select("id, title, description, item_type, document_type, project_id, note_content, extracted_text")
       .in("id", itemIds)
       .eq("founder_id", founderId)
 
@@ -1429,14 +1432,22 @@ export async function execVaultSemanticSearch(
       .sort((a, b) => b.similarity - a.similarity)
       .slice(0, cap)
 
-    const lines = [`Vault semantic search — "${query}" (${ranked.length} results):`]
+    console.log(`[VaultSearch/MCP] Returning top-${ranked.length} results for "${query}"`)
+
+    const lines = [`Vault semantic search — "${query}" (${ranked.length} results):`,
+      `NOTE: These documents may belong to clients or projects. Always attribute data to its source title.`]
     for (const item of ranked) {
       const sim = (item.similarity * 100).toFixed(0)
       const proj = item.project_id ? pMap[item.project_id] || "Unknown" : "No project"
-      lines.push(
-        `- [${sim}%] "${item.title}" | ${item.document_type} | ${item.item_type} | ${proj}`
-      )
-      if (item.description) lines.push(`  ${item.description.slice(0, 80)}`)
+      lines.push(`\n### [${sim}% match] "${item.title}" | ${item.document_type} | ${item.item_type} | ${proj}`)
+      if (item.description) lines.push(`Description: ${item.description.slice(0, 120)}`)
+      // Include actual content so AI can summarize — capped to avoid context overflow
+      const content = (item.note_content || item.extracted_text || "").trim()
+      if (content) {
+        lines.push(`Content (first 800 chars):`)
+        lines.push(content.slice(0, 800))
+        if (content.length > 800) lines.push(`… [${content.length} chars total — use vault_semantic_search with higher limit for more]`)
+      }
     }
 
     return { content: lines.join("\n") }

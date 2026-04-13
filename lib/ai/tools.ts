@@ -278,6 +278,7 @@ export const READ_TOOL_NAMES = new Set<string>([
   "get_task_creation_context",
   "search_contacts",
   "get_meeting_notes",
+  "vault_semantic_search",  // ← was missing; caused 4-step loop + Unknown tool errors
   // analyze_workspace is read-like but returns synthesized data
   "analyze_workspace",
 ])

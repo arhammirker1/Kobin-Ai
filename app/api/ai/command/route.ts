@@ -87,6 +87,7 @@ const READ_TOOL_LABELS: Record<string, string> = {
   search_contacts:           "Looking up contact…",
   get_meeting_notes:         "Fetching meeting notes…",
   analyze_workspace:         "Analyzing workspace…",
+  vault_semantic_search:     "Searching vault semantically…",
 }
 
 const ACTION_TOOL_LABELS: Record<string, string> = {
@@ -259,12 +260,14 @@ Never send nested objects for scalar fields.`
       }
 
       const actionEvents: Array<Record<string, any>> = []
-      const createActionsExecuted = new Set<string>()
-      let lastActionMessage = ""
+        const createActionsExecuted = new Set<string>()
+        let lastActionMessage = ""
+        // Shared across all steps — deduplicates repeated read tool calls with identical args
+        const toolMemo = createToolMemoizer()
 
-      try {
-        // ── Agentic loop (max 4 steps) ───────────────────────────────────
-        for (let step = 0; step < 4; step++) {
+        try {
+          // ── Agentic loop (max 4 steps) ───────────────────────────────────
+          for (let step = 0; step < 4; step++) {
 
           // ── Non-streaming call to get tool decisions ───────────────────
           let response: any
@@ -298,15 +301,16 @@ Never send nested objects for scalar fields.`
               enqueue({ type: "action_executed", ...ev })
             }
 
-            // Stream the answer — NO tools passed, tool_choice none
-            // This prevents Groq from re-evaluating tool schemas and cuts TTFT significantly
+            // Final text pass: pass tools + tool_choice=none so Groq doesn't reject
+            // when message history already contains tool call entries from prior steps
+            console.log(`[CMD] step=${step} → final text stream (tool_choice=none)`)
             const streamResponse = await groqCall(groq, selected.model, {
               messages,
               stream: true,
               max_tokens: 1024,
               temperature: 0.2,
-              // Explicitly exclude tools on the final text pass — sending the full
-              // tool schema costs tokens and adds latency with no benefit here
+              tools: ALL_TOOLS as any,
+              tool_choice: "none",
             })
 
             for await (const chunk of streamResponse) {
@@ -331,7 +335,6 @@ Never send nested objects for scalar fields.`
           const readCalls   = toolCalls.filter((tc: any) =>  READ_TOOL_NAMES.has(tc.function.name))
           const actionCalls = toolCalls.filter((tc: any) => !READ_TOOL_NAMES.has(tc.function.name))
 
-          const toolMemo = createToolMemoizer()
           const toolResults: Array<{ tool_call_id: string; role: "tool"; content: string }> = []
 
           // ── READ tools in parallel, with per-tool status events ────────
@@ -481,6 +484,8 @@ Never send nested objects for scalar fields.`
               stream: true,
               max_tokens: 256,
               temperature: 0.2,
+              tools: ALL_TOOLS as any,
+              tool_choice: "none",
             })
             for await (const chunk of confirmStream) {
               const delta = chunk.choices[0]?.delta?.content
@@ -499,11 +504,14 @@ Never send nested objects for scalar fields.`
           enqueue({ type: "action_executed", ...ev })
         }
 
+        console.log(`[CMD] max steps exhausted → final stream (tool_choice=none)`)
         const finalStream = await groqCall(groq, selected.model, {
           messages,
           stream: true,
           max_tokens: 1024,
           temperature: 0.5,
+          tools: ALL_TOOLS as any,
+          tool_choice: "none",
         })
         for await (const chunk of finalStream) {
           const delta = chunk.choices[0]?.delta?.content

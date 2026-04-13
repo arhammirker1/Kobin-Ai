@@ -28,8 +28,9 @@ export async function POST(request: Request) {
     } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    const { prompt, documentTitle, documentContent, projectId } =
+    const { prompt, documentTitle, documentContent, projectId, mode } =
       await request.json()
+    console.log(`[vault/ai-write] prompt="${prompt?.slice(0, 60)}" mode="${mode || "doc"}" project="${projectId || "none"}"`)
 
     if (!prompt?.trim()) {
       return NextResponse.json({ error: "Prompt required" }, { status: 400 })
@@ -60,7 +61,8 @@ export async function POST(request: Request) {
       { maxItems: 5, projectId }
     )
 
-    const isCodeMode = (await request.clone().json().catch(() => ({}))).mode === "code"
+    const isCodeMode = mode === "code"
+    console.log(`[vault/ai-write] isCodeMode=${isCodeMode} | vaultContext items=${sources.length}`)
 
     const systemPrompt = isCodeMode
       ? `You are an expert software engineer embedded in Kobin AI.

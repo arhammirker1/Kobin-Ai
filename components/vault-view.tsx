@@ -351,12 +351,13 @@ export function VaultView() {
   const [fileContent, setFileContent] = useState<string | null>(null)
   const [fileLoading, setFileLoading] = useState(false)
 
-  // Code / DOCX viewer controls
+  // Code / DOCX / Spreadsheet viewer controls
   const [codeAiWriterOpen, setCodeAiWriterOpen] = useState(false)
   const [docxEditMode, setDocxEditMode] = useState(false)
   const [docxAiWriterOpen, setDocxAiWriterOpen] = useState(false)
   const codeViewerSaveRef = useRef<(() => void) | null>(null)
   const docxViewerSaveRef = useRef<(() => void) | null>(null)
+  const spreadsheetSaveRef = useRef<(() => void) | null>(null)
 
   // Context menu
   const [menuItemId, setMenuItemId] = useState<string | null>(null)
@@ -511,7 +512,7 @@ export function VaultView() {
   }, [])
 
   // ── Save edited file content (code / docx) ─────────────────────────────────
-  const saveFileContent = useCallback(async (content: string, type: "code" | "docx") => {
+  const saveFileContent = useCallback(async (content: string, type: "code" | "docx" | "spreadsheet") => {
     if (!activeItem) return
     setIsSaving(true)
     const { error } = await supabase
@@ -1366,6 +1367,15 @@ export function VaultView() {
                       </button>
                     </>
                   )}
+                  {activeViewer === "spreadsheet" && (
+                    <button
+                      onClick={() => spreadsheetSaveRef.current?.()}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white text-black hover:bg-white/90 rounded-lg text-[11px] font-semibold transition-all"
+                    >
+                      {isSaving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                      Save
+                    </button>
+                  )}
                   {activeItem?.drive_file_url && (
                     <a href={activeItem.drive_file_url} target="_blank" rel="noopener noreferrer"
                       className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/5 border border-white/8 rounded-lg text-[11px] text-white/50 hover:text-white/80 transition-all"
@@ -1516,7 +1526,13 @@ export function VaultView() {
                           <span className="text-[11px] text-white/30">Loading spreadsheet…</span>
                         </div>
                       ) : (
-                        <SpreadsheetViewerComponent fileUrl={signedUrl} filename={activeItem?.title || "spreadsheet.xlsx"} className="flex-1" />
+                        <SpreadsheetViewerComponent
+                          fileUrl={signedUrl}
+                          filename={activeItem?.title || "spreadsheet.xlsx"}
+                          onSave={(csv) => saveFileContent(csv, "spreadsheet")}
+                          saveRef={spreadsheetSaveRef}
+                          className="flex-1"
+                        />
                       )}
                       <DeliverableApprovalStrip item={activeItem!} folders={folders} approvalStatus={approvalStatus} onApprove={() => setApprovalStatus("approved")} onRequestChanges={() => setApprovalStatus("changes_requested")} onReset={() => setApprovalStatus("none")} />
                     </div>
