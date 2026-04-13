@@ -90,6 +90,7 @@ export default function NoteEditor({
     onSave, isSaving,
     projectName, createdAt,
     className, onAIWrite,
+    editorInsertRef,
 }: NoteEditorProps) {
     const [ready, setReady] = useState(false)
     const [loadErr, setLoadErr] = useState(false)
