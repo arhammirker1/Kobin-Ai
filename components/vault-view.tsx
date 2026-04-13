@@ -1243,128 +1243,207 @@ export function VaultView() {
                 />
               )}
             </div>
+          )}
+        </div>
+      </div>
 
-      {/* ── Search overlay ── */}
-          {searchOverlayOpen && (
-            <div
-              className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-start justify-center pt-24"
-              onClick={(e) => { if (e.target === e.currentTarget) setSearchOverlayOpen(false) }}
-            >
-              <div className="w-[560px] bg-[#1c1c1a] border border-white/10 rounded-2xl overflow-hidden shadow-2xl">
-                <div className="flex items-center gap-3 px-4 py-3.5 border-b border-white/8">
-                  <Search size={14} className="text-white/30 shrink-0" />
-                  <input
-                    ref={searchInputRef}
-                    className="flex-1 bg-transparent text-[13px] text-white/80 outline-none placeholder:text-white/25"
-                    placeholder="Search or ask anything about your vault…"
-                    value={searchOverlayQuery}
-                    onChange={(e) => handleSearchOverlayQuery(e.target.value)}
-                  />
-                  <div className="flex items-center gap-1.5 px-2 py-1 bg-violet-500/15 border border-violet-500/25 rounded text-[9px] font-bold text-violet-400">
-                    <Sparkles size={8} />AI Search
-                  </div>
-                </div>
-                <div className="max-h-80 overflow-y-auto p-2">
-                  {searchLoading && (
-                    <div className="flex items-center justify-center py-6">
-                      <Loader2 size={16} className="animate-spin text-white/30" />
-                    </div>
-                  )}
-                  {!searchLoading && searchResults.length === 0 && searchOverlayQuery && (
-                    <p className="text-[11px] text-white/25 text-center py-6">No results found</p>
-                  )}
-                  {!searchLoading && searchResults.length === 0 && !searchOverlayQuery && (
-                    <p className="text-[11px] text-white/20 text-center py-6">Start typing to search your vault semantically</p>
-                  )}
-                  {searchResults.map((result) => {
-                    const tc = getTypeConfig(result)
-                    return (
-                      <button
-                        key={result.id}
-                        onClick={() => openSearchResult(result)}
-                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 transition-colors text-left group"
-                      >
-                        <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center shrink-0", tc.color.split(" ")[0])}>
-                          <span className={tc.color.split(" ")[1]}>{tc.icon}</span>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[12px] font-medium text-white/80 truncate">{result.title}</p>
-                          <p className="text-[10px] text-white/30 truncate">
-                            {result.project_name && `${result.project_name} · `}
-                            {result.description?.slice(0, 60)}
-                          </p>
-                        </div>
-                        <div className="text-[9px] text-violet-400/60 shrink-0">
-                          {(result.similarity * 100).toFixed(0)}%
-                        </div>
-                      </button>
-                    )
-                  })}
-                </div>
-                <div className="px-4 py-2.5 border-t border-white/5 flex items-center justify-between">
-                  <span className="text-[9px] text-white/20">Semantic search powered by pgvector</span>
-                  <div className="flex gap-3">
-                    {[["↑↓", "navigate"], ["↵", "open"], ["Esc", "close"]].map(([key, label]) => (
-                      <span key={key} className="text-[9px] text-white/20 flex items-center gap-1">
-                        <span className="font-mono border border-white/15 rounded px-1">{key}</span>{label}
-                      </span>
-                    ))}
-                  </div>
-                </div>
+      {/* ── Search overlay ── */}          {searchOverlayOpen && (
+        <div
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-start justify-center pt-24"
+          onClick={(e) => { if (e.target === e.currentTarget) setSearchOverlayOpen(false) }}
+        >
+          <div className="w-[560px] bg-[#1c1c1a] border border-white/10 rounded-2xl overflow-hidden shadow-2xl">
+            <div className="flex items-center gap-3 px-4 py-3.5 border-b border-white/8">
+              <Search size={14} className="text-white/30 shrink-0" />
+              <input
+                ref={searchInputRef}
+                className="flex-1 bg-transparent text-[13px] text-white/80 outline-none placeholder:text-white/25"
+                placeholder="Search or ask anything about your vault…"
+                value={searchOverlayQuery}
+                onChange={(e) => handleSearchOverlayQuery(e.target.value)}
+              />
+              <div className="flex items-center gap-1.5 px-2 py-1 bg-violet-500/15 border border-violet-500/25 rounded text-[9px] font-bold text-violet-400">
+                <Sparkles size={8} />AI Search
               </div>
             </div>
-          )}
-
-          {/* ── Add item dialog ── */}
-          <Dialog open={addDialogOpen} onOpenChange={(open) => { if (!open) { setAddDialogOpen(false); resetAddForm() } }}>
-            <DialogContent className="max-w-lg bg-[#1c1c1a] border-white/10 text-white">
-              <DialogHeader>
-                <DialogTitle className="text-white/90">Add to Vault</DialogTitle>
-              </DialogHeader>
-              {!addItemType ? (
-                <div className="space-y-3 py-2">
-                  <p className="text-[12px] text-white/40">What would you like to add?</p>
-                  <div className="grid grid-cols-3 gap-3">
-                    {([
-                      { type: "file" as ItemType, label: "File Upload", icon: <Upload size={20} />, color: "text-blue-400" },
-                      { type: "link" as ItemType, label: "Link", icon: <Link2 size={20} />, color: "text-emerald-400" },
-                      { type: "note" as ItemType, label: "Note", icon: <StickyNote size={20} />, color: "text-amber-400" },
-                    ]).map(({ type, label, icon, color }) => (
-                      <button
-                        key={type}
-                        onClick={() => setAddItemType(type)}
-                        className="flex flex-col items-center gap-2 p-4 rounded-xl border border-white/8 hover:border-violet-500/40 hover:bg-violet-500/5 transition-all group"
-                      >
-                        <span className={cn(color, "group-hover:scale-110 transition-transform")}>{icon}</span>
-                        <span className="text-[11px] font-semibold text-white/40 group-hover:text-white/80">{label}</span>
-                      </button>
-                    ))}
-                  </div>
+            <div className="max-h-80 overflow-y-auto p-2">
+              {searchLoading && (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 size={16} className="animate-spin text-white/30" />
                 </div>
-              ) : (
-                <div className="space-y-4 py-2">
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => setAddItemType(null)} className="text-white/30 hover:text-white/60"><X size={13} /></button>
-                    <span className="text-[12px] font-semibold text-white/70 capitalize">
-                      {addItemType === "file" ? "File Upload" : addItemType}
-                    </span>
-                  </div>
+              )}
+              {!searchLoading && searchResults.length === 0 && searchOverlayQuery && (
+                <p className="text-[11px] text-white/25 text-center py-6">No results found</p>
+              )}
+              {!searchLoading && searchResults.length === 0 && !searchOverlayQuery && (
+                <p className="text-[11px] text-white/20 text-center py-6">Start typing to search your vault semantically</p>
+              )}
+              {searchResults.map((result) => {
+                const tc = getTypeConfig(result)
+                return (
+                  <button
+                    key={result.id}
+                    onClick={() => openSearchResult(result)}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 transition-colors text-left group"
+                  >
+                    <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center shrink-0", tc.color.split(" ")[0])}>
+                      <span className={tc.color.split(" ")[1]}>{tc.icon}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12px] font-medium text-white/80 truncate">{result.title}</p>
+                      <p className="text-[10px] text-white/30 truncate">
+                        {result.project_name && `${result.project_name} · `}
+                        {result.description?.slice(0, 60)}
+                      </p>
+                    </div>
+                    <div className="text-[9px] text-violet-400/60 shrink-0">
+                      {(result.similarity * 100).toFixed(0)}%
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+            <div className="px-4 py-2.5 border-t border-white/5 flex items-center justify-between">
+              <span className="text-[9px] text-white/20">Semantic search powered by pgvector</span>
+              <div className="flex gap-3">
+                {[["↑↓", "navigate"], ["↵", "open"], ["Esc", "close"]].map(([key, label]) => (
+                  <span key={key} className="text-[9px] text-white/20 flex items-center gap-1">
+                    <span className="font-mono border border-white/15 rounded px-1">{key}</span>{label}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Add item dialog ── */}
+      <Dialog open={addDialogOpen} onOpenChange={(open) => { if (!open) { setAddDialogOpen(false); resetAddForm() } }}>
+        <DialogContent className="max-w-lg bg-[#1c1c1a] border-white/10 text-white">
+          <DialogHeader>
+            <DialogTitle className="text-white/90">Add to Vault</DialogTitle>
+          </DialogHeader>
+          {!addItemType ? (
+            <div className="space-y-3 py-2">
+              <p className="text-[12px] text-white/40">What would you like to add?</p>
+              <div className="grid grid-cols-3 gap-3">
+                {([
+                  { type: "file" as ItemType, label: "File Upload", icon: <Upload size={20} />, color: "text-blue-400" },
+                  { type: "link" as ItemType, label: "Link", icon: <Link2 size={20} />, color: "text-emerald-400" },
+                  { type: "note" as ItemType, label: "Note", icon: <StickyNote size={20} />, color: "text-amber-400" },
+                ]).map(({ type, label, icon, color }) => (
+                  <button
+                    key={type}
+                    onClick={() => setAddItemType(type)}
+                    className="flex flex-col items-center gap-2 p-4 rounded-xl border border-white/8 hover:border-violet-500/40 hover:bg-violet-500/5 transition-all group"
+                  >
+                    <span className={cn(color, "group-hover:scale-110 transition-transform")}>{icon}</span>
+                    <span className="text-[11px] font-semibold text-white/40 group-hover:text-white/80">{label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4 py-2">
+              <div className="flex items-center gap-2">
+                <button onClick={() => setAddItemType(null)} className="text-white/30 hover:text-white/60"><X size={13} /></button>
+                <span className="text-[12px] font-semibold text-white/70 capitalize">
+                  {addItemType === "file" ? "File Upload" : addItemType}
+                </span>
+              </div>
+              <div className="space-y-3">
+                {/* Title/Description/DocType only shown for link and note — file type handles its own */}
+                {addItemType !== "file" && (
+                  <>
+                    <div>
+                      <label className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1.5 block">Title *</label>
+                      <Input placeholder="Enter a clear title…" value={addForm.title} onChange={(e) => setAddForm((f) => ({ ...f, title: e.target.value }))} className="bg-white/5 border-white/8 text-white/80 placeholder:text-white/20 focus:border-violet-500/40 h-9 text-[12px]" />
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1.5 block">Description *</label>
+                      <textarea placeholder="What is this? Add context so your team knows…" value={addForm.description} onChange={(e) => setAddForm((f) => ({ ...f, description: e.target.value }))} rows={2} className="w-full rounded-lg border border-white/8 bg-white/5 px-3 py-2 text-[12px] text-white/80 placeholder:text-white/20 outline-none focus:border-violet-500/40 resize-none" />
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1.5 block">Document Type</label>
+                      <Select value={addForm.document_type} onValueChange={(v) => setAddForm((f) => ({ ...f, document_type: v }))}>
+                        <SelectTrigger className="h-9 text-[12px] bg-white/5 border-white/8 text-white/70"><SelectValue /></SelectTrigger>
+                        <SelectContent className="bg-[#1c1c1a] border-white/10">
+                          {DOCUMENT_TYPES.map((t) => <SelectItem key={t} value={t} className="text-white/70 text-[12px]">{t}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </>
+                )}
+                {addItemType === "file" && (
                   <div className="space-y-3">
-                    {/* Title/Description/DocType only shown for link and note — file type handles its own */}
-                    {addItemType !== "file" && (
+                    {/* File drop zone */}
+                    <div>
+                      <label className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1.5 block">File *</label>
+                      <div onClick={() => fileInputRef.current?.click()} className={cn("border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all", uploadFile ? "border-violet-500/40 bg-violet-500/5" : "border-white/10 hover:border-violet-500/30 hover:bg-white/3")}>
+                        {uploadFile ? (
+                          <div className="flex items-center justify-center gap-2 text-[12px]">
+                            <FileText size={13} className="text-violet-400" />
+                            <span className="text-white/60 truncate max-w-[180px]">{uploadFile.name}</span>
+                            <button onClick={(e) => { e.stopPropagation(); handleFileSelect(null) }} className="text-white/30 hover:text-white/60 ml-1"><X size={11} /></button>
+                          </div>
+                        ) : (
+                          <div className="space-y-1">
+                            <Upload size={18} className="mx-auto text-white/15" />
+                            <p className="text-[11px] text-white/25">Click to select · any format</p>
+                          </div>
+                        )}
+                      </div>
+                      <input ref={fileInputRef} type="file" className="hidden" onChange={(e) => handleFileSelect(e.target.files?.[0] || null)} />
+                    </div>
+
+                    {/* AI label toggle */}
+                    <div className="flex items-center justify-between px-1">
+                      <div className="flex items-center gap-2">
+                        <Sparkles size={11} className={aiLabelMode ? "text-violet-400" : "text-white/20"} />
+                        <span className="text-[10px] text-white/40">AI auto-label</span>
+                        {isAiLabeling && <Loader2 size={10} className="animate-spin text-violet-400" />}
+                      </div>
+                      <button
+                        onClick={() => setAiLabelMode(v => !v)}
+                        className={cn("w-8 h-4 rounded-full transition-colors relative", aiLabelMode ? "bg-violet-500" : "bg-white/10")}
+                      >
+                        <span className={cn("absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all", aiLabelMode ? "left-4" : "left-0.5")} />
+                      </button>
+                    </div>
+
+                    {/* Title — shown after file picked */}
+                    {(uploadFile || !aiLabelMode) && (
                       <>
                         <div>
-                          <label className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1.5 block">Title *</label>
-                          <Input placeholder="Enter a clear title…" value={addForm.title} onChange={(e) => setAddForm((f) => ({ ...f, title: e.target.value }))} className="bg-white/5 border-white/8 text-white/80 placeholder:text-white/20 focus:border-violet-500/40 h-9 text-[12px]" />
+                          <label className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1.5 flex items-center gap-1.5">
+                            Title *
+                            {isAiLabeling && <span className="text-violet-400/60 normal-case font-normal">AI writing…</span>}
+                          </label>
+                          <Input
+                            placeholder={isAiLabeling ? "Analyzing file…" : "Enter a clear title…"}
+                            value={addForm.title}
+                            disabled={isAiLabeling}
+                            onChange={(e) => setAddForm((f) => ({ ...f, title: e.target.value }))}
+                            className="bg-white/5 border-white/8 text-white/80 placeholder:text-white/20 focus:border-violet-500/40 h-9 text-[12px] disabled:opacity-50"
+                          />
                         </div>
                         <div>
                           <label className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1.5 block">Description *</label>
-                          <textarea placeholder="What is this? Add context so your team knows…" value={addForm.description} onChange={(e) => setAddForm((f) => ({ ...f, description: e.target.value }))} rows={2} className="w-full rounded-lg border border-white/8 bg-white/5 px-3 py-2 text-[12px] text-white/80 placeholder:text-white/20 outline-none focus:border-violet-500/40 resize-none" />
+                          <textarea
+                            placeholder={isAiLabeling ? "Analyzing file…" : "What is this? Add context so your team knows…"}
+                            value={addForm.description}
+                            disabled={isAiLabeling}
+                            onChange={(e) => setAddForm((f) => ({ ...f, description: e.target.value }))}
+                            rows={2}
+                            className="w-full rounded-lg border border-white/8 bg-white/5 px-3 py-2 text-[12px] text-white/80 placeholder:text-white/20 outline-none focus:border-violet-500/30 resize-none disabled:opacity-50"
+                          />
                         </div>
                         <div>
                           <label className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1.5 block">Document Type</label>
                           <Select value={addForm.document_type} onValueChange={(v) => setAddForm((f) => ({ ...f, document_type: v }))}>
-                            <SelectTrigger className="h-9 text-[12px] bg-white/5 border-white/8 text-white/70"><SelectValue /></SelectTrigger>
+                            <SelectTrigger className="h-9 text-[12px] bg-white/5 border-white/8 text-white/70">
+                              <SelectValue />
+                            </SelectTrigger>
                             <SelectContent className="bg-[#1c1c1a] border-white/10">
                               {DOCUMENT_TYPES.map((t) => <SelectItem key={t} value={t} className="text-white/70 text-[12px]">{t}</SelectItem>)}
                             </SelectContent>
@@ -1372,653 +1451,576 @@ export function VaultView() {
                         </div>
                       </>
                     )}
-                    {addItemType === "file" && (
-                      <div className="space-y-3">
-                        {/* File drop zone */}
-                        <div>
-                          <label className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1.5 block">File *</label>
-                          <div onClick={() => fileInputRef.current?.click()} className={cn("border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all", uploadFile ? "border-violet-500/40 bg-violet-500/5" : "border-white/10 hover:border-violet-500/30 hover:bg-white/3")}>
-                            {uploadFile ? (
-                              <div className="flex items-center justify-center gap-2 text-[12px]">
-                                <FileText size={13} className="text-violet-400" />
-                                <span className="text-white/60 truncate max-w-[180px]">{uploadFile.name}</span>
-                                <button onClick={(e) => { e.stopPropagation(); handleFileSelect(null) }} className="text-white/30 hover:text-white/60 ml-1"><X size={11} /></button>
-                              </div>
-                            ) : (
-                              <div className="space-y-1">
-                                <Upload size={18} className="mx-auto text-white/15" />
-                                <p className="text-[11px] text-white/25">Click to select · any format</p>
-                              </div>
-                            )}
-                          </div>
-                          <input ref={fileInputRef} type="file" className="hidden" onChange={(e) => handleFileSelect(e.target.files?.[0] || null)} />
-                        </div>
-
-                        {/* AI label toggle */}
-                        <div className="flex items-center justify-between px-1">
-                          <div className="flex items-center gap-2">
-                            <Sparkles size={11} className={aiLabelMode ? "text-violet-400" : "text-white/20"} />
-                            <span className="text-[10px] text-white/40">AI auto-label</span>
-                            {isAiLabeling && <Loader2 size={10} className="animate-spin text-violet-400" />}
-                          </div>
-                          <button
-                            onClick={() => setAiLabelMode(v => !v)}
-                            className={cn("w-8 h-4 rounded-full transition-colors relative", aiLabelMode ? "bg-violet-500" : "bg-white/10")}
-                          >
-                            <span className={cn("absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all", aiLabelMode ? "left-4" : "left-0.5")} />
-                          </button>
-                        </div>
-
-                        {/* Title — shown after file picked */}
-                        {(uploadFile || !aiLabelMode) && (
-                          <>
-                            <div>
-                              <label className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1.5 flex items-center gap-1.5">
-                                Title *
-                                {isAiLabeling && <span className="text-violet-400/60 normal-case font-normal">AI writing…</span>}
-                              </label>
-                              <Input
-                                placeholder={isAiLabeling ? "Analyzing file…" : "Enter a clear title…"}
-                                value={addForm.title}
-                                disabled={isAiLabeling}
-                                onChange={(e) => setAddForm((f) => ({ ...f, title: e.target.value }))}
-                                className="bg-white/5 border-white/8 text-white/80 placeholder:text-white/20 focus:border-violet-500/40 h-9 text-[12px] disabled:opacity-50"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1.5 block">Description *</label>
-                              <textarea
-                                placeholder={isAiLabeling ? "Analyzing file…" : "What is this? Add context so your team knows…"}
-                                value={addForm.description}
-                                disabled={isAiLabeling}
-                                onChange={(e) => setAddForm((f) => ({ ...f, description: e.target.value }))}
-                                rows={2}
-                                className="w-full rounded-lg border border-white/8 bg-white/5 px-3 py-2 text-[12px] text-white/80 placeholder:text-white/20 outline-none focus:border-violet-500/30 resize-none disabled:opacity-50"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1.5 block">Document Type</label>
-                              <Select value={addForm.document_type} onValueChange={(v) => setAddForm((f) => ({ ...f, document_type: v }))}>
-                                <SelectTrigger className="h-9 text-[12px] bg-white/5 border-white/8 text-white/70">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent className="bg-[#1c1c1a] border-white/10">
-                                  {DOCUMENT_TYPES.map((t) => <SelectItem key={t} value={t} className="text-white/70 text-[12px]">{t}</SelectItem>)}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    )}
-                    {addItemType === "link" && (
-                      <div>
-                        <label className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1.5 block">URL *</label>
-                        <Input placeholder="https://…" value={addForm.link_url} onChange={(e) => setAddForm((f) => ({ ...f, link_url: e.target.value }))} className="bg-white/5 border-white/8 text-white/80 placeholder:text-white/20 focus:border-violet-500/40 h-9 text-[12px]" />
-                      </div>
-                    )}
-                    {addItemType === "note" && (
-                      <div>
-                        <label className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1.5 block">Content</label>
-                        <textarea placeholder="Write your note…" value={addForm.note_content} onChange={(e) => setAddForm((f) => ({ ...f, note_content: e.target.value }))} rows={5} className="w-full rounded-lg border border-white/8 bg-white/5 px-3 py-2 text-[12px] text-white/80 placeholder:text-white/20 outline-none focus:border-violet-500/40 resize-none" />
-                      </div>
-                    )}
                   </div>
-                  <div className="flex justify-between items-center pt-1">
-                    <p className="text-[9px] text-white/20">Auto-vectorised · indexed by Kobin AI</p>
-                    <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => { setAddDialogOpen(false); resetAddForm() }} className="border-white/10 text-white/50 hover:text-white/80 bg-transparent text-[11px]">Cancel</Button>
-                      <Button size="sm" onClick={handleAddItem} disabled={uploading} className="bg-violet-500 hover:bg-violet-600 text-white text-[11px]">
-                        {uploading ? <Loader2 size={12} className="animate-spin mr-1" /> : null}
-                        Add to Vault
-                      </Button>
-                    </div>
+                )}
+                {addItemType === "link" && (
+                  <div>
+                    <label className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1.5 block">URL *</label>
+                    <Input placeholder="https://…" value={addForm.link_url} onChange={(e) => setAddForm((f) => ({ ...f, link_url: e.target.value }))} className="bg-white/5 border-white/8 text-white/80 placeholder:text-white/20 focus:border-violet-500/40 h-9 text-[12px]" />
                   </div>
+                )}
+                {addItemType === "note" && (
+                  <div>
+                    <label className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1.5 block">Content</label>
+                    <textarea placeholder="Write your note…" value={addForm.note_content} onChange={(e) => setAddForm((f) => ({ ...f, note_content: e.target.value }))} rows={5} className="w-full rounded-lg border border-white/8 bg-white/5 px-3 py-2 text-[12px] text-white/80 placeholder:text-white/20 outline-none focus:border-violet-500/40 resize-none" />
+                  </div>
+                )}
+              </div>
+              <div className="flex justify-between items-center pt-1">
+                <p className="text-[9px] text-white/20">Auto-vectorised · indexed by Kobin AI</p>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => { setAddDialogOpen(false); resetAddForm() }} className="border-white/10 text-white/50 hover:text-white/80 bg-transparent text-[11px]">Cancel</Button>
+                  <Button size="sm" onClick={handleAddItem} disabled={uploading} className="bg-violet-500 hover:bg-violet-600 text-white text-[11px]">
+                    {uploading ? <Loader2 size={12} className="animate-spin mr-1" /> : null}
+                    Add to Vault
+                  </Button>
                 </div>
-              )}
-            </DialogContent>
-          </Dialog>
-        </>
-        )
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
+  )
 }
 
-        // ── Sub-components ────────────────────────────────────────────────────────────
+// ── Sub-components ────────────────────────────────────────────────────────────
 
-        function EmptyState({icon, title, desc, action}: {icon: React.ReactNode; title: string; desc: string; action?: React.ReactNode }) {
+function EmptyState({ icon, title, desc, action }: { icon: React.ReactNode; title: string; desc: string; action?: React.ReactNode }) {
   return (
-        <div className="flex flex-col items-center justify-center h-48 gap-3 text-center">
-          <div className="w-14 h-14 rounded-2xl bg-white/3 border border-white/5 flex items-center justify-center">{icon}</div>
-          <div>
-            <p className="text-[13px] font-medium text-white/40">{title}</p>
-            <p className="text-[11px] text-white/20 mt-0.5">{desc}</p>
-          </div>
-          {action}
-        </div>
-        )
+    <div className="flex flex-col items-center justify-center h-48 gap-3 text-center">
+      <div className="w-14 h-14 rounded-2xl bg-white/3 border border-white/5 flex items-center justify-center">{icon}</div>
+      <div>
+        <p className="text-[13px] font-medium text-white/40">{title}</p>
+        <p className="text-[11px] text-white/20 mt-0.5">{desc}</p>
+      </div>
+      {action}
+    </div>
+  )
 }
 
-        function VaultCard({
-          item, active, menuOpen, onOpen, onMenuToggle, onDelete, onMenuClose,
+function VaultCard({
+  item, active, menuOpen, onOpen, onMenuToggle, onDelete, onMenuClose,
 }: {
-          item: VaultItem; active: boolean; menuOpen: boolean
+  item: VaultItem; active: boolean; menuOpen: boolean
   onOpen: () => void; onMenuToggle: () => void; onDelete: () => void; onMenuClose: () => void
 }) {
   const menuRef = useRef<HTMLDivElement>(null)
-          const tc = getTypeConfig(item)
+  const tc = getTypeConfig(item)
 
   useEffect(() => {
     if (!menuOpen) return
     const handler = (e: MouseEvent) => { if (!menuRef.current?.contains(e.target as Node)) onMenuClose() }
-          document.addEventListener("mousedown", handler)
+    document.addEventListener("mousedown", handler)
     return () => document.removeEventListener("mousedown", handler)
   }, [menuOpen])
 
-          return (
-          <div
-            onClick={onOpen}
-            className={cn(
-              "group relative bg-[#1c1c1a] border rounded-xl p-3.5 cursor-pointer transition-all hover:-translate-y-0.5",
-              active
-                ? "border-violet-500/40 bg-violet-500/5 shadow-lg shadow-violet-500/10"
-                : "border-white/6 hover:border-white/12 hover:bg-[#202020]"
-            )}
-          >
-            {/* Top accent line */}
-            <div className={cn("absolute top-0 left-0 right-0 h-0.5 rounded-t-xl opacity-0 transition-opacity group-hover:opacity-100", active && "opacity-100",
-              item.item_type === "file" ? "bg-gradient-to-r from-blue-500 to-cyan-500" :
-                item.item_type === "link" ? "bg-gradient-to-r from-violet-500 to-purple-500" :
-                  "bg-gradient-to-r from-amber-500 to-orange-500"
-            )} />
+  return (
+    <div
+      onClick={onOpen}
+      className={cn(
+        "group relative bg-[#1c1c1a] border rounded-xl p-3.5 cursor-pointer transition-all hover:-translate-y-0.5",
+        active
+          ? "border-violet-500/40 bg-violet-500/5 shadow-lg shadow-violet-500/10"
+          : "border-white/6 hover:border-white/12 hover:bg-[#202020]"
+      )}
+    >
+      {/* Top accent line */}
+      <div className={cn("absolute top-0 left-0 right-0 h-0.5 rounded-t-xl opacity-0 transition-opacity group-hover:opacity-100", active && "opacity-100",
+        item.item_type === "file" ? "bg-gradient-to-r from-blue-500 to-cyan-500" :
+          item.item_type === "link" ? "bg-gradient-to-r from-violet-500 to-purple-500" :
+            "bg-gradient-to-r from-amber-500 to-orange-500"
+      )} />
 
-            <div className="flex items-start justify-between mb-2.5">
-              <div className={cn("flex items-center gap-1.5 px-2 py-1 rounded-md border text-[9px] font-bold uppercase tracking-wider", tc.color)}>
-                {tc.icon}
-                <span>{tc.badge}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                {item.embedding_status === "embedded" && (
-                  <div title="Vectorised" className="w-1.5 h-1.5 rounded-full bg-violet-500/50" />
+      <div className="flex items-start justify-between mb-2.5">
+        <div className={cn("flex items-center gap-1.5 px-2 py-1 rounded-md border text-[9px] font-bold uppercase tracking-wider", tc.color)}>
+          {tc.icon}
+          <span>{tc.badge}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          {item.embedding_status === "embedded" && (
+            <div title="Vectorised" className="w-1.5 h-1.5 rounded-full bg-violet-500/50" />
+          )}
+          <div className="relative" ref={menuRef}>
+            <button
+              onClick={(e) => { e.stopPropagation(); onMenuToggle() }}
+              className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-white/8"
+            >
+              <MoreHorizontal size={12} className="text-white/40" />
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 top-6 w-36 bg-[#252523] border border-white/10 rounded-xl shadow-xl overflow-hidden z-20">
+                {item.drive_file_url && (
+                  <a href={item.drive_file_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="flex items-center gap-2 px-3 py-2 text-[11px] text-white/60 hover:bg-white/5 transition-colors">
+                    <ExternalLink size={11} />Open in Drive
+                  </a>
                 )}
-                <div className="relative" ref={menuRef}>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onMenuToggle() }}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-white/8"
-                  >
-                    <MoreHorizontal size={12} className="text-white/40" />
-                  </button>
-                  {menuOpen && (
-                    <div className="absolute right-0 top-6 w-36 bg-[#252523] border border-white/10 rounded-xl shadow-xl overflow-hidden z-20">
-                      {item.drive_file_url && (
-                        <a href={item.drive_file_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="flex items-center gap-2 px-3 py-2 text-[11px] text-white/60 hover:bg-white/5 transition-colors">
-                          <ExternalLink size={11} />Open in Drive
-                        </a>
-                      )}
-                      {item.link_url && (
-                        <a href={item.link_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="flex items-center gap-2 px-3 py-2 text-[11px] text-white/60 hover:bg-white/5 transition-colors">
-                          <ExternalLink size={11} />Open link
-                        </a>
-                      )}
-                      <button onClick={(e) => { e.stopPropagation(); onDelete() }} className="flex items-center gap-2 px-3 py-2 text-[11px] text-red-400 hover:bg-red-500/10 transition-colors w-full text-left">
-                        <Trash2 size={11} />Delete
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <h4 className="text-[12px] font-semibold text-white/80 leading-snug line-clamp-1 mb-1">{item.title}</h4>
-            <p className="text-[10px] text-white/30 line-clamp-2 leading-relaxed mb-3">{item.description}</p>
-
-            {item.item_type === "link" && item.link_url && (
-              <div className="flex items-center gap-1.5 mb-2.5 text-[10px] text-violet-400/70">
-                <ExternalLink size={9} />
-                <span className="truncate">{item.link_url}</span>
+                {item.link_url && (
+                  <a href={item.link_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="flex items-center gap-2 px-3 py-2 text-[11px] text-white/60 hover:bg-white/5 transition-colors">
+                    <ExternalLink size={11} />Open link
+                  </a>
+                )}
+                <button onClick={(e) => { e.stopPropagation(); onDelete() }} className="flex items-center gap-2 px-3 py-2 text-[11px] text-red-400 hover:bg-red-500/10 transition-colors w-full text-left">
+                  <Trash2 size={11} />Delete
+                </button>
               </div>
             )}
-
-            <div className="flex items-center justify-between pt-2 border-t border-white/5">
-              <span className={cn("text-[9px] font-semibold px-1.5 py-0.5 rounded capitalize", ADDED_BY_COLOR[item.added_by_type])}>
-                {item.added_by_type}
-              </span>
-              <div className="flex items-center gap-2">
-                <Badge variant="outline" className="text-[8px] h-4 px-1 border-white/8 text-white/25">{item.document_type}</Badge>
-                <span className="text-[9px] text-white/20">{formatDate(item.created_at)}</span>
-              </div>
-            </div>
           </div>
-          )
+        </div>
+      </div>
+
+      <h4 className="text-[12px] font-semibold text-white/80 leading-snug line-clamp-1 mb-1">{item.title}</h4>
+      <p className="text-[10px] text-white/30 line-clamp-2 leading-relaxed mb-3">{item.description}</p>
+
+      {item.item_type === "link" && item.link_url && (
+        <div className="flex items-center gap-1.5 mb-2.5 text-[10px] text-violet-400/70">
+          <ExternalLink size={9} />
+          <span className="truncate">{item.link_url}</span>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between pt-2 border-t border-white/5">
+        <span className={cn("text-[9px] font-semibold px-1.5 py-0.5 rounded capitalize", ADDED_BY_COLOR[item.added_by_type])}>
+          {item.added_by_type}
+        </span>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="text-[8px] h-4 px-1 border-white/8 text-white/25">{item.document_type}</Badge>
+          <span className="text-[9px] text-white/20">{formatDate(item.created_at)}</span>
+        </div>
+      </div>
+    </div>
+  )
 }
 
-          function AIWriterPanel({
-            prompt, setPrompt, response, loading, onRun, onInsert, onDiscard, onClose,
+function AIWriterPanel({
+  prompt, setPrompt, response, loading, onRun, onInsert, onDiscard, onClose,
 }: {
-            prompt: string; setPrompt: (v: string) => void; response: string; loading: boolean
+  prompt: string; setPrompt: (v: string) => void; response: string; loading: boolean
   onRun: () => void; onInsert: () => void; onDiscard: () => void; onClose: () => void
 }) {
   return (
-          <div className="w-64 border-l border-white/5 flex flex-col bg-[#1a1a18]">
-            <div className="flex items-center gap-2 px-3 py-2.5 border-b border-white/5">
-              <div className="w-5 h-5 bg-gradient-to-br from-violet-500 to-purple-600 rounded flex items-center justify-center">
-                <Sparkles size={9} className="text-white" />
-              </div>
-              <span className="flex-1 text-[11px] font-semibold text-white/70">Kobin AI Writer</span>
-              <button onClick={onClose} className="text-white/25 hover:text-white/60"><X size={11} /></button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-3 space-y-3">
-              {/* Quick prompts */}
-              {!response && (
-                <>
-                  <p className="text-[9px] font-bold uppercase tracking-widest text-white/25">Suggestions</p>
-                  {[
-                    "Expand timeline with linked tasks",
-                    "Draft client-facing summary",
-                    "Convert todos into action items",
-                  ].map((s) => (
-                    <button key={s} onClick={() => setPrompt(s)} className="flex items-start gap-2 w-full text-left p-2 bg-white/3 border border-white/5 rounded-lg hover:border-violet-500/30 transition-all">
-                      <div className="w-5 h-5 bg-violet-500/15 rounded flex items-center justify-center shrink-0 mt-0.5">
-                        <Sparkles size={8} className="text-violet-400" />
-                      </div>
-                      <span className="text-[10px] text-white/50">{s}</span>
-                    </button>
-                  ))}
-                </>
-              )}
-              {/* AI response */}
-              {response && (
-                <>
-                  <div className="p-2.5 bg-white/3 border border-white/8 rounded-lg text-[10px] text-white/60 leading-relaxed whitespace-pre-wrap">{response}</div>
-                  <div className="flex gap-2">
-                    <button onClick={onInsert} className="flex-1 py-1.5 bg-violet-500/15 border border-violet-500/30 rounded text-[10px] font-semibold text-violet-400 hover:bg-violet-500/25 transition-colors">Insert</button>
-                    <button onClick={onDiscard} className="flex-1 py-1.5 bg-white/5 border border-white/8 rounded text-[10px] text-white/40 hover:bg-white/10 transition-colors">Discard</button>
-                  </div>
-                </>
-              )}
-              {loading && (
-                <div className="flex items-center gap-2 py-2">
-                  <Loader2 size={12} className="animate-spin text-violet-400" />
-                  <span className="text-[10px] text-white/30">Writing…</span>
+    <div className="w-64 border-l border-white/5 flex flex-col bg-[#1a1a18]">
+      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-white/5">
+        <div className="w-5 h-5 bg-gradient-to-br from-violet-500 to-purple-600 rounded flex items-center justify-center">
+          <Sparkles size={9} className="text-white" />
+        </div>
+        <span className="flex-1 text-[11px] font-semibold text-white/70">Kobin AI Writer</span>
+        <button onClick={onClose} className="text-white/25 hover:text-white/60"><X size={11} /></button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+        {/* Quick prompts */}
+        {!response && (
+          <>
+            <p className="text-[9px] font-bold uppercase tracking-widest text-white/25">Suggestions</p>
+            {[
+              "Expand timeline with linked tasks",
+              "Draft client-facing summary",
+              "Convert todos into action items",
+            ].map((s) => (
+              <button key={s} onClick={() => setPrompt(s)} className="flex items-start gap-2 w-full text-left p-2 bg-white/3 border border-white/5 rounded-lg hover:border-violet-500/30 transition-all">
+                <div className="w-5 h-5 bg-violet-500/15 rounded flex items-center justify-center shrink-0 mt-0.5">
+                  <Sparkles size={8} className="text-violet-400" />
                 </div>
-              )}
+                <span className="text-[10px] text-white/50">{s}</span>
+              </button>
+            ))}
+          </>
+        )}
+        {/* AI response */}
+        {response && (
+          <>
+            <div className="p-2.5 bg-white/3 border border-white/8 rounded-lg text-[10px] text-white/60 leading-relaxed whitespace-pre-wrap">{response}</div>
+            <div className="flex gap-2">
+              <button onClick={onInsert} className="flex-1 py-1.5 bg-violet-500/15 border border-violet-500/30 rounded text-[10px] font-semibold text-violet-400 hover:bg-violet-500/25 transition-colors">Insert</button>
+              <button onClick={onDiscard} className="flex-1 py-1.5 bg-white/5 border border-white/8 rounded text-[10px] text-white/40 hover:bg-white/10 transition-colors">Discard</button>
             </div>
-            <div className="p-3 border-t border-white/5">
-              <div className="flex gap-2">
-                <textarea
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onRun() } }}
-                  placeholder="Ask AI to write, edit, summarise…"
-                  rows={2}
-                  className="flex-1 bg-white/5 border border-white/8 rounded-lg px-2.5 py-2 text-[11px] text-white/70 placeholder:text-white/20 outline-none focus:border-violet-500/30 resize-none"
-                />
-                <button onClick={onRun} disabled={loading} className="w-8 h-8 bg-violet-500 hover:bg-violet-600 rounded-lg flex items-center justify-center self-end transition-colors disabled:opacity-50">
-                  <Send size={11} className="text-white" />
-                </button>
-              </div>
-            </div>
+          </>
+        )}
+        {loading && (
+          <div className="flex items-center gap-2 py-2">
+            <Loader2 size={12} className="animate-spin text-violet-400" />
+            <span className="text-[10px] text-white/30">Writing…</span>
           </div>
-          )
+        )}
+      </div>
+      <div className="p-3 border-t border-white/5">
+        <div className="flex gap-2">
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onRun() } }}
+            placeholder="Ask AI to write, edit, summarise…"
+            rows={2}
+            className="flex-1 bg-white/5 border border-white/8 rounded-lg px-2.5 py-2 text-[11px] text-white/70 placeholder:text-white/20 outline-none focus:border-violet-500/30 resize-none"
+          />
+          <button onClick={onRun} disabled={loading} className="w-8 h-8 bg-violet-500 hover:bg-violet-600 rounded-lg flex items-center justify-center self-end transition-colors disabled:opacity-50">
+            <Send size={11} className="text-white" />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
-          function ApprovalViewer({
-            item, status, note, onSetNote, onApprove, onRequestChanges,
+function ApprovalViewer({
+  item, status, note, onSetNote, onApprove, onRequestChanges,
 }: {
-            item: VaultItem; status: ApprovalStatus; note: string
+  item: VaultItem; status: ApprovalStatus; note: string
   onSetNote: (v: string) => void; onApprove: () => void; onRequestChanges: () => void
 }) {
-    const tc = getTypeConfig(item)
-          // Use the drive_file_id OR the storage-backed signed URL
-          const previewUrl = item.drive_file_id
-          ? `https://drive.google.com/file/d/${item.drive_file_id}/preview`
-          : item.storage_path ? (window as any)._lastSignedUrl : null
-          // ^ Temporary hack until we pass signedUrl to subcomponents
+  const tc = getTypeConfig(item)
+  // Use the drive_file_id OR the storage-backed signed URL
+  const previewUrl = item.drive_file_id
+    ? `https://drive.google.com/file/d/${item.drive_file_id}/preview`
+    : item.storage_path ? (window as any)._lastSignedUrl : null
+  // ^ Temporary hack until we pass signedUrl to subcomponents
 
 
-          return (
-          <div className="max-w-2xl mx-auto space-y-4">
-            {/* Drive iframe preview */}
-            {previewUrl && (
-              <div className="w-full rounded-xl overflow-hidden border border-white/8 bg-white/3" style={{ height: 380 }}>
-                <iframe
-                  src={previewUrl}
-                  className="w-full h-full border-0"
-                  title={item.title}
-                  allow="autoplay"
-                />
-              </div>
-            )}
-            {/* File metadata row */}
-            <div className="flex items-center gap-4 p-4 bg-white/3 border border-white/8 rounded-xl">
-              <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border", tc.color.split(" ")[0], tc.color.split(" ")[2])}>
-                <span className={tc.color.split(" ")[1]}>{tc.icon}</span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-semibold text-white/80 mb-0.5 truncate">{item.title}</p>
-                <p className="text-[11px] text-white/30">{item.document_type} · {item.added_by_type} · {formatDate(item.created_at)}</p>
-              </div>
-              {item.drive_file_url && (
-                <a href={item.drive_file_url} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-[11px] text-white/50 hover:text-white/80 shrink-0 transition-colors">
-                  <ExternalLink size={11} />Open in Drive
-                </a>
-              )}
-            </div>
+  return (
+    <div className="max-w-2xl mx-auto space-y-4">
+      {/* Drive iframe preview */}
+      {previewUrl && (
+        <div className="w-full rounded-xl overflow-hidden border border-white/8 bg-white/3" style={{ height: 380 }}>
+          <iframe
+            src={previewUrl}
+            className="w-full h-full border-0"
+            title={item.title}
+            allow="autoplay"
+          />
+        </div>
+      )}
+      {/* File metadata row */}
+      <div className="flex items-center gap-4 p-4 bg-white/3 border border-white/8 rounded-xl">
+        <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border", tc.color.split(" ")[0], tc.color.split(" ")[2])}>
+          <span className={tc.color.split(" ")[1]}>{tc.icon}</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[13px] font-semibold text-white/80 mb-0.5 truncate">{item.title}</p>
+          <p className="text-[11px] text-white/30">{item.document_type} · {item.added_by_type} · {formatDate(item.created_at)}</p>
+        </div>
+        {item.drive_file_url && (
+          <a href={item.drive_file_url} target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-[11px] text-white/50 hover:text-white/80 shrink-0 transition-colors">
+            <ExternalLink size={11} />Open in Drive
+          </a>
+        )}
+      </div>
 
-            {/* Approval box */}
-            <div className="p-4 bg-white/3 border border-white/8 rounded-xl space-y-3">
-              <div className="flex items-center gap-2 text-[11px] font-semibold text-white/70">
-                <Clock size={13} className="text-amber-400" />Deliverable Approval
-              </div>
-              {status === "none" && (
-                <div className="flex items-center gap-3 p-2.5 bg-amber-500/8 border border-amber-500/20 rounded-lg">
-                  <Clock size={13} className="text-amber-400 shrink-0" />
-                  <span className="text-[11px] text-white/50">Send to client for approval</span>
-                </div>
-              )}
-              {status === "approved" && (
-                <div className="flex items-center gap-3 p-2.5 bg-emerald-500/10 border border-emerald-500/25 rounded-lg">
-                  <Check size={13} className="text-emerald-400 shrink-0" />
-                  <span className="text-[11px] text-emerald-400 font-semibold">Approved</span>
-                </div>
-              )}
-              {status === "changes_requested" && (
-                <div className="flex items-center gap-3 p-2.5 bg-red-500/10 border border-red-500/20 rounded-lg">
-                  <AlertCircle size={13} className="text-red-400 shrink-0" />
-                  <span className="text-[11px] text-red-400">Changes requested</span>
-                </div>
-              )}
-              {status === "none" && (
-                <div className="flex gap-2">
-                  <button onClick={onApprove} className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-emerald-500/10 border border-emerald-500/25 rounded-lg text-[11px] font-semibold text-emerald-400 hover:bg-emerald-500/20 transition-colors">
-                    <Check size={12} />Mark Approved
-                  </button>
-                  <button onClick={onRequestChanges} className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-red-500/8 border border-red-500/20 rounded-lg text-[11px] font-semibold text-red-400 hover:bg-red-500/15 transition-colors">
-                    <AlertCircle size={12} />Request Changes
-                  </button>
-                </div>
-              )}
-              <textarea value={note} onChange={(e) => onSetNote(e.target.value)} placeholder="Add a note for the client (optional)…" rows={2} className="w-full bg-white/4 border border-white/8 rounded-lg px-3 py-2 text-[11px] text-white/60 placeholder:text-white/20 outline-none focus:border-violet-500/30 resize-none" />
-            </div>
+      {/* Approval box */}
+      <div className="p-4 bg-white/3 border border-white/8 rounded-xl space-y-3">
+        <div className="flex items-center gap-2 text-[11px] font-semibold text-white/70">
+          <Clock size={13} className="text-amber-400" />Deliverable Approval
+        </div>
+        {status === "none" && (
+          <div className="flex items-center gap-3 p-2.5 bg-amber-500/8 border border-amber-500/20 rounded-lg">
+            <Clock size={13} className="text-amber-400 shrink-0" />
+            <span className="text-[11px] text-white/50">Send to client for approval</span>
           </div>
-          )
+        )}
+        {status === "approved" && (
+          <div className="flex items-center gap-3 p-2.5 bg-emerald-500/10 border border-emerald-500/25 rounded-lg">
+            <Check size={13} className="text-emerald-400 shrink-0" />
+            <span className="text-[11px] text-emerald-400 font-semibold">Approved</span>
+          </div>
+        )}
+        {status === "changes_requested" && (
+          <div className="flex items-center gap-3 p-2.5 bg-red-500/10 border border-red-500/20 rounded-lg">
+            <AlertCircle size={13} className="text-red-400 shrink-0" />
+            <span className="text-[11px] text-red-400">Changes requested</span>
+          </div>
+        )}
+        {status === "none" && (
+          <div className="flex gap-2">
+            <button onClick={onApprove} className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-emerald-500/10 border border-emerald-500/25 rounded-lg text-[11px] font-semibold text-emerald-400 hover:bg-emerald-500/20 transition-colors">
+              <Check size={12} />Mark Approved
+            </button>
+            <button onClick={onRequestChanges} className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-red-500/8 border border-red-500/20 rounded-lg text-[11px] font-semibold text-red-400 hover:bg-red-500/15 transition-colors">
+              <AlertCircle size={12} />Request Changes
+            </button>
+          </div>
+        )}
+        <textarea value={note} onChange={(e) => onSetNote(e.target.value)} placeholder="Add a note for the client (optional)…" rows={2} className="w-full bg-white/4 border border-white/8 rounded-lg px-3 py-2 text-[11px] text-white/60 placeholder:text-white/20 outline-none focus:border-violet-500/30 resize-none" />
+      </div>
+    </div>
+  )
 }
 
-          function ApprovalStrip({
-            status, onApprove, onRequestChanges, onReset,
+function ApprovalStrip({
+  status, onApprove, onRequestChanges, onReset,
 }: {
-            status: ApprovalStatus
+  status: ApprovalStatus
   onApprove: () => void
   onRequestChanges: () => void
   onReset: () => void
 }) {
   return (
-          <div className="flex-shrink-0 border-t border-white/5 px-4 py-3 bg-[#1a1a18] flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2">
-              {status === "none" && <Clock size={13} className="text-amber-400" />}
-              {status === "approved" && <Check size={13} className="text-emerald-400" />}
-              {status === "changes_requested" && <AlertCircle size={13} className="text-red-400" />}
-              <span className={cn("text-[11px] font-semibold",
-                status === "none" ? "text-white/40" :
-                  status === "approved" ? "text-emerald-400" : "text-red-400"
-              )}>
-                {status === "none" ? "Awaiting approval" : status === "approved" ? "Approved" : "Changes requested"}
-              </span>
-              {status !== "none" && (
-                <button onClick={onReset} className="text-[9px] text-white/20 hover:text-white/40 transition-colors ml-2">
-                  Reset
-                </button>
-              )}
-            </div>
-            {status === "none" && (
-              <div className="flex gap-2">
-                <button onClick={onRequestChanges} className="flex items-center gap-1.5 px-3 py-1.5 border border-red-500/25 text-red-400 rounded-lg text-[11px] font-semibold hover:bg-red-500/10 transition-colors">
-                  <AlertCircle size={11} />Request Changes
-                </button>
-                <button onClick={onApprove} className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 rounded-lg text-[11px] font-semibold hover:bg-emerald-500/20 transition-colors">
-                  <Check size={11} />Mark Approved
-                </button>
-              </div>
-            )}
-          </div>
-          )
+    <div className="flex-shrink-0 border-t border-white/5 px-4 py-3 bg-[#1a1a18] flex items-center justify-between gap-4">
+      <div className="flex items-center gap-2">
+        {status === "none" && <Clock size={13} className="text-amber-400" />}
+        {status === "approved" && <Check size={13} className="text-emerald-400" />}
+        {status === "changes_requested" && <AlertCircle size={13} className="text-red-400" />}
+        <span className={cn("text-[11px] font-semibold",
+          status === "none" ? "text-white/40" :
+            status === "approved" ? "text-emerald-400" : "text-red-400"
+        )}>
+          {status === "none" ? "Awaiting approval" : status === "approved" ? "Approved" : "Changes requested"}
+        </span>
+        {status !== "none" && (
+          <button onClick={onReset} className="text-[9px] text-white/20 hover:text-white/40 transition-colors ml-2">
+            Reset
+          </button>
+        )}
+      </div>
+      {status === "none" && (
+        <div className="flex gap-2">
+          <button onClick={onRequestChanges} className="flex items-center gap-1.5 px-3 py-1.5 border border-red-500/25 text-red-400 rounded-lg text-[11px] font-semibold hover:bg-red-500/10 transition-colors">
+            <AlertCircle size={11} />Request Changes
+          </button>
+          <button onClick={onApprove} className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 rounded-lg text-[11px] font-semibold hover:bg-emerald-500/20 transition-colors">
+            <Check size={11} />Mark Approved
+          </button>
+        </div>
+      )}
+    </div>
+  )
 }
 
-          function CommentsPanel({itemId}: {itemId: string }) {
+function CommentsPanel({ itemId }: { itemId: string }) {
   const supabase = createClient()
-          const [comments, setComments] = useState<Array<{ id: string; content: string; user_name: string; created_at: string }>>([])
-            const [newComment, setNewComment] = useState("")
-            const [submitting, setSubmitting] = useState(false)
-            const [userId, setUserId] = useState<string | null>(null)
-            const [userName, setUserName] = useState("You")
+  const [comments, setComments] = useState<Array<{ id: string; content: string; user_name: string; created_at: string }>>([])
+  const [newComment, setNewComment] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+  const [userId, setUserId] = useState<string | null>(null)
+  const [userName, setUserName] = useState("You")
 
   useEffect(() => {
-              supabase.auth.getUser().then(({ data }) => {
-                if (data.user) {
-                  setUserId(data.user.id)
-                  supabase.from("profiles").select("full_name").eq("id", data.user.id).single()
-                    .then(({ data: p }) => { if (p?.full_name) setUserName(p.full_name) })
-                }
-              })
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) {
+        setUserId(data.user.id)
+        supabase.from("profiles").select("full_name").eq("id", data.user.id).single()
+          .then(({ data: p }) => { if (p?.full_name) setUserName(p.full_name) })
+      }
+    })
     loadComments()
   }, [itemId])
 
   const loadComments = async () => {
-    const {data} = await supabase
-            .from("vault_comments")
-            .select("id, content, created_at, profile:profiles!vault_comments_user_id_fkey(full_name)")
-            .eq("vault_item_id", itemId)
-            .order("created_at", {ascending: true })
-            if (data) {
-              setComments(data.map((c: any) => ({
-                id: c.id,
-                content: c.content,
-                user_name: c.profile?.full_name || "Team",
-                created_at: c.created_at,
-              })))
-            }
+    const { data } = await supabase
+      .from("vault_comments")
+      .select("id, content, created_at, profile:profiles!vault_comments_user_id_fkey(full_name)")
+      .eq("vault_item_id", itemId)
+      .order("created_at", { ascending: true })
+    if (data) {
+      setComments(data.map((c: any) => ({
+        id: c.id,
+        content: c.content,
+        user_name: c.profile?.full_name || "Team",
+        created_at: c.created_at,
+      })))
+    }
   }
 
   const handleSubmit = async () => {
     if (!newComment.trim() || !userId) return
-            setSubmitting(true)
-            const {data, error} = await supabase.from("vault_comments").insert({
-              vault_item_id: itemId,
-            user_id: userId,
-            content: newComment.trim(),
+    setSubmitting(true)
+    const { data, error } = await supabase.from("vault_comments").insert({
+      vault_item_id: itemId,
+      user_id: userId,
+      content: newComment.trim(),
     }).select("id, content, created_at").single()
-            if (!error && data) {
-              setComments(prev => [...prev, { id: data.id, content: data.content, user_name: userName, created_at: data.created_at }])
+    if (!error && data) {
+      setComments(prev => [...prev, { id: data.id, content: data.content, user_name: userName, created_at: data.created_at }])
       setNewComment("")
     }
-            setSubmitting(false)
+    setSubmitting(false)
   }
 
   const initials = (name: string) => name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase()
 
-            return (
-            <div className="flex flex-col gap-3 h-full">
-              <div className="flex-1 space-y-3 overflow-y-auto">
-                {comments.length === 0 && (
-                  <p className="text-[10px] text-white/20 text-center py-4">No comments yet — add one below</p>
-                )}
-                {comments.map((c) => (
-                  <div key={c.id} className="flex gap-2.5">
-                    <div className="w-6 h-6 rounded-full bg-violet-500/80 flex items-center justify-center text-[8px] font-bold text-white shrink-0">
-                      {initials(c.user_name)}
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-[11px] font-semibold text-white/70">{c.user_name}</span>
-                        <span className="text-[9px] text-white/20">{formatDate(c.created_at)}</span>
-                      </div>
-                      <p className="text-[11px] text-white/50 leading-relaxed">{c.content}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="border-t border-white/5 pt-3 flex gap-2">
-                <textarea
-                  value={newComment}
-                  onChange={e => setNewComment(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit() } }}
-                  placeholder="Add a comment…"
-                  rows={2}
-                  className="flex-1 bg-white/5 border border-white/8 rounded-lg px-2.5 py-2 text-[11px] text-white/70 placeholder:text-white/20 outline-none focus:border-violet-500/30 resize-none"
-                />
-                <button
-                  onClick={handleSubmit}
-                  disabled={submitting || !newComment.trim()}
-                  className="w-8 h-8 bg-violet-500 hover:bg-violet-600 rounded-lg flex items-center justify-center self-end transition-colors disabled:opacity-40"
-                >
-                  <Send size={11} className="text-white" />
-                </button>
-              </div>
+  return (
+    <div className="flex flex-col gap-3 h-full">
+      <div className="flex-1 space-y-3 overflow-y-auto">
+        {comments.length === 0 && (
+          <p className="text-[10px] text-white/20 text-center py-4">No comments yet — add one below</p>
+        )}
+        {comments.map((c) => (
+          <div key={c.id} className="flex gap-2.5">
+            <div className="w-6 h-6 rounded-full bg-violet-500/80 flex items-center justify-center text-[8px] font-bold text-white shrink-0">
+              {initials(c.user_name)}
             </div>
-            )
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[11px] font-semibold text-white/70">{c.user_name}</span>
+                <span className="text-[9px] text-white/20">{formatDate(c.created_at)}</span>
+              </div>
+              <p className="text-[11px] text-white/50 leading-relaxed">{c.content}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="border-t border-white/5 pt-3 flex gap-2">
+        <textarea
+          value={newComment}
+          onChange={e => setNewComment(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit() } }}
+          placeholder="Add a comment…"
+          rows={2}
+          className="flex-1 bg-white/5 border border-white/8 rounded-lg px-2.5 py-2 text-[11px] text-white/70 placeholder:text-white/20 outline-none focus:border-violet-500/30 resize-none"
+        />
+        <button
+          onClick={handleSubmit}
+          disabled={submitting || !newComment.trim()}
+          className="w-8 h-8 bg-violet-500 hover:bg-violet-600 rounded-lg flex items-center justify-center self-end transition-colors disabled:opacity-40"
+        >
+          <Send size={11} className="text-white" />
+        </button>
+      </div>
+    </div>
+  )
 }
 
-            function RightPanel({
-              item, tab, onTabChange, onClose, relatedItems, loadingRelated,
-              approvalStatus, approvalNote, onSetNote, onApprove, onRequestChanges, onOpenRelated,
+function RightPanel({
+  item, tab, onTabChange, onClose, relatedItems, loadingRelated,
+  approvalStatus, approvalNote, onSetNote, onApprove, onRequestChanges, onOpenRelated,
 }: {
-              item: VaultItem; tab: RightPanelTab; onTabChange: (t: RightPanelTab) => void; onClose: () => void
-            relatedItems: RelatedItem[]; loadingRelated: boolean
-            approvalStatus: ApprovalStatus; approvalNote: string
+  item: VaultItem; tab: RightPanelTab; onTabChange: (t: RightPanelTab) => void; onClose: () => void
+  relatedItems: RelatedItem[]; loadingRelated: boolean
+  approvalStatus: ApprovalStatus; approvalNote: string
   onSetNote: (v: string) => void; onApprove: () => void; onRequestChanges: () => void
   onOpenRelated: (item: VaultItem) => void
 }) {
-  const TABS: {key: RightPanelTab; label: string; badge?: number }[] = [
-            {key: "context",  label: "Context" },
-            {key: "approval", label: "Approval" },
-            {key: "comments", label: "Comments" },
-            {key: "activity", label: "Activity" },
-            ]
+  const TABS: { key: RightPanelTab; label: string; badge?: number }[] = [
+    { key: "context", label: "Context" },
+    { key: "approval", label: "Approval" },
+    { key: "comments", label: "Comments" },
+    { key: "activity", label: "Activity" },
+  ]
 
-            return (
-            <div className="w-80 shrink-0 border-l border-white/5 flex flex-col bg-[#161614] overflow-hidden">
-              {/* Header */}
-              <div className="px-3 py-2.5 border-b border-white/5 flex items-center gap-2">
-                <button onClick={onClose} className="w-6 h-6 flex items-center justify-center rounded hover:bg-white/5 text-white/25 hover:text-white/60 transition-colors">
-                  <X size={11} />
-                </button>
-                <p className="flex-1 text-[11px] font-semibold text-white/70 truncate min-w-0">{item.title}</p>
-              </div>
+  return (
+    <div className="w-80 shrink-0 border-l border-white/5 flex flex-col bg-[#161614] overflow-hidden">
+      {/* Header */}
+      <div className="px-3 py-2.5 border-b border-white/5 flex items-center gap-2">
+        <button onClick={onClose} className="w-6 h-6 flex items-center justify-center rounded hover:bg-white/5 text-white/25 hover:text-white/60 transition-colors">
+          <X size={11} />
+        </button>
+        <p className="flex-1 text-[11px] font-semibold text-white/70 truncate min-w-0">{item.title}</p>
+      </div>
 
-              {/* Tabs */}
-              <div className="flex border-b border-white/5">
-                {TABS.map((t) => (
-                  <button
-                    key={t.key}
-                    onClick={() => onTabChange(t.key)}
-                    className={cn(
-                      "flex-1 px-2 py-2.5 text-[10px] font-semibold transition-all border-b-2 -mb-px",
-                      tab === t.key
-                        ? "text-violet-400 border-violet-500"
-                        : "text-white/25 border-transparent hover:text-white/50"
-                    )}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
+      {/* Tabs */}
+      <div className="flex border-b border-white/5">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => onTabChange(t.key)}
+            className={cn(
+              "flex-1 px-2 py-2.5 text-[10px] font-semibold transition-all border-b-2 -mb-px",
+              tab === t.key
+                ? "text-violet-400 border-violet-500"
+                : "text-white/25 border-transparent hover:text-white/50"
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
 
-              {/* Content */}
-              <div className="flex-1 overflow-y-auto p-3 space-y-4">
-                {tab === "context" && (
-                  <>
-                    {/* Embed status */}
-                    <div className="flex items-center gap-2 px-2.5 py-2 bg-violet-500/8 border border-violet-500/15 rounded-lg">
-                      <Sparkles size={9} className="text-violet-400 shrink-0" />
-                      <span className="text-[10px] text-white/40">
-                        {item.embedding_status === "embedded"
-                          ? <><span className="text-violet-400 font-semibold">Vectorised</span> · pgvector indexed</>
-                          : item.embedding_status === "pending"
-                            ? "Embedding in progress…"
-                            : "Not yet vectorised"}
-                      </span>
-                    </div>
-
-                    {/* AI memory — related */}
-                    <div>
-                      <p className="text-[9px] font-bold uppercase tracking-widest text-white/20 mb-2">AI Memory — Related</p>
-                      {loadingRelated && (
-                        <div className="flex items-center gap-2 py-2">
-                          <Loader2 size={11} className="animate-spin text-violet-400/50" />
-                          <span className="text-[10px] text-white/25">Searching vault…</span>
-                        </div>
-                      )}
-                      {!loadingRelated && relatedItems.length === 0 && (
-                        <p className="text-[10px] text-white/20">No related items found yet.</p>
-                      )}
-                      {relatedItems.map((rel) => {
-                        const tc = TYPE_CONFIG[rel.item.item_type as ItemType]
-                        return (
-                          <button
-                            key={rel.item.id}
-                            onClick={() => onOpenRelated(rel.item)}
-                            className="w-full flex items-center gap-2.5 p-2 bg-white/3 border border-white/5 rounded-lg hover:border-violet-500/25 transition-all mb-2 text-left group"
-                          >
-                            <div className={cn("w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-[10px]", tc.color.split(" ")[0])}>
-                              <span className={tc.color.split(" ")[1]}>{tc.icon}</span>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-[11px] font-medium text-white/70 truncate">{rel.item.title}</p>
-                              <p className="text-[9px] text-white/25 truncate">{rel.reason}</p>
-                            </div>
-                          </button>
-                        )
-                      })}
-                    </div>
-
-                    {/* Quick AI actions */}
-                    <div>
-                      <p className="text-[9px] font-bold uppercase tracking-widest text-white/20 mb-2">Quick Actions</p>
-                      {[
-                        { icon: <MessageSquare size={11} />, label: "Draft follow-up email" },
-                        { icon: <Check size={11} />, label: "Create delivery task" },
-                        { icon: <Search size={11} />, label: "Find similar across projects" },
-                      ].map((action) => (
-                        <button key={action.label} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[11px] text-white/40 hover:text-white/70 hover:bg-white/5 transition-all mb-1 text-left">
-                          <span className="text-white/25">{action.icon}</span>
-                          {action.label}
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
-
-                {tab === "approval" && (
-                  <ApprovalViewer
-                    item={item}
-                    status={approvalStatus}
-                    note={approvalNote}
-                    onSetNote={onSetNote}
-                    onApprove={onApprove}
-                    onRequestChanges={onRequestChanges}
-                  />
-                )}
-
-                {tab === "comments" && (
-                  <CommentsPanel itemId={item.id} />
-                )}
-
-                {tab === "activity" && (
-                  <div className="space-y-3">
-                    {[
-                      { dot: "bg-violet-500", text: "Item added to vault", time: formatDate(item.created_at) },
-                      { dot: item.embedding_status === "embedded" ? "bg-emerald-500" : "bg-white/20", text: item.embedding_status === "embedded" ? "Vectorised by Kobin AI" : "Awaiting vectorisation", time: formatDate(item.created_at) },
-                    ].map((a, i) => (
-                      <div key={i} className="flex gap-3">
-                        <div className={cn("w-1.5 h-1.5 rounded-full mt-1.5 shrink-0", a.dot)} />
-                        <div>
-                          <p className="text-[11px] text-white/50">{a.text}</p>
-                          <p className="text-[9px] text-white/20">{a.time}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto p-3 space-y-4">
+        {tab === "context" && (
+          <>
+            {/* Embed status */}
+            <div className="flex items-center gap-2 px-2.5 py-2 bg-violet-500/8 border border-violet-500/15 rounded-lg">
+              <Sparkles size={9} className="text-violet-400 shrink-0" />
+              <span className="text-[10px] text-white/40">
+                {item.embedding_status === "embedded"
+                  ? <><span className="text-violet-400 font-semibold">Vectorised</span> · pgvector indexed</>
+                  : item.embedding_status === "pending"
+                    ? "Embedding in progress…"
+                    : "Not yet vectorised"}
+              </span>
             </div>
-            )
+
+            {/* AI memory — related */}
+            <div>
+              <p className="text-[9px] font-bold uppercase tracking-widest text-white/20 mb-2">AI Memory — Related</p>
+              {loadingRelated && (
+                <div className="flex items-center gap-2 py-2">
+                  <Loader2 size={11} className="animate-spin text-violet-400/50" />
+                  <span className="text-[10px] text-white/25">Searching vault…</span>
+                </div>
+              )}
+              {!loadingRelated && relatedItems.length === 0 && (
+                <p className="text-[10px] text-white/20">No related items found yet.</p>
+              )}
+              {relatedItems.map((rel) => {
+                const tc = TYPE_CONFIG[rel.item.item_type as ItemType]
+                return (
+                  <button
+                    key={rel.item.id}
+                    onClick={() => onOpenRelated(rel.item)}
+                    className="w-full flex items-center gap-2.5 p-2 bg-white/3 border border-white/5 rounded-lg hover:border-violet-500/25 transition-all mb-2 text-left group"
+                  >
+                    <div className={cn("w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-[10px]", tc.color.split(" ")[0])}>
+                      <span className={tc.color.split(" ")[1]}>{tc.icon}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[11px] font-medium text-white/70 truncate">{rel.item.title}</p>
+                      <p className="text-[9px] text-white/25 truncate">{rel.reason}</p>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Quick AI actions */}
+            <div>
+              <p className="text-[9px] font-bold uppercase tracking-widest text-white/20 mb-2">Quick Actions</p>
+              {[
+                { icon: <MessageSquare size={11} />, label: "Draft follow-up email" },
+                { icon: <Check size={11} />, label: "Create delivery task" },
+                { icon: <Search size={11} />, label: "Find similar across projects" },
+              ].map((action) => (
+                <button key={action.label} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[11px] text-white/40 hover:text-white/70 hover:bg-white/5 transition-all mb-1 text-left">
+                  <span className="text-white/25">{action.icon}</span>
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
+        {tab === "approval" && (
+          <ApprovalViewer
+            item={item}
+            status={approvalStatus}
+            note={approvalNote}
+            onSetNote={onSetNote}
+            onApprove={onApprove}
+            onRequestChanges={onRequestChanges}
+          />
+        )}
+
+        {tab === "comments" && (
+          <CommentsPanel itemId={item.id} />
+        )}
+
+        {tab === "activity" && (
+          <div className="space-y-3">
+            {[
+              { dot: "bg-violet-500", text: "Item added to vault", time: formatDate(item.created_at) },
+              { dot: item.embedding_status === "embedded" ? "bg-emerald-500" : "bg-white/20", text: item.embedding_status === "embedded" ? "Vectorised by Kobin AI" : "Awaiting vectorisation", time: formatDate(item.created_at) },
+            ].map((a, i) => (
+              <div key={i} className="flex gap-3">
+                <div className={cn("w-1.5 h-1.5 rounded-full mt-1.5 shrink-0", a.dot)} />
+                <div>
+                  <p className="text-[11px] text-white/50">{a.text}</p>
+                  <p className="text-[9px] text-white/20">{a.time}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
