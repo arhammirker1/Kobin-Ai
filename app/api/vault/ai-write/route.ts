@@ -1,0 +1,116 @@
+/**
+ * app/api/vault/ai-write/route.ts
+ *
+ * RAG-powered AI writer for vault documents.
+ * Retrieves relevant vault context, then streams a completion.
+ *
+ * Used by the AI Writer panel in the vault doc editor.
+ */
+
+import { NextResponse } from "next/server"
+import { createClient } from "@/lib/supabase/server"
+import { supabaseAdmin } from "@/lib/supabase/admin"
+import { buildVaultRAGContext } from "@/lib/ai/vault-rag"
+import { getGroqClient, GROQ_MODEL_STD } from "@/lib/ai/groq"
+
+const SSE_HEADERS = {
+  "Content-Type": "text/event-stream",
+  "Cache-Control": "no-cache, no-transform",
+  "Connection": "keep-alive",
+  "X-Accel-Buffering": "no",
+}
+
+export async function POST(request: Request) {
+  try {
+    const supabase = await createClient()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+    const { prompt, documentTitle, documentContent, projectId } =
+      await request.json()
+
+    if (!prompt?.trim()) {
+      return NextResponse.json({ error: "Prompt required" }, { status: 400 })
+    }
+
+    // Resolve founder
+    let founderId = user.id
+    const { data: profile } = await supabaseAdmin
+      .from("profiles")
+      .select("user_type")
+      .eq("id", user.id)
+      .single()
+
+    if (profile?.user_type === "team_member") {
+      const { data: tm } = await supabaseAdmin
+        .from("team_members")
+        .select("founder_id")
+        .eq("user_id", user.id)
+        .eq("is_active", true)
+        .single()
+      if (tm?.founder_id) founderId = tm.founder_id
+    }
+
+    // Retrieve relevant vault context
+    const vaultContext = await buildVaultRAGContext(
+      founderId,
+      `${documentTitle || ""} ${prompt}`,
+      { maxItems: 4, projectId }
+    )
+
+    const systemPrompt = `You are an expert agency document writer embedded in Kobin AI.
+You help founders write professional documents: proposals, briefs, SOPs, reports, and notes.
+
+${vaultContext ? vaultContext + "\n\n" : ""}${
+      documentTitle
+        ? `Current document: "${documentTitle}"\n${
+            documentContent
+              ? `Existing content:\n${documentContent.slice(0, 1000)}\n\n`
+              : ""
+          }`
+        : ""
+    }
+Write in clear, professional prose. Be specific and actionable.
+If inserting into an existing document, match its tone and style.
+Return only the written content — no preamble, no explanation.`
+
+    const groq = getGroqClient()
+    const stream = await groq.chat.completions.create({
+      model: GROQ_MODEL_STD,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: prompt },
+      ],
+      stream: true,
+      max_tokens: 1500,
+      temperature: 0.6,
+    })
+
+    const enc = new TextEncoder()
+    const readable = new ReadableStream({
+      async start(ctrl) {
+        for await (const chunk of stream) {
+          const delta = chunk.choices[0]?.delta?.content
+          if (delta) {
+            ctrl.enqueue(
+              enc.encode(
+                `data: ${JSON.stringify({ type: "delta", content: delta })}\n\n`
+              )
+            )
+          }
+        }
+        ctrl.enqueue(
+          enc.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`)
+        )
+        ctrl.close()
+      },
+    })
+
+    return new Response(readable, { headers: SSE_HEADERS })
+  } catch (err: any) {
+    console.error("[vault/ai-write]", err)
+    return NextResponse.json({ error: err.message }, { status: 500 })
+  }
+}

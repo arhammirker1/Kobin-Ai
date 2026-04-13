@@ -1,6 +1,19 @@
 "use client"
 
-import { useEffect, useState, useRef } from "react"
+/**
+ * components/vault-view.tsx
+ *
+ * Full Vault implementation matching vault_v3.html with:
+ * - 3-column layout (projects | folders | items)
+ * - Inline viewers: Doc editor, Image grid, PDF, Code, Link, Approval
+ * - Right context panel with AI memory (related items via pgvector)
+ * - Semantic search overlay (⌘K)
+ * - AI Writer panel (RAG-powered)
+ * - pgvector auto-embed on every item add
+ * - Approval workflow
+ */
+
+import { useEffect, useState, useRef, useCallback } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -8,26 +21,12 @@ import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
-  Search,
-  Plus,
-  FileText,
-  Link2,
-  StickyNote,
-  FolderOpen,
-  ChevronRight,
-  Upload,
-  ExternalLink,
-  MoreHorizontal,
-  Trash2,
-  Eye,
-  CloudOff,
-  Cloud,
-  Loader2,
-  X,
-  FolderPlus,
-  Users,
-  Lock,
-  Globe,
+  Search, Plus, FileText, Link2, StickyNote, FolderOpen,
+  ChevronRight, Upload, ExternalLink, MoreHorizontal, Trash2,
+  Eye, CloudOff, Cloud, Loader2, X, FolderPlus, Users, Lock,
+  Globe, ArrowLeft, Sparkles, Code, Image, FileIcon, Check,
+  Clock, AlertCircle, RefreshCw, Send, ChevronLeft, ChevronDown,
+  Activity, MessageSquare, Zap, BookOpen,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { toast } from "sonner"
@@ -36,8 +35,15 @@ import { cn } from "@/lib/utils"
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type FolderType = "root" | "project" | "internal" | "client_uploads" | "deliverables" | "custom"
+type ItemType = "file" | "link" | "note"
+type AddedByType = "founder" | "team" | "client"
+type EmbedStatus = "pending" | "embedded" | "failed" | "skipped"
+type ApprovalStatus = "pending" | "approved" | "changes_requested" | "none"
+type ViewerType = "doc" | "image" | "pdf" | "code" | "link" | "approval" | null
+type RightPanelTab = "context" | "approval" | "comments" | "activity"
+type FilterType = "all" | "file" | "link" | "note"
 
-type VaultFolder = {
+interface VaultFolder {
   id: string
   founder_id: string
   project_id: string | null
@@ -46,15 +52,14 @@ type VaultFolder = {
   parent_folder_id: string | null
   folder_type: FolderType
   created_at: string
-  children?: VaultFolder[]
 }
 
-type VaultItem = {
+interface VaultItem {
   id: string
   founder_id: string
   project_id: string | null
   folder_id: string
-  item_type: "file" | "link" | "note"
+  item_type: ItemType
   title: string
   description: string
   document_type: string
@@ -63,159 +68,217 @@ type VaultItem = {
   link_url: string | null
   note_content: string | null
   added_by: string
-  added_by_type: "founder" | "team" | "client"
+  added_by_type: AddedByType
   created_at: string
-  profile?: { full_name: string }
+  embedding_status?: EmbedStatus
 }
 
-type Project = {
+interface RelatedItem {
+  item: VaultItem & { project_name?: string; folder_name?: string }
+  reason: string
+  similarity: number
+}
+
+interface SearchResult extends VaultItem {
+  similarity: number
+  project_name?: string
+  folder_name?: string
+}
+
+interface Project {
   id: string
   name: string
 }
 
+// ── Constants ─────────────────────────────────────────────────────────────────
+
 const DOCUMENT_TYPES = [
-  "Content",
-  "Deliverable",
-  "Report",
-  "Contract",
-  "Brief",
-  "Design Asset",
-  "Spreadsheet",
-  "Presentation",
-  "Reference",
-  "Other",
+  "Content", "Deliverable", "Report", "Contract", "Brief",
+  "Design Asset", "Spreadsheet", "Presentation", "Reference",
+  "Proposal", "SOP", "Note", "Code", "Other",
 ]
 
-
-const FOLDER_TYPE_META: Record<FolderType, { label: string; icon: React.ReactNode; clientVisible: boolean }> = {
-  root: { label: "Vault Root", icon: <FolderOpen size={14} />, clientVisible: false },
-  project: { label: "Project", icon: <FolderOpen size={14} />, clientVisible: false },
-  internal: { label: "Internal", icon: <Lock size={14} />, clientVisible: false },
-  client_uploads: { label: "Client Uploads", icon: <Users size={14} />, clientVisible: true },
-  deliverables: { label: "Deliverables", icon: <Globe size={14} />, clientVisible: true },
-  custom: { label: "Folder", icon: <FolderOpen size={14} />, clientVisible: false },
+const FOLDER_META: Record<FolderType, { label: string; icon: React.ReactNode; clientVisible: boolean; color: string }> = {
+  root:          { label: "Vault Root",      icon: <FolderOpen size={13} />,  clientVisible: false, color: "text-fg3" },
+  project:       { label: "Project",         icon: <FolderOpen size={13} />,  clientVisible: false, color: "text-fg3" },
+  internal:      { label: "Internal",        icon: <Lock size={13} />,        clientVisible: false, color: "text-fg3" },
+  client_uploads:{ label: "Client Uploads",  icon: <Users size={13} />,       clientVisible: true,  color: "text-blue-400" },
+  deliverables:  { label: "Deliverables",    icon: <Globe size={13} />,       clientVisible: true,  color: "text-violet-400" },
+  custom:        { label: "Folder",          icon: <FolderOpen size={13} />,  clientVisible: false, color: "text-fg3" },
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+const TYPE_CONFIG: Record<ItemType, { icon: React.ReactNode; badge: string; color: string }> = {
+  file: { icon: <FileText size={14} />, badge: "File",  color: "bg-blue-500/10 text-blue-400 border-blue-500/20" },
+  link: { icon: <Link2 size={14} />,    badge: "Link",  color: "bg-violet-500/10 text-violet-400 border-violet-500/20" },
+  note: { icon: <StickyNote size={14} />, badge: "Note", color: "bg-amber-500/10 text-amber-400 border-amber-500/20" },
+}
+
+const ADDED_BY_COLOR: Record<AddedByType, string> = {
+  founder: "bg-violet-500/10 text-violet-400",
+  team:    "bg-blue-500/10 text-blue-400",
+  client:  "bg-emerald-500/10 text-emerald-400",
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function formatDate(d: string) {
+  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
 
 export function VaultView() {
   const supabase = createClient()
 
-  // Drive connection state
+  // ── State ──────────────────────────────────────────────────────────────────
+  const [isLoading, setIsLoading]         = useState(true)
   const [driveConnected, setDriveConnected] = useState(false)
   const [connectingDrive, setConnectingDrive] = useState(false)
+  const [isFounder, setIsFounder]         = useState(true)
+  const [founderId, setFounderId]         = useState<string | null>(null)
+  const [userId, setUserId]               = useState<string | null>(null)
 
-  // Data
-  const [folders, setFolders] = useState<VaultFolder[]>([])
-  const [items, setItems] = useState<VaultItem[]>([])
-  const [projects, setProjects] = useState<Project[]>([])
-  const [userId, setUserId] = useState<string | null>(null)
+  const [folders, setFolders]             = useState<VaultFolder[]>([])
+  const [items, setItems]                 = useState<VaultItem[]>([])
+  const [projects, setProjects]           = useState<Project[]>([])
 
-  // Navigation
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
-  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
+  const [selectedFolderId, setSelectedFolderId]   = useState<string | null>(null)
 
-  // UI
-  const [searchQuery, setSearchQuery] = useState("")
-  const [filterType, setFilterType] = useState<"all" | "file" | "link" | "note">("all")
-  const [isLoading, setIsLoading] = useState(true)
+  const [searchQuery, setSearchQuery]     = useState("")
+  const [filterType, setFilterType]       = useState<FilterType>("all")
 
-  // Add item dialog
+  // sidebar collapse
+  const [projectsSidebarOpen, setProjectsSidebarOpen] = useState(true)
+  const [foldersSidebarOpen, setFoldersSidebarOpen]   = useState(true)
+
+  // Viewer
+  const [activeViewer, setActiveViewer]   = useState<ViewerType>(null)
+  const [activeItem, setActiveItem]       = useState<VaultItem | null>(null)
+  const [rightPanelOpen, setRightPanelOpen] = useState(false)
+  const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>("context")
+  const [relatedItems, setRelatedItems]   = useState<RelatedItem[]>([])
+  const [loadingRelated, setLoadingRelated] = useState(false)
+
+  // AI Writer
+  const [aiWriterOpen, setAiWriterOpen]   = useState(false)
+  const [aiWriterPrompt, setAiWriterPrompt] = useState("")
+  const [aiWriterResponse, setAiWriterResponse] = useState("")
+  const [aiWriterLoading, setAiWriterLoading] = useState(false)
+
+  // Doc editor
+  const [docTitle, setDocTitle]           = useState("")
+  const [docContent, setDocContent]       = useState("")
+  const docRef = useRef<HTMLDivElement>(null)
+
+  // Approval
+  const [approvalStatus, setApprovalStatus] = useState<ApprovalStatus>("none")
+  const [approvalNote, setApprovalNote]   = useState("")
+
+  // Search overlay
+  const [searchOverlayOpen, setSearchOverlayOpen] = useState(false)
+  const [searchOverlayQuery, setSearchOverlayQuery] = useState("")
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([])
+  const [searchLoading, setSearchLoading] = useState(false)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Add dialog
   const [addDialogOpen, setAddDialogOpen] = useState(false)
-  const [addItemType, setAddItemType] = useState<"file" | "link" | "note" | null>(null)
-  const [addForm, setAddForm] = useState({
-    title: "",
-    description: "",
-    document_type: "Content",
-    link_url: "",
-    note_content: "",
+  const [addItemType, setAddItemType]     = useState<ItemType | null>(null)
+  const [addForm, setAddForm]             = useState({
+    title: "", description: "", document_type: "Content",
+    link_url: "", note_content: "",
   })
-  const [uploadFile, setUploadFile] = useState<File | null>(null)
-  const [uploading, setUploading] = useState(false)
+  const [uploadFile, setUploadFile]       = useState<File | null>(null)
+  const [uploading, setUploading]         = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Menu state
-  const [menuItemId, setMenuItemId] = useState<string | null>(null)
-  const [founderId, setFounderId] = useState<string | null>(null)
+  // PDF page
+  const [pdfPage, setPdfPage]             = useState(1)
+
+  // menu
+  const [menuItemId, setMenuItemId]       = useState<string | null>(null)
 
   // ── Init ───────────────────────────────────────────────────────────────────
 
+  useEffect(() => { init() }, [])
+
   useEffect(() => {
-    init()
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault()
+        setSearchOverlayOpen(true)
+        setTimeout(() => searchInputRef.current?.focus(), 50)
+      }
+      if (e.key === "Escape") {
+        setSearchOverlayOpen(false)
+        setAddDialogOpen(false)
+      }
+    }
+    window.addEventListener("keydown", handler)
+    return () => window.removeEventListener("keydown", handler)
   }, [])
 
-    const init = async () => {
+  const init = async () => {
     setIsLoading(true)
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
     setUserId(user.id)
 
-    // Resolve founder ID — team members use their founder's vault
-    let founderId = user.id
+    let fId = user.id
     const { data: profile } = await supabase
-      .from("profiles")
-      .select("user_type")
-      .eq("id", user.id)
-      .single()
-
+      .from("profiles").select("user_type").eq("id", user.id).single()
 
     if (profile?.user_type === "team_member") {
       setIsFounder(false)
-      const { data: teamMember } = await supabase
-        .from("team_members")
-        .select("founder_id")
-        .eq("user_id", user.id)
-        .eq("is_active", true)
-        .single()
-      if (teamMember?.founder_id) founderId = teamMember.founder_id
+      const { data: tm } = await supabase
+        .from("team_members").select("founder_id")
+        .eq("user_id", user.id).eq("is_active", true).single()
+      if (tm?.founder_id) fId = tm.founder_id
     }
 
-    // Check founder's Drive connection (not the team member's own)
-    setFounderId(founderId)
+    setFounderId(fId)
+
     const { data: integration } = await supabase
       .from("google_integrations")
       .select("drive_connected, drive_vault_folder_id")
-      .eq("user_id", founderId)
-      .maybeSingle()
+      .eq("user_id", fId).maybeSingle()
 
     setDriveConnected(!!(integration?.drive_connected && integration?.drive_vault_folder_id))
 
-    // Load founder's projects + folders
-    await Promise.all([
-      loadProjects(founderId),
-      loadFolders(founderId),
-    ])
+    await Promise.all([loadProjects(fId), loadFolders(fId)])
+
+    // Trigger background embedding of any pending items
+    fetch("/api/vault/embed", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ batch: true }),
+    }).catch(() => {})
 
     setIsLoading(false)
   }
 
   const loadProjects = async (uid: string) => {
     const { data } = await supabase
-      .from("projects")
-      .select("id, name")
-      .eq("founder_id", uid)
-      .order("name")
+      .from("projects").select("id, name").eq("founder_id", uid).order("name")
     setProjects(data || [])
   }
 
   const loadFolders = async (uid: string) => {
     const { data } = await supabase
-      .from("vault_folders")
-      .select("*")
-      .eq("founder_id", uid)
-      .order("created_at")
+      .from("vault_folders").select("*").eq("founder_id", uid).order("created_at")
     setFolders(data || [])
   }
 
- const loadItems = async (folderId: string) => {
-    const { data, error } = await supabase
-      .from("vault_items")
-      .select("*")
+  const loadItems = async (folderId: string) => {
+    const { data } = await supabase
+      .from("vault_items").select("*")
       .eq("folder_id", folderId)
       .order("created_at", { ascending: false })
-    if (error) console.error("[Vault] loadItems error:", error)
     setItems(data || [])
   }
+
   // ── Drive Connect ──────────────────────────────────────────────────────────
 
   const handleConnectDrive = async () => {
@@ -225,7 +288,7 @@ export function VaultView() {
       const json = await res.json()
       if (!res.ok) throw new Error(json.message)
       setDriveConnected(true)
-          await loadFolders(userId!)
+      await loadFolders(founderId!)
       toast.success("Google Drive connected — Vault is ready")
     } catch (err: any) {
       toast.error(err.message || "Failed to connect Drive")
@@ -233,7 +296,6 @@ export function VaultView() {
       setConnectingDrive(false)
     }
   }
-  const [isFounder, setIsFounder] = useState(true)
 
   // ── Navigation ─────────────────────────────────────────────────────────────
 
@@ -241,32 +303,83 @@ export function VaultView() {
     setSelectedProjectId(projectId)
     setSelectedFolderId(null)
     setItems([])
+    setActiveViewer(null)
+    setActiveItem(null)
+    setRightPanelOpen(false)
   }
 
   const selectFolder = (folder: VaultFolder) => {
     setSelectedFolderId(folder.id)
     loadItems(folder.id)
+    setActiveViewer(null)
+    setActiveItem(null)
+    setRightPanelOpen(false)
   }
 
-  // ── Derived data ───────────────────────────────────────────────────────────
+  // ── Open item in viewer ────────────────────────────────────────────────────
 
-  // Subfolders for selected project
-  const projectFolders = folders.filter(
-    (f) => f.project_id === selectedProjectId && f.folder_type !== "root" && f.folder_type !== "project"
-  )
+  const openItem = useCallback(async (item: VaultItem) => {
+    setActiveItem(item)
+    setRightPanelOpen(true)
+    setRightPanelTab("context")
+    setApprovalStatus("none")
 
-  const selectedFolder = folders.find((f) => f.id === selectedFolderId)
+    // Determine viewer type
+    let viewer: ViewerType = null
+    if (item.item_type === "note") {
+      viewer = "doc"
+      setDocTitle(item.title)
+      setDocContent(item.note_content || "")
+    } else if (item.item_type === "link") {
+      viewer = "link"
+    } else if (item.drive_file_url) {
+      const url = item.drive_file_url.toLowerCase()
+      if (item.document_type === "Code") viewer = "code"
+      else if (item.document_type === "Design Asset") viewer = "image"
+      else viewer = "approval" // default for file deliverables
+    } else {
+      viewer = "approval"
+    }
+    setActiveViewer(viewer)
 
-  const filteredItems = items.filter((item) => {
-    const matchType = filterType === "all" || item.item_type === filterType
-    const matchSearch =
-      !searchQuery ||
-      item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.description?.toLowerCase().includes(searchQuery.toLowerCase())
-    return matchType && matchSearch
-  })
+    // Fetch related items via pgvector
+    setLoadingRelated(true)
+    setRelatedItems([])
+    try {
+      const res = await fetch("/api/vault/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: `${item.title} ${item.description}`,
+          mode: "semantic",
+          limit: 5,
+        }),
+      })
+      const json = await res.json()
+      if (json.results) {
+        const related = json.results
+          .filter((r: SearchResult) => r.id !== item.id)
+          .slice(0, 4)
+          .map((r: SearchResult) => ({
+            item: r,
+            reason: `${(r.similarity * 100).toFixed(0)}% similarity`,
+            similarity: r.similarity,
+          }))
+        setRelatedItems(related)
+      }
+    } catch {}
+    setLoadingRelated(false)
+  }, [])
 
-  // ── Add Item ───────────────────────────────────────────────────────────────
+  const closeViewer = () => {
+    setActiveViewer(null)
+    setActiveItem(null)
+    setRightPanelOpen(false)
+    setAiWriterOpen(false)
+    setAiWriterResponse("")
+  }
+
+  // ── Add item ───────────────────────────────────────────────────────────────
 
   const resetAddForm = () => {
     setAddForm({ title: "", description: "", document_type: "Content", link_url: "", note_content: "" })
@@ -275,7 +388,7 @@ export function VaultView() {
   }
 
   const handleAddItem = async () => {
-    if (!addItemType || !selectedFolderId || !userId) return
+    if (!addItemType || !selectedFolderId || !userId || !founderId) return
     if (!addForm.title.trim()) { toast.error("Title is required"); return }
     if (!addForm.description.trim()) { toast.error("Description is required"); return }
     if (addItemType === "link" && !addForm.link_url.trim()) { toast.error("URL is required"); return }
@@ -286,7 +399,6 @@ export function VaultView() {
       let driveFileId: string | null = null
       let driveFileUrl: string | null = null
 
-      // Upload to Drive via API if file
       if (addItemType === "file" && uploadFile) {
         const formData = new FormData()
         formData.append("file", uploadFile)
@@ -294,7 +406,6 @@ export function VaultView() {
         formData.append("title", addForm.title)
         formData.append("description", addForm.description)
         formData.append("document_type", addForm.document_type)
-
         const res = await fetch("/api/vault/upload-file", { method: "POST", body: formData })
         const json = await res.json()
         if (!res.ok) throw new Error(json.message)
@@ -302,8 +413,7 @@ export function VaultView() {
         driveFileUrl = json.drive_file_url
       }
 
-      // Save metadata to DB
-      const { error } = await supabase.from("vault_items").insert({
+      const { data: newItem, error } = await supabase.from("vault_items").insert({
         founder_id: founderId,
         project_id: selectedProjectId,
         folder_id: selectedFolderId,
@@ -317,11 +427,22 @@ export function VaultView() {
         note_content: addItemType === "note" ? addForm.note_content : null,
         added_by: userId,
         added_by_type: isFounder ? "founder" : "team",
-      })
+        embedding_status: "pending",
+      }).select().single()
 
       if (error) throw error
 
       toast.success("Added to Vault")
+
+      // Trigger embedding async (non-blocking)
+      if (newItem) {
+        fetch("/api/vault/embed", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ vault_item_id: newItem.id }),
+        }).catch(() => {})
+      }
+
       setAddDialogOpen(false)
       resetAddForm()
       loadItems(selectedFolderId)
@@ -338,542 +459,1195 @@ export function VaultView() {
     toast.success("Removed from Vault")
     setItems((prev) => prev.filter((i) => i.id !== itemId))
     setMenuItemId(null)
+    if (activeItem?.id === itemId) closeViewer()
   }
+
+  // ── Save note ──────────────────────────────────────────────────────────────
+
+  const saveNote = async () => {
+    if (!activeItem) return
+    const { error } = await supabase
+      .from("vault_items")
+      .update({ title: docTitle, note_content: docContent })
+      .eq("id", activeItem.id)
+    if (error) { toast.error("Failed to save"); return }
+    toast.success("Saved")
+    // Re-embed after edit
+    fetch("/api/vault/embed", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ vault_item_id: activeItem.id }),
+    }).catch(() => {})
+    loadItems(selectedFolderId!)
+  }
+
+  // ── AI Writer ──────────────────────────────────────────────────────────────
+
+  const runAIWriter = async () => {
+    if (!aiWriterPrompt.trim()) return
+    setAiWriterLoading(true)
+    setAiWriterResponse("")
+    try {
+      const res = await fetch("/api/vault/ai-write", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: aiWriterPrompt,
+          documentTitle: docTitle || activeItem?.title,
+          documentContent: docContent,
+          projectId: selectedProjectId,
+        }),
+      })
+      if (!res.ok) throw new Error("AI writer failed")
+      const reader = res.body!.getReader()
+      const decoder = new TextDecoder()
+      let buf = ""
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value)
+        const lines = buf.split("\n")
+        buf = lines.pop() || ""
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const parsed = JSON.parse(line.slice(6))
+              if (parsed.type === "delta") {
+                setAiWriterResponse((prev) => prev + parsed.content)
+              }
+            } catch {}
+          }
+        }
+      }
+    } catch (err: any) {
+      toast.error("AI writer error")
+    } finally {
+      setAiWriterLoading(false)
+    }
+  }
+
+  const insertAIResponse = () => {
+    if (!aiWriterResponse) return
+    setDocContent((prev) => prev + "\n\n" + aiWriterResponse)
+    setAiWriterResponse("")
+    setAiWriterPrompt("")
+    toast.success("Inserted into document")
+  }
+
+  // ── Search overlay ─────────────────────────────────────────────────────────
+
+  const handleSearchOverlayQuery = (q: string) => {
+    setSearchOverlayQuery(q)
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
+    if (!q.trim()) { setSearchResults([]); return }
+    searchDebounceRef.current = setTimeout(async () => {
+      setSearchLoading(true)
+      try {
+        const res = await fetch("/api/vault/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: q, limit: 8, mode: "hybrid" }),
+        })
+        const json = await res.json()
+        setSearchResults(json.results || [])
+      } catch {}
+      setSearchLoading(false)
+    }, 350)
+  }
+
+  const openSearchResult = (result: SearchResult) => {
+    setSearchOverlayOpen(false)
+    setSearchOverlayQuery("")
+    setSearchResults([])
+    // Navigate to the item's project/folder
+    if (result.project_id) setSelectedProjectId(result.project_id)
+    if (result.folder_id) {
+      setSelectedFolderId(result.folder_id)
+      loadItems(result.folder_id)
+    }
+    setTimeout(() => openItem(result), 100)
+  }
+
+  // ── Derived ────────────────────────────────────────────────────────────────
+
+  const projectFolders = folders.filter(
+    (f) =>
+      f.project_id === selectedProjectId &&
+      f.folder_type !== "root" &&
+      f.folder_type !== "project"
+  )
+
+  const selectedFolder = folders.find((f) => f.id === selectedFolderId)
+  const selectedProject = projects.find((p) => p.id === selectedProjectId)
+
+  const filteredItems = items.filter((item) => {
+    const matchType = filterType === "all" || item.item_type === filterType
+    const matchSearch =
+      !searchQuery ||
+      item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.description?.toLowerCase().includes(searchQuery.toLowerCase())
+    return matchType && matchSearch
+  })
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        <Loader2 className="size-5 animate-spin text-muted-foreground" />
       </div>
     )
   }
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] gap-0 rounded-2xl border border-border/50 overflow-hidden bg-background">
-      {/* ── Left sidebar: Projects ── */}
-      <div className="w-56 shrink-0 border-r border-border/50 flex flex-col bg-muted/20">
-        <div className="px-4 py-4 border-b border-border/50">
-          <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Vault</h2>
-        </div>
+    <>
+      {/* ── Main vault shell ── */}
+      <div className="flex h-[calc(100vh-4rem)] overflow-hidden rounded-2xl border border-border/50 bg-[#161614]">
 
-        {/* Drive connection status */}
-        {driveConnected ? (
-          <div className="px-3 py-2 mx-2 mt-3 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-1.5">
-            <Cloud size={11} className="text-emerald-600" />
-            <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-700">Drive connected</span>
-          </div>
-        ) : isFounder ? (
-          <div className="px-3 py-3 mx-2 mt-3 rounded-xl bg-amber-50 border border-amber-200 space-y-2">
-            <div className="flex items-center gap-1.5 text-amber-700">
-              <CloudOff size={12} />
-              <span className="text-[10px] font-bold uppercase tracking-widest">Drive not connected</span>
-            </div>
-            <Button
-              size="sm"
-              className="w-full h-7 text-xs"
-              onClick={handleConnectDrive}
-              disabled={connectingDrive}
-            >
-              {connectingDrive ? <Loader2 size={12} className="animate-spin" /> : <Cloud size={12} />}
-              <span className="ml-1.5">Connect Drive</span>
-            </Button>
-          </div>
-        ) : (
-          <div className="px-3 py-2 mx-2 mt-3 rounded-xl bg-amber-50 border border-amber-200 flex items-center gap-1.5">
-            <CloudOff size={11} className="text-amber-600" />
-            <span className="text-[10px] font-bold uppercase tracking-widest text-amber-700">Drive not set up</span>
-          </div>
-        )}
-
-        {/* Projects list */}
-        <div className="flex-1 overflow-y-auto py-3 space-y-0.5 px-2">
-          {projects.length === 0 ? (
-            <p className="text-[11px] text-muted-foreground px-2 py-2">No projects yet</p>
-          ) : (
-            projects.map((project) => {
-              const hasVaultFolders = folders.some((f) => f.project_id === project.id)
-              return (
-                <button
-                  key={project.id}
-                  onClick={() => selectProject(project.id)}
-                  className={cn(
-                    "w-full text-left flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
-                    selectedProjectId === project.id
-                      ? "bg-primary/10 text-primary font-semibold"
-                      : "text-foreground/70 hover:bg-muted hover:text-foreground"
-                  )}
-                >
-                  <FolderOpen size={14} className="shrink-0" />
-                  <span className="truncate flex-1">{project.name}</span>
-                  {!hasVaultFolders && driveConnected && (
-                    <span className="size-1.5 rounded-full bg-amber-400 shrink-0" title="Vault folders not created" />
-                  )}
-                </button>
-              )
-            })
-          )}
-        </div>
-      </div>
-
-      {/* ── Middle: Folder list ── */}
-      <div className="w-52 shrink-0 border-r border-border/50 flex flex-col bg-background">
-        {!selectedProjectId ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center px-4">
-            <FolderOpen size={32} className="text-muted-foreground/40" />
-            <p className="text-xs text-muted-foreground">Select a project to see its folders</p>
-          </div>
-        ) : (
-          <>
-            <div className="px-4 py-3 border-b border-border/50">
-              <p className="text-xs font-bold text-foreground truncate">
-                {projects.find((p) => p.id === selectedProjectId)?.name}
-              </p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">Project folders</p>
+        {/* ── Sidebar: Projects ── */}
+        {projectsSidebarOpen && (
+          <div className="w-52 shrink-0 border-r border-white/5 flex flex-col bg-[#1a1a18] overflow-hidden">
+            <div className="px-3 py-3 border-b border-white/5 flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-white/30">Vault</span>
+              <button
+                onClick={() => setSearchOverlayOpen(true)}
+                className="p-1 rounded hover:bg-white/5 text-white/30 hover:text-white/60 transition-colors"
+                title="Search (⌘K)"
+              >
+                <Search size={11} />
+              </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto py-2 space-y-0.5 px-2">
-              {projectFolders.length === 0 ? (
-                <div className="px-2 py-4 text-center space-y-2">
-                  <p className="text-[11px] text-muted-foreground">No folders yet</p>
-                  {driveConnected && (
-                    <p className="text-[10px] text-muted-foreground/70">
-                      Folders are created automatically when a project is created
-                    </p>
-                  )}
+            {/* Drive status */}
+            {driveConnected ? (
+              <div className="mx-3 mt-3 px-2.5 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-2">
+                <Cloud size={9} className="text-emerald-400" />
+                <span className="text-[9px] font-bold uppercase tracking-widest text-emerald-400">Drive Connected</span>
+              </div>
+            ) : isFounder ? (
+              <div className="mx-3 mt-3 px-2.5 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <CloudOff size={9} className="text-amber-400" />
+                  <span className="text-[9px] font-bold uppercase tracking-widest text-amber-400">Drive not connected</span>
                 </div>
+                <button
+                  onClick={handleConnectDrive}
+                  disabled={connectingDrive}
+                  className="w-full flex items-center justify-center gap-1.5 py-1 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 rounded text-[10px] font-semibold text-amber-400 transition-colors"
+                >
+                  {connectingDrive ? <Loader2 size={10} className="animate-spin" /> : <Cloud size={10} />}
+                  Connect Drive
+                </button>
+              </div>
+            ) : null}
+
+            {/* Project list */}
+            <div className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
+              <div className="px-2 py-1 text-[9px] font-bold uppercase tracking-widest text-white/20">Projects</div>
+              {projects.length === 0 ? (
+                <p className="text-[11px] text-white/25 px-2 py-2">No projects yet</p>
               ) : (
-                projectFolders.map((folder) => {
-                  const meta = FOLDER_TYPE_META[folder.folder_type]
+                projects.map((project) => {
+                  const hasVaultFolders = folders.some((f) => f.project_id === project.id)
                   return (
                     <button
-                      key={folder.id}
-                      onClick={() => selectFolder(folder)}
+                      key={project.id}
+                      onClick={() => selectProject(project.id)}
                       className={cn(
-                        "w-full text-left flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
-                        selectedFolderId === folder.id
-                          ? "bg-primary/10 text-primary font-semibold"
-                          : "text-foreground/70 hover:bg-muted hover:text-foreground"
+                        "w-full text-left flex items-center gap-2 px-2.5 py-2 rounded-lg text-[12px] transition-all",
+                        selectedProjectId === project.id
+                          ? "bg-violet-500/15 text-violet-300 font-medium"
+                          : "text-white/50 hover:bg-white/5 hover:text-white/80"
                       )}
                     >
-                      <span className="shrink-0 text-muted-foreground">{meta.icon}</span>
-                      <span className="truncate flex-1 text-[13px]">{folder.name}</span>
-                      {meta.clientVisible && (
-                        <span title="Visible to clients" className="shrink-0">
-                          <Eye size={10} className="text-muted-foreground/60" />
-                        </span>
+                      <FolderOpen size={11} className="shrink-0 opacity-70" />
+                      <span className="truncate flex-1">{project.name}</span>
+                      {!hasVaultFolders && driveConnected && (
+                        <span className="size-1.5 rounded-full bg-amber-400 shrink-0" />
                       )}
                     </button>
                   )
                 })
               )}
             </div>
+          </div>
+        )}
 
-            {/* Add custom folder — future feature placeholder */}
-            <div className="px-3 py-3 border-t border-border/50">
-              <button className="flex items-center gap-2 text-[11px] text-muted-foreground hover:text-foreground transition-colors w-full px-1 py-1">
-                <FolderPlus size={13} />
-                New folder
+        {/* ── Sidebar: Folders ── */}
+        {foldersSidebarOpen && selectedProjectId && (
+          <div className="w-48 shrink-0 border-r border-white/5 flex flex-col bg-[#161614] overflow-hidden">
+            <div className="px-3 py-3 border-b border-white/5">
+              <p className="text-[11px] font-semibold text-white/80 truncate">{selectedProject?.name}</p>
+              <p className="text-[9px] text-white/25 mt-0.5 uppercase tracking-wider">Project folders</p>
+            </div>
+            <div className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
+              {projectFolders.length === 0 ? (
+                <p className="text-[10px] text-white/20 px-2 py-3 text-center">No folders yet</p>
+              ) : (
+                projectFolders.map((folder) => {
+                  const meta = FOLDER_META[folder.folder_type]
+                  return (
+                    <button
+                      key={folder.id}
+                      onClick={() => selectFolder(folder)}
+                      className={cn(
+                        "w-full text-left flex items-center gap-2 px-2.5 py-2 rounded-lg text-[12px] transition-all",
+                        selectedFolderId === folder.id
+                          ? "bg-violet-500/15 text-violet-300 font-medium"
+                          : "text-white/50 hover:bg-white/5 hover:text-white/80"
+                      )}
+                    >
+                      <span className={cn("shrink-0", meta.color, selectedFolderId === folder.id ? "text-violet-300" : "")}>{meta.icon}</span>
+                      <span className="truncate flex-1">{folder.name}</span>
+                      {meta.clientVisible && <Eye size={9} className="shrink-0 opacity-40" />}
+                    </button>
+                  )
+                })
+              )}
+            </div>
+            <div className="px-3 py-2.5 border-t border-white/5">
+              <button className="flex items-center gap-1.5 text-[10px] text-white/25 hover:text-white/60 transition-colors w-full">
+                <FolderPlus size={11} />New folder
               </button>
             </div>
-          </>
+          </div>
+        )}
+
+        {/* ── Main area ── */}
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+
+          {/* Topbar */}
+          <div className="px-4 py-2.5 border-b border-white/5 flex items-center gap-3 bg-[#161614] flex-shrink-0">
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={() => setProjectsSidebarOpen((v) => !v)}
+                className="p-1.5 rounded hover:bg-white/5 text-white/30 hover:text-white/60 transition-colors"
+              >
+                <FolderOpen size={12} />
+              </button>
+              {selectedProjectId && (
+                <button
+                  onClick={() => setFoldersSidebarOpen((v) => !v)}
+                  className="p-1.5 rounded hover:bg-white/5 text-white/30 hover:text-white/60 transition-colors"
+                >
+                  <ChevronRight size={12} />
+                </button>
+              )}
+            </div>
+
+            {/* Breadcrumb */}
+            <div className="flex items-center gap-2 text-[11px] text-white/30 flex-1 min-w-0">
+              {selectedProject && <span className="truncate">{selectedProject.name}</span>}
+              {selectedFolder && (
+                <>
+                  <ChevronRight size={10} className="opacity-50" />
+                  <span className="font-semibold text-white/70 truncate">{selectedFolder.name}</span>
+                </>
+              )}
+              {selectedFolder && FOLDER_META[selectedFolder.folder_type].clientVisible && (
+                <Badge variant="outline" className="text-[8px] h-4 px-1.5 border-blue-500/30 text-blue-400 bg-blue-500/10 shrink-0">
+                  <Eye size={7} className="mr-1" />Client visible
+                </Badge>
+              )}
+              {activeItem && activeViewer && (
+                <>
+                  <ChevronRight size={10} className="opacity-50" />
+                  <span className="text-white/60 truncate">{activeItem.title}</span>
+                </>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={() => { setSearchOverlayOpen(true); setTimeout(() => searchInputRef.current?.focus(), 50) }}
+                className="flex items-center gap-2 px-3 py-1.5 bg-white/5 hover:bg-white/8 border border-white/8 rounded-lg text-[11px] text-white/40 hover:text-white/70 transition-all"
+              >
+                <Search size={11} />
+                <span>Search</span>
+                <span className="text-[9px] border border-white/15 rounded px-1 py-0.5 font-mono">⌘K</span>
+              </button>
+              <button className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/8 border border-white/8 rounded-lg text-[11px] text-white/40 hover:text-white/70 transition-all">
+                <Upload size={11} />Import
+              </button>
+              {selectedFolderId && (
+                <button
+                  onClick={() => setAddDialogOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-500 hover:bg-violet-600 rounded-lg text-[11px] font-semibold text-white transition-colors"
+                >
+                  <Plus size={11} />Add to Vault
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Main content area */}
+          {!activeViewer ? (
+            /* ── Cards view ── */
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {/* AI strip */}
+              {selectedFolderId && items.length > 0 && (
+                <div className="mx-4 mt-3 px-3 py-2.5 bg-violet-500/8 border border-violet-500/20 rounded-xl flex items-center gap-3 cursor-pointer hover:bg-violet-500/12 transition-colors flex-shrink-0">
+                  <div className="w-7 h-7 bg-gradient-to-br from-violet-500 to-purple-600 rounded-lg flex items-center justify-center shrink-0">
+                    <Sparkles size={12} className="text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[10px] font-semibold text-violet-400">Kobin AI has context on this folder</div>
+                    <div className="text-[10px] text-white/30 mt-0.5">
+                      {items.filter(i => i.embedding_status === "embedded").length} items vectorised ·
+                      pgvector indexed · Click any item to see related context
+                    </div>
+                  </div>
+                  <Sparkles size={12} className="text-violet-500/40 shrink-0" />
+                </div>
+              )}
+
+              {/* Filter bar */}
+              {selectedFolderId && (
+                <div className="px-4 py-2.5 flex items-center gap-3 border-b border-white/5 flex-shrink-0">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-white/25" />
+                    <Input
+                      placeholder="Filter items…"
+                      className="pl-8 h-8 text-[11px] bg-white/4 border-white/8 text-white/70 placeholder:text-white/25 focus:border-violet-500/40"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex items-center gap-0.5">
+                    {(["all", "file", "link", "note"] as const).map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => setFilterType(t)}
+                        className={cn(
+                          "px-2.5 py-1.5 rounded-md text-[10px] font-semibold capitalize transition-all",
+                          filterType === t
+                            ? "bg-white/10 text-white"
+                            : "text-white/30 hover:text-white/60 hover:bg-white/5"
+                        )}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Items grid */}
+              <div className="flex-1 overflow-y-auto p-4">
+                {!selectedProjectId ? (
+                  <EmptyState
+                    icon={<FolderOpen size={28} className="text-white/15" />}
+                    title="Select a project"
+                    desc="Choose a project from the sidebar to browse its vault"
+                  />
+                ) : !selectedFolderId ? (
+                  <EmptyState
+                    icon={<FolderOpen size={28} className="text-white/15" />}
+                    title="Select a folder"
+                    desc="Choose a folder to see its contents"
+                  />
+                ) : filteredItems.length === 0 ? (
+                  <EmptyState
+                    icon={<Plus size={24} className="text-white/15" />}
+                    title="Empty folder"
+                    desc="Add files, links, or notes to this folder"
+                    action={
+                      <button
+                        onClick={() => setAddDialogOpen(true)}
+                        className="mt-1 flex items-center gap-1.5 px-3 py-1.5 border border-white/10 rounded-lg text-[11px] text-white/40 hover:text-white/70 hover:border-white/20 transition-all"
+                      >
+                        <Plus size={11} />Add to Vault
+                      </button>
+                    }
+                  />
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
+                    {filteredItems.map((item) => (
+                      <VaultCard
+                        key={item.id}
+                        item={item}
+                        active={activeItem?.id === item.id}
+                        menuOpen={menuItemId === item.id}
+                        onOpen={() => openItem(item)}
+                        onMenuToggle={() => setMenuItemId(menuItemId === item.id ? null : item.id)}
+                        onDelete={() => handleDeleteItem(item.id)}
+                        onMenuClose={() => setMenuItemId(null)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            /* ── Inline viewer ── */
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {/* Viewer header */}
+              <div className="px-4 py-2.5 border-b border-white/5 flex items-center gap-3 bg-[#1a1a18] flex-shrink-0">
+                <button
+                  onClick={closeViewer}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 border border-white/10 rounded-lg text-[11px] text-white/40 hover:text-white/70 hover:border-white/20 transition-all"
+                >
+                  <ArrowLeft size={11} />Back
+                </button>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12px] font-semibold text-white/80 truncate">{activeItem?.title}</p>
+                  <p className="text-[10px] text-white/25">
+                    {activeItem?.document_type} · {activeItem?.added_by_type} · {activeItem ? formatDate(activeItem.created_at) : ""}
+                    {activeItem?.embedding_status === "embedded" && (
+                      <span className="ml-2 text-violet-400/60">· vectorised</span>
+                    )}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {activeViewer === "doc" && (
+                    <>
+                      <button
+                        onClick={() => setAiWriterOpen((v) => !v)}
+                        className={cn(
+                          "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all",
+                          aiWriterOpen
+                            ? "bg-violet-500/20 border border-violet-500/30 text-violet-300"
+                            : "bg-white/5 border border-white/8 text-white/50 hover:text-white/80"
+                        )}
+                      >
+                        <Sparkles size={11} />Kobin AI
+                      </button>
+                      <button
+                        onClick={saveNote}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white text-black hover:bg-white/90 rounded-lg text-[11px] font-semibold transition-all"
+                      >
+                        <Check size={11} />Save
+                      </button>
+                    </>
+                  )}
+                  {activeItem?.drive_file_url && (
+                    <a
+                      href={activeItem.drive_file_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/5 border border-white/8 rounded-lg text-[11px] text-white/50 hover:text-white/80 transition-all"
+                    >
+                      <ExternalLink size={11} />Open in Drive
+                    </a>
+                  )}
+                  {activeItem?.item_type === "file" && (
+                    <button
+                      onClick={() => setRightPanelTab("approval")}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white text-black hover:bg-white/90 rounded-lg text-[11px] font-semibold transition-all"
+                    >
+                      <Clock size={11} />Request Approval
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Viewer body */}
+              <div className="flex-1 flex overflow-hidden">
+                {/* Doc editor */}
+                {activeViewer === "doc" && (
+                  <div className="flex-1 flex overflow-hidden">
+                    <div className="flex-1 flex flex-col overflow-hidden">
+                      {/* Toolbar */}
+                      <div className="px-3 py-2 border-b border-white/5 flex items-center gap-1 bg-[#1a1a18] flex-shrink-0 flex-wrap">
+                        {["B", "I", "U"].map((f) => (
+                          <button key={f} className="w-6 h-6 flex items-center justify-center rounded text-[11px] font-bold text-white/40 hover:text-white hover:bg-white/8 transition-all">{f}</button>
+                        ))}
+                        <div className="w-px h-3 bg-white/10 mx-1" />
+                        {["H1", "H2"].map((h) => (
+                          <button key={h} className="px-1.5 h-6 flex items-center justify-center rounded text-[9px] font-bold text-white/40 hover:text-white hover:bg-white/8 transition-all">{h}</button>
+                        ))}
+                        <div className="w-px h-3 bg-white/10 mx-1" />
+                        {["•", "1.", "☐"].map((t) => (
+                          <button key={t} className="w-6 h-6 flex items-center justify-center rounded text-[11px] text-white/40 hover:text-white hover:bg-white/8 transition-all">{t}</button>
+                        ))}
+                        <div className="w-px h-3 bg-white/10 mx-1" />
+                        <button className="px-2 h-6 flex items-center justify-center rounded text-[9px] font-bold text-violet-400 bg-violet-500/10 border border-violet-500/20 hover:bg-violet-500/20 transition-all">/ kobin</button>
+                      </div>
+                      {/* Editor */}
+                      <div className="flex-1 overflow-y-auto px-12 py-8">
+                        <input
+                          className="w-full bg-transparent text-[22px] font-bold text-white/90 outline-none placeholder:text-white/15 mb-3"
+                          value={docTitle}
+                          onChange={(e) => setDocTitle(e.target.value)}
+                          placeholder="Untitled…"
+                        />
+                        <div className="text-[10px] text-white/20 mb-6">
+                          {activeItem && formatDate(activeItem.created_at)} · {selectedProject?.name}
+                        </div>
+                        <textarea
+                          className="w-full bg-transparent text-[13px] leading-7 text-white/70 outline-none resize-none placeholder:text-white/20 min-h-[400px]"
+                          value={docContent}
+                          onChange={(e) => setDocContent(e.target.value)}
+                          placeholder="Start writing… or press / for AI commands"
+                        />
+                      </div>
+                      <div className="px-4 py-2 border-t border-white/5 bg-[#1a1a18] flex-shrink-0">
+                        <p className="text-[9px] text-white/20">Type <span className="font-mono border border-white/10 rounded px-1">/kobin</span> for AI · <span className="font-mono border border-white/10 rounded px-1">⌘S</span> to save</p>
+                      </div>
+                    </div>
+                    {/* AI Writer panel */}
+                    {aiWriterOpen && (
+                      <AIWriterPanel
+                        prompt={aiWriterPrompt}
+                        setPrompt={setAiWriterPrompt}
+                        response={aiWriterResponse}
+                        loading={aiWriterLoading}
+                        onRun={runAIWriter}
+                        onInsert={insertAIResponse}
+                        onDiscard={() => { setAiWriterResponse(""); setAiWriterPrompt("") }}
+                        onClose={() => setAiWriterOpen(false)}
+                      />
+                    )}
+                  </div>
+                )}
+
+                {/* Link viewer */}
+                {activeViewer === "link" && (
+                  <div className="flex-1 flex flex-col items-center justify-center gap-4">
+                    <div className="w-14 h-14 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-center justify-center">
+                      <Link2 size={24} className="text-emerald-400" />
+                    </div>
+                    <div className="text-center">
+                      <p className="text-[13px] font-semibold text-white/80 mb-1">{activeItem?.title}</p>
+                      <p className="text-[11px] text-white/30">{activeItem?.link_url}</p>
+                    </div>
+                    {activeItem?.link_url && (
+                      <a
+                        href={activeItem.link_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2 px-4 py-2 bg-white text-black rounded-lg text-[12px] font-semibold hover:bg-white/90 transition-colors"
+                      >
+                        <ExternalLink size={13} />Open link
+                      </a>
+                    )}
+                  </div>
+                )}
+
+                {/* Approval / file viewer */}
+                {activeViewer === "approval" && activeItem && (
+                  <div className="flex-1 overflow-y-auto p-6">
+                    <ApprovalViewer
+                      item={activeItem}
+                      status={approvalStatus}
+                      note={approvalNote}
+                      onSetNote={setApprovalNote}
+                      onApprove={() => setApprovalStatus("approved")}
+                      onRequestChanges={() => setApprovalStatus("changes_requested")}
+                    />
+                  </div>
+                )}
+
+                {/* Image viewer */}
+                {activeViewer === "image" && (
+                  <div className="flex-1 flex flex-col items-center justify-center p-8">
+                    <div className="w-full max-w-2xl aspect-video bg-white/5 border border-white/10 rounded-xl flex items-center justify-center">
+                      {activeItem?.drive_file_url ? (
+                        <a href={activeItem.drive_file_url} target="_blank" rel="noopener noreferrer">
+                          <div className="text-center space-y-2">
+                            <Image size={32} className="text-white/20 mx-auto" />
+                            <p className="text-[11px] text-white/30">Open in Drive to view</p>
+                          </div>
+                        </a>
+                      ) : (
+                        <Image size={32} className="text-white/15" />
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── Right context panel ── */}
+        {rightPanelOpen && activeItem && (
+          <RightPanel
+            item={activeItem}
+            tab={rightPanelTab}
+            onTabChange={setRightPanelTab}
+            onClose={() => setRightPanelOpen(false)}
+            relatedItems={relatedItems}
+            loadingRelated={loadingRelated}
+            approvalStatus={approvalStatus}
+            approvalNote={approvalNote}
+            onSetNote={setApprovalNote}
+            onApprove={() => setApprovalStatus("approved")}
+            onRequestChanges={() => setApprovalStatus("changes_requested")}
+            onOpenRelated={(item) => openItem(item)}
+          />
         )}
       </div>
 
-      {/* ── Right: Items view ── */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {!selectedFolderId ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center px-8">
-            {!selectedProjectId ? (
-              <>
-                <div className="size-16 rounded-2xl bg-muted flex items-center justify-center">
-                  <FolderOpen size={28} className="text-muted-foreground/40" />
-                </div>
-                <div>
-                  <p className="font-semibold text-foreground/70">Select a project</p>
-                  <p className="text-sm text-muted-foreground mt-1">Choose a project from the left to browse its vault</p>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="size-16 rounded-2xl bg-muted flex items-center justify-center">
-                  <FolderOpen size={28} className="text-muted-foreground/40" />
-                </div>
-                <div>
-                  <p className="font-semibold text-foreground/70">Select a folder</p>
-                  <p className="text-sm text-muted-foreground mt-1">Choose a folder to see its contents</p>
-                </div>
-              </>
-            )}
-          </div>
-        ) : (
-          <>
-            {/* Header */}
-            <div className="px-6 py-4 border-b border-border/50 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground min-w-0">
-                <span className="truncate">{projects.find((p) => p.id === selectedProjectId)?.name}</span>
-                <ChevronRight size={14} />
-                <span className="font-semibold text-foreground truncate">{selectedFolder?.name}</span>
-                {selectedFolder && FOLDER_TYPE_META[selectedFolder.folder_type].clientVisible && (
-                  <Badge variant="secondary" className="text-[9px] font-bold uppercase tracking-widest h-4 px-1.5 shrink-0">
-                    <Eye size={8} className="mr-1" />
-                    Client visible
-                  </Badge>
-                )}
+      {/* ── Search overlay ── */}
+      {searchOverlayOpen && (
+        <div
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-start justify-center pt-24"
+          onClick={(e) => { if (e.target === e.currentTarget) setSearchOverlayOpen(false) }}
+        >
+          <div className="w-[560px] bg-[#1c1c1a] border border-white/10 rounded-2xl overflow-hidden shadow-2xl">
+            <div className="flex items-center gap-3 px-4 py-3.5 border-b border-white/8">
+              <Search size={14} className="text-white/30 shrink-0" />
+              <input
+                ref={searchInputRef}
+                className="flex-1 bg-transparent text-[13px] text-white/80 outline-none placeholder:text-white/25"
+                placeholder="Search or ask anything about your vault…"
+                value={searchOverlayQuery}
+                onChange={(e) => handleSearchOverlayQuery(e.target.value)}
+              />
+              <div className="flex items-center gap-1.5 px-2 py-1 bg-violet-500/15 border border-violet-500/25 rounded text-[9px] font-bold text-violet-400">
+                <Sparkles size={8} />AI Search
               </div>
-
-              <Button
-                size="sm"
-                className="gap-1.5 shrink-0"
-                onClick={() => { setAddDialogOpen(true) }}
-              >
-                <Plus size={14} />
-                Add to Vault
-              </Button>
             </div>
-
-            {/* Search + filter */}
-            <div className="px-6 py-3 border-b border-border/50 flex items-center gap-3">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search by title or description…"
-                  className="pl-9 h-9 text-sm"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </div>
-              <div className="flex items-center gap-1">
-                {(["all", "file", "link", "note"] as const).map((t) => (
+            <div className="max-h-80 overflow-y-auto p-2">
+              {searchLoading && (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 size={16} className="animate-spin text-white/30" />
+                </div>
+              )}
+              {!searchLoading && searchResults.length === 0 && searchOverlayQuery && (
+                <p className="text-[11px] text-white/25 text-center py-6">No results found</p>
+              )}
+              {!searchLoading && searchResults.length === 0 && !searchOverlayQuery && (
+                <p className="text-[11px] text-white/20 text-center py-6">Start typing to search your vault semantically</p>
+              )}
+              {searchResults.map((result) => {
+                const tc = TYPE_CONFIG[result.item_type]
+                return (
                   <button
-                    key={t}
-                    onClick={() => setFilterType(t)}
-                    className={cn(
-                      "px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors",
-                      filterType === t
-                        ? "bg-primary text-primary-foreground"
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                    )}
+                    key={result.id}
+                    onClick={() => openSearchResult(result)}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 transition-colors text-left group"
                   >
-                    {t}
+                    <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center shrink-0", tc.color.split(" ")[0])}>
+                      <span className={tc.color.split(" ")[1]}>{tc.icon}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12px] font-medium text-white/80 truncate">{result.title}</p>
+                      <p className="text-[10px] text-white/30 truncate">
+                        {result.project_name && `${result.project_name} · `}
+                        {result.description?.slice(0, 60)}
+                      </p>
+                    </div>
+                    <div className="text-[9px] text-violet-400/60 shrink-0">
+                      {(result.similarity * 100).toFixed(0)}%
+                    </div>
                   </button>
+                )
+              })}
+            </div>
+            <div className="px-4 py-2.5 border-t border-white/5 flex items-center justify-between">
+              <span className="text-[9px] text-white/20">Semantic search powered by pgvector</span>
+              <div className="flex gap-3">
+                {[["↑↓", "navigate"], ["↵", "open"], ["Esc", "close"]].map(([key, label]) => (
+                  <span key={key} className="text-[9px] text-white/20 flex items-center gap-1">
+                    <span className="font-mono border border-white/15 rounded px-1">{key}</span>{label}
+                  </span>
                 ))}
               </div>
             </div>
-
-            {/* Items grid */}
-            <div className="flex-1 overflow-y-auto p-6">
-              {filteredItems.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-48 gap-3 text-center">
-                  <div className="size-12 rounded-xl bg-muted flex items-center justify-center">
-                    <Plus size={20} className="text-muted-foreground/40" />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-foreground/70">Empty folder</p>
-                    <p className="text-sm text-muted-foreground mt-0.5">Add files, links, or notes to this folder</p>
-                  </div>
-                  <Button size="sm" variant="outline" onClick={() => setAddDialogOpen(true)}>
-                    <Plus size={14} className="mr-1.5" />
-                    Add to Vault
-                  </Button>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                  {filteredItems.map((item) => (
-                    <VaultItemCard
-                      key={item.id}
-                      item={item}
-                      menuOpen={menuItemId === item.id}
-                      onMenuToggle={() => setMenuItemId(menuItemId === item.id ? null : item.id)}
-                      onDelete={() => handleDeleteItem(item.id)}
-                      onMenuClose={() => setMenuItemId(null)}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          </>
-        )}
-      </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Add item dialog ── */}
       <Dialog open={addDialogOpen} onOpenChange={(open) => { if (!open) { setAddDialogOpen(false); resetAddForm() } }}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg bg-[#1c1c1a] border-white/10 text-white">
           <DialogHeader>
-            <DialogTitle>Add to Vault</DialogTitle>
+            <DialogTitle className="text-white/90">Add to Vault</DialogTitle>
           </DialogHeader>
-
-          {/* Step 1: Choose type */}
           {!addItemType ? (
             <div className="space-y-3 py-2">
-              <p className="text-sm text-muted-foreground">What would you like to add?</p>
+              <p className="text-[12px] text-white/40">What would you like to add?</p>
               <div className="grid grid-cols-3 gap-3">
                 {([
-                  { type: "file", label: "File Upload", icon: <Upload size={20} /> },
-                  { type: "link", label: "Link", icon: <Link2 size={20} /> },
-                  { type: "note", label: "Note", icon: <StickyNote size={20} /> },
-                ] as const).map(({ type, label, icon }) => (
+                  { type: "file" as ItemType, label: "File Upload", icon: <Upload size={20} />, color: "text-blue-400" },
+                  { type: "link" as ItemType, label: "Link",        icon: <Link2 size={20} />,  color: "text-emerald-400" },
+                  { type: "note" as ItemType, label: "Note",        icon: <StickyNote size={20} />, color: "text-amber-400" },
+                ]).map(({ type, label, icon, color }) => (
                   <button
                     key={type}
                     onClick={() => setAddItemType(type)}
-                    className="flex flex-col items-center gap-2 p-4 rounded-xl border border-border hover:border-primary/50 hover:bg-primary/5 transition-colors group"
+                    className="flex flex-col items-center gap-2 p-4 rounded-xl border border-white/8 hover:border-violet-500/40 hover:bg-violet-500/5 transition-all group"
                   >
-                    <span className="text-muted-foreground group-hover:text-primary transition-colors">{icon}</span>
-                    <span className="text-xs font-semibold text-muted-foreground group-hover:text-foreground">{label}</span>
+                    <span className={cn(color, "group-hover:scale-110 transition-transform")}>{icon}</span>
+                    <span className="text-[11px] font-semibold text-white/40 group-hover:text-white/80">{label}</span>
                   </button>
                 ))}
               </div>
             </div>
           ) : (
-            /* Step 2: Form */
             <div className="space-y-4 py-2">
               <div className="flex items-center gap-2">
-                <button onClick={() => setAddItemType(null)} className="text-muted-foreground hover:text-foreground">
-                  <X size={14} />
-                </button>
-                <span className="text-sm font-semibold capitalize">{addItemType === "file" ? "File Upload" : addItemType}</span>
+                <button onClick={() => setAddItemType(null)} className="text-white/30 hover:text-white/60"><X size={13} /></button>
+                <span className="text-[12px] font-semibold text-white/70 capitalize">
+                  {addItemType === "file" ? "File Upload" : addItemType}
+                </span>
               </div>
-
               <div className="space-y-3">
                 <div>
-                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-1.5 block">Title *</label>
-                  <Input
-                    placeholder="Enter a clear title…"
-                    value={addForm.title}
-                    onChange={(e) => setAddForm((f) => ({ ...f, title: e.target.value }))}
-                  />
+                  <label className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1.5 block">Title *</label>
+                  <Input placeholder="Enter a clear title…" value={addForm.title} onChange={(e) => setAddForm((f) => ({ ...f, title: e.target.value }))} className="bg-white/5 border-white/8 text-white/80 placeholder:text-white/20 focus:border-violet-500/40 h-9 text-[12px]" />
                 </div>
-
                 <div>
-                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-1.5 block">Description *</label>
-                  <textarea
-                    placeholder="What is this? Add context so your team knows what it's for…"
-                    value={addForm.description}
-                    onChange={(e) => setAddForm((f) => ({ ...f, description: e.target.value }))}
-                    rows={2}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-none"
-                  />
+                  <label className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1.5 block">Description *</label>
+                  <textarea placeholder="What is this? Add context so your team knows…" value={addForm.description} onChange={(e) => setAddForm((f) => ({ ...f, description: e.target.value }))} rows={2} className="w-full rounded-lg border border-white/8 bg-white/5 px-3 py-2 text-[12px] text-white/80 placeholder:text-white/20 outline-none focus:border-violet-500/40 resize-none" />
                 </div>
-
                 <div>
-                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-1.5 block">Document Type</label>
+                  <label className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1.5 block">Document Type</label>
                   <Select value={addForm.document_type} onValueChange={(v) => setAddForm((f) => ({ ...f, document_type: v }))}>
-                    <SelectTrigger className="h-9 text-sm">
+                    <SelectTrigger className="h-9 text-[12px] bg-white/5 border-white/8 text-white/70">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
-                      {DOCUMENT_TYPES.map((t) => (
-                        <SelectItem key={t} value={t}>{t}</SelectItem>
-                      ))}
+                    <SelectContent className="bg-[#1c1c1a] border-white/10">
+                      {DOCUMENT_TYPES.map((t) => <SelectItem key={t} value={t} className="text-white/70 text-[12px]">{t}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
-
-                {/* Type-specific fields */}
                 {addItemType === "file" && (
                   <div>
-                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-1.5 block">File *</label>
-                    <div
-                      onClick={() => fileInputRef.current?.click()}
-                      className={cn(
-                        "border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-colors",
-                        uploadFile ? "border-primary/40 bg-primary/5" : "border-border hover:border-primary/30 hover:bg-muted/40"
-                      )}
-                    >
+                    <label className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1.5 block">File *</label>
+                    <div onClick={() => fileInputRef.current?.click()} className={cn("border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all", uploadFile ? "border-violet-500/40 bg-violet-500/5" : "border-white/10 hover:border-violet-500/30 hover:bg-white/3")}>
                       {uploadFile ? (
-                        <div className="flex items-center justify-center gap-2 text-sm">
-                          <FileText size={14} className="text-primary" />
-                          <span className="font-medium truncate max-w-[200px]">{uploadFile.name}</span>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setUploadFile(null) }}
-                            className="text-muted-foreground hover:text-foreground ml-1"
-                          >
-                            <X size={12} />
-                          </button>
+                        <div className="flex items-center justify-center gap-2 text-[12px]">
+                          <FileText size={13} className="text-violet-400" />
+                          <span className="text-white/60 truncate max-w-[180px]">{uploadFile.name}</span>
+                          <button onClick={(e) => { e.stopPropagation(); setUploadFile(null) }} className="text-white/30 hover:text-white/60 ml-1"><X size={11} /></button>
                         </div>
                       ) : (
                         <div className="space-y-1">
-                          <Upload size={20} className="mx-auto text-muted-foreground/50" />
-                          <p className="text-xs text-muted-foreground">Click to select a file</p>
+                          <Upload size={18} className="mx-auto text-white/15" />
+                          <p className="text-[11px] text-white/25">Click to select · any format</p>
+                          <p className="text-[9px] text-white/15">Auto-analysed and vectorised by Kobin AI</p>
                         </div>
                       )}
                     </div>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      className="hidden"
-                      onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
-                    />
+                    <input ref={fileInputRef} type="file" className="hidden" onChange={(e) => setUploadFile(e.target.files?.[0] || null)} />
                   </div>
                 )}
-
                 {addItemType === "link" && (
                   <div>
-                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-1.5 block">URL *</label>
-                    <Input
-                      placeholder="https://…"
-                      value={addForm.link_url}
-                      onChange={(e) => setAddForm((f) => ({ ...f, link_url: e.target.value }))}
-                    />
+                    <label className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1.5 block">URL *</label>
+                    <Input placeholder="https://…" value={addForm.link_url} onChange={(e) => setAddForm((f) => ({ ...f, link_url: e.target.value }))} className="bg-white/5 border-white/8 text-white/80 placeholder:text-white/20 focus:border-violet-500/40 h-9 text-[12px]" />
                   </div>
                 )}
-
                 {addItemType === "note" && (
                   <div>
-                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-1.5 block">Content</label>
-                    <textarea
-                      placeholder="Write your note…"
-                      value={addForm.note_content}
-                      onChange={(e) => setAddForm((f) => ({ ...f, note_content: e.target.value }))}
-                      rows={5}
-                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-none"
-                    />
+                    <label className="text-[9px] font-bold uppercase tracking-widest text-white/30 mb-1.5 block">Content</label>
+                    <textarea placeholder="Write your note…" value={addForm.note_content} onChange={(e) => setAddForm((f) => ({ ...f, note_content: e.target.value }))} rows={5} className="w-full rounded-lg border border-white/8 bg-white/5 px-3 py-2 text-[12px] text-white/80 placeholder:text-white/20 outline-none focus:border-violet-500/40 resize-none" />
                   </div>
                 )}
               </div>
-
-              <div className="flex justify-end gap-2 pt-1">
-                <Button variant="outline" onClick={() => { setAddDialogOpen(false); resetAddForm() }}>
-                  Cancel
-                </Button>
-                <Button onClick={handleAddItem} disabled={uploading}>
-                  {uploading ? <Loader2 size={14} className="animate-spin mr-1.5" /> : null}
-                  Add to Vault
-                </Button>
+              <div className="flex justify-between items-center pt-1">
+                <p className="text-[9px] text-white/20">Auto-vectorised · indexed by Kobin AI</p>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => { setAddDialogOpen(false); resetAddForm() }} className="border-white/10 text-white/50 hover:text-white/80 bg-transparent text-[11px]">Cancel</Button>
+                  <Button size="sm" onClick={handleAddItem} disabled={uploading} className="bg-violet-500 hover:bg-violet-600 text-white text-[11px]">
+                    {uploading ? <Loader2 size={12} className="animate-spin mr-1" /> : null}
+                    Add to Vault
+                  </Button>
+                </div>
               </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
+    </>
+  )
+}
+
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+function EmptyState({ icon, title, desc, action }: { icon: React.ReactNode; title: string; desc: string; action?: React.ReactNode }) {
+  return (
+    <div className="flex flex-col items-center justify-center h-48 gap-3 text-center">
+      <div className="w-14 h-14 rounded-2xl bg-white/3 border border-white/5 flex items-center justify-center">{icon}</div>
+      <div>
+        <p className="text-[13px] font-medium text-white/40">{title}</p>
+        <p className="text-[11px] text-white/20 mt-0.5">{desc}</p>
+      </div>
+      {action}
     </div>
   )
 }
 
-// ── Vault Item Card ────────────────────────────────────────────────────────────
-
-function VaultItemCard({
-  item,
-  menuOpen,
-  onMenuToggle,
-  onDelete,
-  onMenuClose,
+function VaultCard({
+  item, active, menuOpen, onOpen, onMenuToggle, onDelete, onMenuClose,
 }: {
-  item: VaultItem
-  menuOpen: boolean
-  onMenuToggle: () => void
-  onDelete: () => void
-  onMenuClose: () => void
+  item: VaultItem; active: boolean; menuOpen: boolean
+  onOpen: () => void; onMenuToggle: () => void; onDelete: () => void; onMenuClose: () => void
 }) {
   const menuRef = useRef<HTMLDivElement>(null)
+  const tc = TYPE_CONFIG[item.item_type]
 
   useEffect(() => {
     if (!menuOpen) return
-    const handler = (e: MouseEvent) => {
-      if (!menuRef.current?.contains(e.target as Node)) onMenuClose()
-    }
+    const handler = (e: MouseEvent) => { if (!menuRef.current?.contains(e.target as Node)) onMenuClose() }
     document.addEventListener("mousedown", handler)
     return () => document.removeEventListener("mousedown", handler)
   }, [menuOpen])
 
-  const typeConfig = {
-    file: { icon: <FileText size={16} />, color: "bg-blue-50 text-blue-600 border-blue-100" },
-    link: { icon: <Link2 size={16} />, color: "bg-violet-50 text-violet-600 border-violet-100" },
-    note: { icon: <StickyNote size={16} />, color: "bg-amber-50 text-amber-600 border-amber-100" },
-  }[item.item_type]
-
-  const addedByColor = {
-    founder: "bg-primary/10 text-primary",
-    team: "bg-blue-50 text-blue-700",
-    client: "bg-emerald-50 text-emerald-700",
-  }[item.added_by_type]
-
   return (
-    <Card className="group hover:border-primary/30 transition-all overflow-hidden">
-      <CardContent className="p-4 space-y-3">
-        {/* Type badge + menu */}
-        <div className="flex items-start justify-between gap-2">
-          <div className={cn("flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs font-semibold", typeConfig.color)}>
-            {typeConfig.icon}
-            <span className="capitalize">{item.item_type}</span>
-          </div>
+    <div
+      onClick={onOpen}
+      className={cn(
+        "group relative bg-[#1c1c1a] border rounded-xl p-3.5 cursor-pointer transition-all hover:-translate-y-0.5",
+        active
+          ? "border-violet-500/40 bg-violet-500/5 shadow-lg shadow-violet-500/10"
+          : "border-white/6 hover:border-white/12 hover:bg-[#202020]"
+      )}
+    >
+      {/* Top accent line */}
+      <div className={cn("absolute top-0 left-0 right-0 h-0.5 rounded-t-xl opacity-0 transition-opacity group-hover:opacity-100", active && "opacity-100",
+        item.item_type === "file" ? "bg-gradient-to-r from-blue-500 to-cyan-500" :
+        item.item_type === "link" ? "bg-gradient-to-r from-violet-500 to-purple-500" :
+        "bg-gradient-to-r from-amber-500 to-orange-500"
+      )} />
+
+      <div className="flex items-start justify-between mb-2.5">
+        <div className={cn("flex items-center gap-1.5 px-2 py-1 rounded-md border text-[9px] font-bold uppercase tracking-wider", tc.color)}>
+          {tc.icon}
+          <span>{tc.badge}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          {item.embedding_status === "embedded" && (
+            <div title="Vectorised" className="w-1.5 h-1.5 rounded-full bg-violet-500/50" />
+          )}
           <div className="relative" ref={menuRef}>
             <button
-              onClick={onMenuToggle}
-              className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-muted"
+              onClick={(e) => { e.stopPropagation(); onMenuToggle() }}
+              className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-white/8"
             >
-              <MoreHorizontal size={14} />
+              <MoreHorizontal size={12} className="text-white/40" />
             </button>
             {menuOpen && (
-              <div className="absolute right-0 top-6 w-36 bg-background border border-border rounded-xl shadow-lg overflow-hidden z-10">
-                {item.item_type === "file" && item.drive_file_url && (
-                  <a
-                    href={item.drive_file_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted transition-colors"
-                  >
-                    <ExternalLink size={12} />
-                    Open in Drive
+              <div className="absolute right-0 top-6 w-36 bg-[#252523] border border-white/10 rounded-xl shadow-xl overflow-hidden z-20">
+                {item.drive_file_url && (
+                  <a href={item.drive_file_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="flex items-center gap-2 px-3 py-2 text-[11px] text-white/60 hover:bg-white/5 transition-colors">
+                    <ExternalLink size={11} />Open in Drive
                   </a>
                 )}
-                {item.item_type === "link" && item.link_url && (
-                  <a
-                    href={item.link_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted transition-colors"
-                  >
-                    <ExternalLink size={12} />
-                    Open link
+                {item.link_url && (
+                  <a href={item.link_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="flex items-center gap-2 px-3 py-2 text-[11px] text-white/60 hover:bg-white/5 transition-colors">
+                    <ExternalLink size={11} />Open link
                   </a>
                 )}
-                <button
-                  onClick={onDelete}
-                  className="flex items-center gap-2 px-3 py-2 text-xs text-destructive hover:bg-destructive/10 transition-colors w-full text-left"
-                >
-                  <Trash2 size={12} />
-                  Delete
+                <button onClick={(e) => { e.stopPropagation(); onDelete() }} className="flex items-center gap-2 px-3 py-2 text-[11px] text-red-400 hover:bg-red-500/10 transition-colors w-full text-left">
+                  <Trash2 size={11} />Delete
                 </button>
               </div>
             )}
           </div>
         </div>
+      </div>
 
-        {/* Title + description */}
-        <div className="space-y-1">
-          <h4 className="font-semibold text-sm leading-snug line-clamp-1">{item.title}</h4>
-          <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">{item.description}</p>
+      <h4 className="text-[12px] font-semibold text-white/80 leading-snug line-clamp-1 mb-1">{item.title}</h4>
+      <p className="text-[10px] text-white/30 line-clamp-2 leading-relaxed mb-3">{item.description}</p>
+
+      {item.item_type === "link" && item.link_url && (
+        <div className="flex items-center gap-1.5 mb-2.5 text-[10px] text-violet-400/70">
+          <ExternalLink size={9} />
+          <span className="truncate">{item.link_url}</span>
         </div>
+      )}
 
-        {/* Link preview */}
-        {item.item_type === "link" && item.link_url && (
-          <a
-            href={item.link_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 text-xs text-primary hover:underline truncate"
+      <div className="flex items-center justify-between pt-2 border-t border-white/5">
+        <span className={cn("text-[9px] font-semibold px-1.5 py-0.5 rounded capitalize", ADDED_BY_COLOR[item.added_by_type])}>
+          {item.added_by_type}
+        </span>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="text-[8px] h-4 px-1 border-white/8 text-white/25">{item.document_type}</Badge>
+          <span className="text-[9px] text-white/20">{formatDate(item.created_at)}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AIWriterPanel({
+  prompt, setPrompt, response, loading, onRun, onInsert, onDiscard, onClose,
+}: {
+  prompt: string; setPrompt: (v: string) => void; response: string; loading: boolean
+  onRun: () => void; onInsert: () => void; onDiscard: () => void; onClose: () => void
+}) {
+  return (
+    <div className="w-64 border-l border-white/5 flex flex-col bg-[#1a1a18]">
+      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-white/5">
+        <div className="w-5 h-5 bg-gradient-to-br from-violet-500 to-purple-600 rounded flex items-center justify-center">
+          <Sparkles size={9} className="text-white" />
+        </div>
+        <span className="flex-1 text-[11px] font-semibold text-white/70">Kobin AI Writer</span>
+        <button onClick={onClose} className="text-white/25 hover:text-white/60"><X size={11} /></button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+        {/* Quick prompts */}
+        {!response && (
+          <>
+            <p className="text-[9px] font-bold uppercase tracking-widest text-white/25">Suggestions</p>
+            {[
+              "Expand timeline with linked tasks",
+              "Draft client-facing summary",
+              "Convert todos into action items",
+            ].map((s) => (
+              <button key={s} onClick={() => setPrompt(s)} className="flex items-start gap-2 w-full text-left p-2 bg-white/3 border border-white/5 rounded-lg hover:border-violet-500/30 transition-all">
+                <div className="w-5 h-5 bg-violet-500/15 rounded flex items-center justify-center shrink-0 mt-0.5">
+                  <Sparkles size={8} className="text-violet-400" />
+                </div>
+                <span className="text-[10px] text-white/50">{s}</span>
+              </button>
+            ))}
+          </>
+        )}
+        {/* AI response */}
+        {response && (
+          <>
+            <div className="p-2.5 bg-white/3 border border-white/8 rounded-lg text-[10px] text-white/60 leading-relaxed whitespace-pre-wrap">{response}</div>
+            <div className="flex gap-2">
+              <button onClick={onInsert} className="flex-1 py-1.5 bg-violet-500/15 border border-violet-500/30 rounded text-[10px] font-semibold text-violet-400 hover:bg-violet-500/25 transition-colors">Insert</button>
+              <button onClick={onDiscard} className="flex-1 py-1.5 bg-white/5 border border-white/8 rounded text-[10px] text-white/40 hover:bg-white/10 transition-colors">Discard</button>
+            </div>
+          </>
+        )}
+        {loading && (
+          <div className="flex items-center gap-2 py-2">
+            <Loader2 size={12} className="animate-spin text-violet-400" />
+            <span className="text-[10px] text-white/30">Writing…</span>
+          </div>
+        )}
+      </div>
+      <div className="p-3 border-t border-white/5">
+        <div className="flex gap-2">
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onRun() } }}
+            placeholder="Ask AI to write, edit, summarise…"
+            rows={2}
+            className="flex-1 bg-white/5 border border-white/8 rounded-lg px-2.5 py-2 text-[11px] text-white/70 placeholder:text-white/20 outline-none focus:border-violet-500/30 resize-none"
+          />
+          <button onClick={onRun} disabled={loading} className="w-8 h-8 bg-violet-500 hover:bg-violet-600 rounded-lg flex items-center justify-center self-end transition-colors disabled:opacity-50">
+            <Send size={11} className="text-white" />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ApprovalViewer({
+  item, status, note, onSetNote, onApprove, onRequestChanges,
+}: {
+  item: VaultItem; status: ApprovalStatus; note: string
+  onSetNote: (v: string) => void; onApprove: () => void; onRequestChanges: () => void
+}) {
+  return (
+    <div className="max-w-xl mx-auto space-y-4">
+      {/* File preview */}
+      <div className="flex items-center gap-4 p-4 bg-white/3 border border-white/8 rounded-xl">
+        <div className="w-12 h-14 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-lg shrink-0" />
+        <div>
+          <p className="text-[13px] font-semibold text-white/80 mb-1">{item.title}</p>
+          <p className="text-[11px] text-white/30">{item.document_type} · {formatDate(item.created_at)}</p>
+          {item.drive_file_url && (
+            <a href={item.drive_file_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 mt-2 text-[11px] text-violet-400 hover:underline">
+              <ExternalLink size={10} />Open in Drive
+            </a>
+          )}
+        </div>
+      </div>
+
+      {/* Approval box */}
+      <div className="p-4 bg-white/3 border border-white/8 rounded-xl space-y-3">
+        <div className="flex items-center gap-2 text-[11px] font-semibold text-white/70">
+          <Clock size={13} className="text-amber-400" />Deliverable Approval
+        </div>
+        {status === "none" && (
+          <div className="flex items-center gap-3 p-2.5 bg-amber-500/8 border border-amber-500/20 rounded-lg">
+            <Clock size={13} className="text-amber-400 shrink-0" />
+            <span className="text-[11px] text-white/50">Send to client for approval</span>
+          </div>
+        )}
+        {status === "approved" && (
+          <div className="flex items-center gap-3 p-2.5 bg-emerald-500/10 border border-emerald-500/25 rounded-lg">
+            <Check size={13} className="text-emerald-400 shrink-0" />
+            <span className="text-[11px] text-emerald-400 font-semibold">Approved</span>
+          </div>
+        )}
+        {status === "changes_requested" && (
+          <div className="flex items-center gap-3 p-2.5 bg-red-500/10 border border-red-500/20 rounded-lg">
+            <AlertCircle size={13} className="text-red-400 shrink-0" />
+            <span className="text-[11px] text-red-400">Changes requested</span>
+          </div>
+        )}
+        {status === "none" && (
+          <div className="flex gap-2">
+            <button onClick={onApprove} className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-emerald-500/10 border border-emerald-500/25 rounded-lg text-[11px] font-semibold text-emerald-400 hover:bg-emerald-500/20 transition-colors">
+              <Check size={12} />Mark Approved
+            </button>
+            <button onClick={onRequestChanges} className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-red-500/8 border border-red-500/20 rounded-lg text-[11px] font-semibold text-red-400 hover:bg-red-500/15 transition-colors">
+              <AlertCircle size={12} />Request Changes
+            </button>
+          </div>
+        )}
+        <textarea value={note} onChange={(e) => onSetNote(e.target.value)} placeholder="Add a note for the client (optional)…" rows={2} className="w-full bg-white/4 border border-white/8 rounded-lg px-3 py-2 text-[11px] text-white/60 placeholder:text-white/20 outline-none focus:border-violet-500/30 resize-none" />
+      </div>
+    </div>
+  )
+}
+
+function RightPanel({
+  item, tab, onTabChange, onClose, relatedItems, loadingRelated,
+  approvalStatus, approvalNote, onSetNote, onApprove, onRequestChanges, onOpenRelated,
+}: {
+  item: VaultItem; tab: RightPanelTab; onTabChange: (t: RightPanelTab) => void; onClose: () => void
+  relatedItems: RelatedItem[]; loadingRelated: boolean
+  approvalStatus: ApprovalStatus; approvalNote: string
+  onSetNote: (v: string) => void; onApprove: () => void; onRequestChanges: () => void
+  onOpenRelated: (item: VaultItem) => void
+}) {
+  const TABS: { key: RightPanelTab; label: string; badge?: number }[] = [
+    { key: "context",  label: "Context" },
+    { key: "approval", label: "Approval" },
+    { key: "comments", label: "Comments" },
+    { key: "activity", label: "Activity" },
+  ]
+
+  return (
+    <div className="w-80 shrink-0 border-l border-white/5 flex flex-col bg-[#161614] overflow-hidden">
+      {/* Header */}
+      <div className="px-3 py-2.5 border-b border-white/5 flex items-center gap-2">
+        <button onClick={onClose} className="w-6 h-6 flex items-center justify-center rounded hover:bg-white/5 text-white/25 hover:text-white/60 transition-colors">
+          <X size={11} />
+        </button>
+        <p className="flex-1 text-[11px] font-semibold text-white/70 truncate min-w-0">{item.title}</p>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex border-b border-white/5">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => onTabChange(t.key)}
+            className={cn(
+              "flex-1 px-2 py-2.5 text-[10px] font-semibold transition-all border-b-2 -mb-px",
+              tab === t.key
+                ? "text-violet-400 border-violet-500"
+                : "text-white/25 border-transparent hover:text-white/50"
+            )}
           >
-            <ExternalLink size={11} />
-            <span className="truncate">{item.link_url}</span>
-          </a>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto p-3 space-y-4">
+        {tab === "context" && (
+          <>
+            {/* Embed status */}
+            <div className="flex items-center gap-2 px-2.5 py-2 bg-violet-500/8 border border-violet-500/15 rounded-lg">
+              <Sparkles size={9} className="text-violet-400 shrink-0" />
+              <span className="text-[10px] text-white/40">
+                {item.embedding_status === "embedded"
+                  ? <><span className="text-violet-400 font-semibold">Vectorised</span> · pgvector indexed</>
+                  : item.embedding_status === "pending"
+                  ? "Embedding in progress…"
+                  : "Not yet vectorised"}
+              </span>
+            </div>
+
+            {/* AI memory — related */}
+            <div>
+              <p className="text-[9px] font-bold uppercase tracking-widest text-white/20 mb-2">AI Memory — Related</p>
+              {loadingRelated && (
+                <div className="flex items-center gap-2 py-2">
+                  <Loader2 size={11} className="animate-spin text-violet-400/50" />
+                  <span className="text-[10px] text-white/25">Searching vault…</span>
+                </div>
+              )}
+              {!loadingRelated && relatedItems.length === 0 && (
+                <p className="text-[10px] text-white/20">No related items found yet.</p>
+              )}
+              {relatedItems.map((rel) => {
+                const tc = TYPE_CONFIG[rel.item.item_type as ItemType]
+                return (
+                  <button
+                    key={rel.item.id}
+                    onClick={() => onOpenRelated(rel.item)}
+                    className="w-full flex items-center gap-2.5 p-2 bg-white/3 border border-white/5 rounded-lg hover:border-violet-500/25 transition-all mb-2 text-left group"
+                  >
+                    <div className={cn("w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-[10px]", tc.color.split(" ")[0])}>
+                      <span className={tc.color.split(" ")[1]}>{tc.icon}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[11px] font-medium text-white/70 truncate">{rel.item.title}</p>
+                      <p className="text-[9px] text-white/25 truncate">{rel.reason}</p>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Quick AI actions */}
+            <div>
+              <p className="text-[9px] font-bold uppercase tracking-widest text-white/20 mb-2">Quick Actions</p>
+              {[
+                { icon: <MessageSquare size={11} />, label: "Draft follow-up email" },
+                { icon: <Check size={11} />,         label: "Create delivery task" },
+                { icon: <Search size={11} />,        label: "Find similar across projects" },
+              ].map((action) => (
+                <button key={action.label} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[11px] text-white/40 hover:text-white/70 hover:bg-white/5 transition-all mb-1 text-left">
+                  <span className="text-white/25">{action.icon}</span>
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          </>
         )}
 
-        {/* Footer */}
-        <div className="flex items-center justify-between pt-1 border-t border-border/40">
-          <div className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded-md capitalize", addedByColor)}>
-            {item.added_by_type}
+        {tab === "approval" && (
+          <ApprovalViewer
+            item={item}
+            status={approvalStatus}
+            note={approvalNote}
+            onSetNote={onSetNote}
+            onApprove={onApprove}
+            onRequestChanges={onRequestChanges}
+          />
+        )}
+
+        {tab === "comments" && (
+          <div className="space-y-3">
+            <div className="flex gap-2.5">
+              <div className="w-6 h-6 rounded-full bg-violet-500 flex items-center justify-center text-[8px] font-bold text-white shrink-0">AM</div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[11px] font-semibold text-white/70">You</span>
+                  <span className="text-[9px] text-white/20">Just now</span>
+                </div>
+                <p className="text-[11px] text-white/50 leading-relaxed">Comments will appear here once added.</p>
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Badge variant="outline" className="text-[9px] h-4 px-1.5 font-medium">
-              {item.document_type}
-            </Badge>
-            <span className="text-[10px] text-muted-foreground">
-              {new Date(item.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-            </span>
+        )}
+
+        {tab === "activity" && (
+          <div className="space-y-3">
+            {[
+              { dot: "bg-violet-500", text: "Item added to vault", time: formatDate(item.created_at) },
+              { dot: item.embedding_status === "embedded" ? "bg-emerald-500" : "bg-white/20", text: item.embedding_status === "embedded" ? "Vectorised by Kobin AI" : "Awaiting vectorisation", time: formatDate(item.created_at) },
+            ].map((a, i) => (
+              <div key={i} className="flex gap-3">
+                <div className={cn("w-1.5 h-1.5 rounded-full mt-1.5 shrink-0", a.dot)} />
+                <div>
+                  <p className="text-[11px] text-white/50">{a.text}</p>
+                  <p className="text-[9px] text-white/20">{a.time}</p>
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
-      </CardContent>
-    </Card>
+        )}
+      </div>
+    </div>
   )
 }

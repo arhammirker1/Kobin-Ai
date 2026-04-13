@@ -238,6 +238,23 @@ export const READ_TOOLS = [
       },
     },
   },
+  {
+    type: "function" as const,
+    function: {
+      name: "vault_semantic_search",
+      description:
+        "Semantically search the founder's vault by meaning, not just keywords. Use when the user asks to 'find documents about X', 'what files do we have on Y', or needs vault context.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Natural language search query" },
+          project_name: { type: "string", description: "Optional: limit to a project" },
+          limit: { type: "number", description: "Max results (default 5)" },
+        },
+        required: ["query"],
+      },
+    },
+  },
 ] as const
 
 export type ReadToolName =
@@ -251,6 +268,7 @@ export type ReadToolName =
   | "get_task_creation_context"
   | "search_contacts"
   | "get_meeting_notes"
+  | "vault_semantic_search"
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -290,6 +308,8 @@ export async function executeReadTool(
       return execSearchContacts(args, founderId)
     case "get_meeting_notes":
       return execMeetingNotes(args, founderId)
+    case "vault_semantic_search":
+      return execVaultSemanticSearch(args, founderId)
     default:
       return { content: `Unknown read tool: ${toolName}` }
   }
@@ -557,9 +577,9 @@ async function execGetProjects(
   const useCache = (!status || status === "all") && !name
   const { data: projects, error } = useCache
     ? await withCache(CK.projects(founderId), 60, async () => {
-        const result = await fetchProjects()
-        return result.data
-      }).then(data => ({ data, error: null }))
+      const result = await fetchProjects()
+      return result.data
+    }).then(data => ({ data, error: null }))
     : await fetchProjects()
 
   if (error) return { content: `Error: ${(error as any).message}`, projectData: [] }
@@ -736,8 +756,8 @@ async function execCRM(
     for (const d of inStage) {
       const days = d.stage_entered_at
         ? Math.floor(
-            (now.getTime() - new Date(d.stage_entered_at).getTime()) / (1000 * 60 * 60 * 24)
-          )
+          (now.getTime() - new Date(d.stage_entered_at).getTime()) / (1000 * 60 * 60 * 24)
+        )
         : 0
       const val = d.deal_value ? ` | $${d.deal_value.toLocaleString()}` : ""
       const prob = d.close_probability != null ? ` @ ${d.close_probability}%` : ""
@@ -865,7 +885,7 @@ async function execVault(
 
   // Create cache key from args (only cache if no search term)
   const cacheKey = `vault:${founderId}:${normalizedProjectName || "all"}:${search || "none"}`
-  
+
   // Only use cache for unfiltered queries (search queries are unique)
   const useCache = !search
 
@@ -945,7 +965,7 @@ async function execTaskCreationContext(
 ): Promise<ReadToolResult> {
   const { project_name } = args
   const now = new Date()
-// Run team + projects in parallel (both Redis-cached)
+  // Run team + projects in parallel (both Redis-cached)
   const [members, projects] = await Promise.all([
     withCache(CK.teamWorkload(founderId), 30, async () => {
       const { data } = await supabaseAdmin
@@ -1284,8 +1304,8 @@ async function execMeetingNotes(
       : ""
     const date = a.analyzed_at
       ? new Date(a.analyzed_at).toLocaleDateString("en-US", {
-          month: "short", day: "numeric", year: "numeric",
-        })
+        month: "short", day: "numeric", year: "numeric",
+      })
       : ""
 
     lines.push(`\n## ${title} (${date}${duration ? ` · ${duration}` : ""})`)
@@ -1323,5 +1343,128 @@ async function execMeetingNotes(
     }
   }
 
+  return { content: lines.join("\n") }
+}
+
+export async function execVaultSemanticSearch(
+  args: Record<string, any>,
+  founderId: string
+): Promise<ReadToolResult> {
+  const { query, project_name, limit = 5 } = args
+  const cap = Math.min(limit, 10)
+
+  if (!query?.trim()) return { content: "No search query provided." }
+
+  // Resolve project filter
+  let projectId: string | null = null
+  if (project_name) {
+    const { data } = await supabaseAdmin
+      .from("projects")
+      .select("id")
+      .eq("founder_id", founderId)
+      .ilike("name", `%${project_name}%`)
+      .limit(1)
+    if (data?.[0]) projectId = data[0].id
+  }
+
+  try {
+    // Generate embedding via OpenAI
+    const embedRes = await fetch("https://api.openai.com/v1/embeddings", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY!}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "text-embedding-3-small",
+        input: query.slice(0, 2000),
+      }),
+    })
+
+    if (!embedRes.ok) {
+      // Fallback to keyword search if embedding fails
+      return execVaultKeyword(args, founderId)
+    }
+
+    const embedData = await embedRes.json()
+    const vector = `[${embedData.data[0].embedding.join(",")}]`
+
+    // RPC similarity search
+    const { data: similarities } = await supabaseAdmin.rpc("vault_semantic_search", {
+      p_founder_id: founderId,
+      p_embedding: vector,
+      p_limit: cap * 2,
+      p_threshold: 0.15,
+    })
+
+    if (!similarities || similarities.length === 0) {
+      return execVaultKeyword(args, founderId) // fallback
+    }
+
+    const itemIds = similarities.map((s: any) => s.vault_item_id)
+    let q = supabaseAdmin
+      .from("vault_items")
+      .select("id, title, description, item_type, document_type, project_id")
+      .in("id", itemIds)
+      .eq("founder_id", founderId)
+
+    if (projectId) q = q.eq("project_id", projectId)
+
+    const { data: items } = await q
+    if (!items || items.length === 0) return { content: "No vault items found matching that query." }
+
+    // Resolve project names
+    const pIds = [...new Set(items.map((i) => i.project_id).filter(Boolean))] as string[]
+    let pMap: Record<string, string> = {}
+    if (pIds.length > 0) {
+      const { data } = await supabaseAdmin.from("projects").select("id, name").in("id", pIds)
+      if (data) pMap = Object.fromEntries(data.map((p) => [p.id, p.name]))
+    }
+
+    const simMap = Object.fromEntries(similarities.map((s: any) => [s.vault_item_id, s.similarity]))
+
+    const ranked = items
+      .map((item) => ({ ...item, similarity: simMap[item.id] || 0 }))
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, cap)
+
+    const lines = [`Vault semantic search — "${query}" (${ranked.length} results):`]
+    for (const item of ranked) {
+      const sim = (item.similarity * 100).toFixed(0)
+      const proj = item.project_id ? pMap[item.project_id] || "Unknown" : "No project"
+      lines.push(
+        `- [${sim}%] "${item.title}" | ${item.document_type} | ${item.item_type} | ${proj}`
+      )
+      if (item.description) lines.push(`  ${item.description.slice(0, 80)}`)
+    }
+
+    return { content: lines.join("\n") }
+  } catch (err: any) {
+    console.error("[vault semantic search]", err)
+    return execVaultKeyword(args, founderId)
+  }
+}
+
+// Keyword fallback
+async function execVaultKeyword(
+  args: Record<string, any>,
+  founderId: string
+): Promise<ReadToolResult> {
+  const { query, limit = 5 } = args
+  const { data: items } = await supabaseAdmin
+    .from("vault_items")
+    .select("id, title, description, item_type, document_type, project_id")
+    .eq("founder_id", founderId)
+    .or(`title.ilike.%${query}%,description.ilike.%${query}%`)
+    .limit(limit)
+
+  if (!items || items.length === 0) {
+    return { content: `No vault items found matching "${query}".` }
+  }
+
+  const lines = [`Vault keyword search — "${query}" (${items.length} results):`]
+  for (const item of items) {
+    lines.push(`- "${item.title}" | ${item.document_type} | ${item.item_type}`)
+  }
   return { content: lines.join("\n") }
 }
