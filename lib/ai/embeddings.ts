@@ -19,6 +19,7 @@ import crypto from "crypto"
 // REPLACE with:
 export async function generateEmbedding(text: string): Promise<number[]> {
   const clean = text.replace(/\s+/g, " ").trim().slice(0, 8000)
+  console.log(`[Embed] Requesting vector for text (${clean.length} chars): "${clean.slice(0, 60)}..."`)
 
   const res = await fetch(
     "https://router.huggingface.co/hf-inference/models/BAAI/bge-small-en-v1.5",
@@ -78,6 +79,8 @@ export async function upsertVaultEmbedding(
   const text = buildEmbeddingText(item)
   const hash = md5(text)
 
+  console.log(`[Embed/Upsert] Starting for item ${vaultItemId}. Content hash: ${hash}`)
+
   // Check if already embedded with same content
   const { data: existing } = await supabaseAdmin
     .from("vault_embeddings")
@@ -86,7 +89,7 @@ export async function upsertVaultEmbedding(
     .maybeSingle()
 
   if (existing?.content_hash === hash) {
-    console.log(`[Embed] Skipping ${vaultItemId} — content unchanged`)
+    console.log(`[Embed/Upsert] Skipping ${vaultItemId} — hash matches existing embedding`)
     return
   }
 
@@ -113,7 +116,7 @@ export async function upsertVaultEmbedding(
       .update({ embedding_status: "embedded" })
       .eq("id", vaultItemId)
 
-    console.log(`[Embed] ✓ Embedded vault item ${vaultItemId}`)
+    console.log(`[Embed/Upsert] ✓ Successfully stored vector for ${vaultItemId} in Supabase`)
   } catch (err) {
     console.error(`[Embed] Failed for ${vaultItemId}:`, err)
 

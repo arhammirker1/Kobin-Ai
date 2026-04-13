@@ -3,8 +3,8 @@
 //   STD    → openai/gpt-oss-20b          1000 t/s — tool calling, commands
 //   STRONG → llama-3.3-70b-versatile      280 t/s  — complex reasoning, planning
 
-export const GROQ_MODEL_FAST   = process.env.GROQ_MODEL_FAST   || "llama-3.1-8b-instant"
-export const GROQ_MODEL_STD    = process.env.GROQ_MODEL_STD    || "openai/gpt-oss-20b"
+export const GROQ_MODEL_FAST = process.env.GROQ_MODEL_FAST || "llama-3.1-8b-instant"
+export const GROQ_MODEL_STD = process.env.GROQ_MODEL_STD || "openai/gpt-oss-20b"
 export const GROQ_MODEL_STRONG = process.env.GROQ_MODEL_STRONG || "llama-3.3-70b-versatile"
 
 /** Legacy export — used as fallback default */

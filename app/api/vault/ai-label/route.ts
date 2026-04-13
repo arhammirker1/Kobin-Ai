@@ -11,6 +11,8 @@ export async function POST(request: Request) {
     const { filename, fileType } = await request.json()
     if (!filename) return NextResponse.json({ error: "filename required" }, { status: 400 })
 
+    console.log(`[Vault/AI-Label] Analyzing file: "${filename}" (${fileType || "unknown typing"})`)
+
     const groq = getGroqClient()
     const response = await groq.chat.completions.create({
       model: GROQ_MODEL_FAST,
@@ -34,11 +36,16 @@ Rules:
     })
 
     const text = response.choices[0]?.message?.content || ""
+    console.log(`[Vault/AI-Label] RAW AI RESPONSE from Groq:`, text)
+
     const clean = text.replace(/```json|```/g, "").trim()
+    console.log(`[Vault/AI-Label] Cleaned text for parsing:`, clean)
+
     const parsed = JSON.parse(clean)
+    console.log(`[Vault/AI-Label] Successfully parsed metadata:`, parsed)
     return NextResponse.json(parsed)
   } catch (err: any) {
-    console.error("[vault/ai-label]", err)
+    console.error("[Vault/AI-Label] FATAL ERROR:", err)
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }

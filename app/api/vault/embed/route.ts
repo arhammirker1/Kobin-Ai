@@ -41,7 +41,9 @@ export async function POST(request: Request) {
 
     // ── Batch mode ─────────────────────────────────────────────────────
     if (body.batch) {
+      console.log(`[Vault/Embed] Starting batch embedding for founder: ${founderId}`)
       const count = await embedPendingItems(founderId)
+      console.log(`[Vault/Embed] Batch complete: Embedded ${count} items`)
       return NextResponse.json({ embedded: count })
     }
 
@@ -63,6 +65,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Item not found" }, { status: 404 })
     }
 
+    console.log(`[Vault/Embed] Requesting single embed for item: ${vault_item_id} (${item.title})`)
     await upsertVaultEmbedding(vault_item_id, founderId, item)
 
     return NextResponse.json({ success: true })

@@ -24,6 +24,8 @@ export async function POST(request: Request) {
     const { query, project_id, item_type, limit = 12, mode = "hybrid" } =
       await request.json()
 
+    console.log(`[Vault/Search] Query: "${query}" | Mode: ${mode} | Project: ${project_id || "All"}`)
+
     if (!query?.trim()) {
       return NextResponse.json({ results: [] })
     }
@@ -69,6 +71,7 @@ export async function POST(request: Request) {
       })
     }
 
+    console.log(`[Vault/Search] ✓ Found ${results.length} matches`)
     return NextResponse.json({ results })
   } catch (err: any) {
     console.error("[vault/search]", err)

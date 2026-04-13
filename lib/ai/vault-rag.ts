@@ -53,24 +53,26 @@ export async function vaultSemanticSearch(
 ): Promise<VaultSearchResult[]> {
   const { limit = 10, threshold = 0.20, projectId, itemType } = options
 
+  console.log(`[RAG/Semantic] Searching for: "${query}" (Founders: ${founderId})`)
   const queryEmbedding = await generateEmbedding(query)
   const vectorLiteral = `[${queryEmbedding.join(",")}]`
 
-  // Call Supabase RPC for similarity search
   const { data: similarities, error } = await supabaseAdmin.rpc(
     "vault_semantic_search",
     {
       p_founder_id: founderId,
       p_embedding:  vectorLiteral,
-      p_limit:      limit * 3, // over-fetch then filter
+      p_limit:      limit * 3,
       p_threshold:  threshold,
     }
   )
 
   if (error || !similarities || similarities.length === 0) {
-    if (error) console.error("[RAG] semantic search error:", error)
+    if (error) console.error("[RAG/Semantic] RPC Error:", error)
+    else console.log(`[RAG/Semantic] No results above threshold (${threshold})`)
     return []
   }
+  console.log(`[RAG/Semantic] RPC returned ${similarities.length} raw matches`)
 
   // Fetch full item details
   const itemIds = similarities.map((s: any) => s.vault_item_id)
@@ -138,7 +140,11 @@ export async function getRelatedContext(
     }
   )
 
-  if (error || !similarities || similarities.length === 0) return []
+  if (error || !similarities || similarities.length === 0) {
+    if (error) console.error("[RAG/Related] RPC Error:", error)
+    return []
+  }
+  console.log(`[RAG/Related] Found ${similarities.length} items connected to ${vaultItemId}`)
 
   const itemIds = similarities.map((s: any) => s.vault_item_id)
   const { data: items } = await supabaseAdmin
@@ -184,11 +190,14 @@ export async function buildVaultRAGContext(
   const { maxItems = 5, projectId } = options
 
   try {
+    console.log(`[RAG/Context] Building prompt context for message: "${userMessage.slice(0, 50)}..."`)
     const results = await vaultSemanticSearch(founderId, userMessage, {
       limit: maxItems,
       threshold: 0.30,
       projectId,
     })
+
+    console.log(`[RAG/Context] Injected ${results.length} vault items into AI memory`)
 
     if (results.length === 0) return ""
 
