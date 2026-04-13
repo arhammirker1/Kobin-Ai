@@ -60,11 +60,11 @@ export function buildEmbeddingText(item: {
   if (item.document_type) parts.push(`Type: ${item.document_type}`)
   if (item.item_type)     parts.push(`Format: ${item.item_type}`)
   if (item.description)   parts.push(`Description: ${item.description}`)
-  if (item.note_content)  parts.push(`Content: ${item.note_content?.slice(0, 4000)}`)
+  if (item.note_content)  parts.push(`Content: ${item.note_content?.slice(0, 12000)}`)
   if (item.link_url)      parts.push(`URL: ${item.link_url}`)
   // Full document content — makes semantic search NotebookLM-level
   if (item.extracted_text) {
-    parts.push(`\nDocument Content:\n${item.extracted_text.slice(0, 6000)}`)
+    parts.push(`\nDocument Content:\n${item.extracted_text.slice(0, 20000)}`)
   }
 
   return parts.join("\n")
@@ -156,14 +156,12 @@ export async function upsertVaultChunks(
 
   console.log(`[Embed/Chunks] Embedding ${chunks.length} chunks for ${vaultItemId}`)
 
-  // Delete stale chunks for this item
-  await supabaseAdmin
-    .from("vault_chunks")
-    .delete()
-    .eq("vault_item_id", vaultItemId)
-
-  // Embed in parallel batches of 5 to stay within HuggingFace rate limits
+  // ── ATOMIC CHUNKING: upsert first, then prune excess ───────────────────
+  // Never delete before re-embedding; this prevents "half-indexed" states on
+  // timeout / rate-limit failures.
   const BATCH = 5
+  let successCount = 0
+
   for (let i = 0; i < chunks.length; i += BATCH) {
     const batch = chunks.slice(i, i + BATCH)
 
@@ -184,19 +182,30 @@ export async function upsertVaultChunks(
             },
             { onConflict: "vault_item_id,chunk_index" }
           )
+          successCount++
         } catch (err) {
           console.error(`[Embed/Chunks] Failed chunk ${chunk.index} for ${vaultItemId}:`, err)
         }
       })
     )
 
-    // Brief pause between batches
     if (i + BATCH < chunks.length) {
       await new Promise((r) => setTimeout(r, 200))
     }
   }
 
-  console.log(`[Embed/Chunks] ✓ ${chunks.length} chunks stored for ${vaultItemId}`)
+  // Only after all new chunks are safely written, prune any stale excess
+  // (e.g. old version had 80 chunks, new version has 40)
+  if (successCount === chunks.length) {
+    await supabaseAdmin
+      .from("vault_chunks")
+      .delete()
+      .eq("vault_item_id", vaultItemId)
+      .gte("chunk_index", chunks.length)
+    console.log(`[Embed/Chunks] ✓ ${chunks.length} chunks stored atomically for ${vaultItemId}`)
+  } else {
+    console.warn(`[Embed/Chunks] Partial success (${successCount}/${chunks.length}) — old chunks retained`)
+  }
 }
 
 // ── Batch embed all pending items for a founder ──────────────────────────────

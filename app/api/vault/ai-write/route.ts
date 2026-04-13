@@ -60,7 +60,19 @@ export async function POST(request: Request) {
       { maxItems: 5, projectId }
     )
 
-    const systemPrompt = `You are an expert agency document writer embedded in Kobin AI.
+    const isCodeMode = (await request.clone().json().catch(() => ({}))).mode === "code"
+
+    const systemPrompt = isCodeMode
+      ? `You are an expert software engineer embedded in Kobin AI.
+You help edit, refactor, fix, and extend code files.
+${vaultContext ? `\n${vaultContext}\n` : ""}
+${documentTitle ? `Current file: "${documentTitle}"\nExisting code:\n\`\`\`\n${(documentContent || "").slice(0, 3000)}\n\`\`\`` : ""}
+
+Rules:
+- Return ONLY the code — no explanation, no preamble, no markdown fences.
+- Match the existing language, style, and indentation exactly.
+- If inserting a partial change, return only that changed block unless the whole file is needed.`
+      : `You are an expert agency document writer embedded in Kobin AI.
 You help founders write professional documents: proposals, briefs, SOPs, reports, and notes.
 ${vaultContext ? `\n${vaultContext}\n` : ""}
 ${documentTitle

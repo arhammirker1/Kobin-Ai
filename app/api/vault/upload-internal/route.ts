@@ -16,7 +16,7 @@ async function extractPdfText(buffer: Buffer): Promise<string> {
     // Dynamic import avoids build-time issues with pdf-parse's canvas dep
     const pdfParse = (await import("pdf-parse")).default
     const data = await pdfParse(buffer)
-    return data.text.slice(0, 12000)
+    return data.text.slice(0, 50000)
   } catch (err) {
     console.error("[upload-internal] PDF extraction failed:", err)
     return ""

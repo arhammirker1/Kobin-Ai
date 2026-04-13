@@ -27,7 +27,7 @@ export async function extractTextFromFile(file: File): Promise<string> {
   ]
   if (plainExts.includes(ext) || type.startsWith("text/")) {
     try {
-      return (await file.text()).slice(0, 12000)
+      return (await file.text()).slice(0, 50000)
     } catch {
       return ""
     }
@@ -42,7 +42,7 @@ export async function extractTextFromFile(file: File): Promise<string> {
       const mammoth = await import("mammoth")
       const buffer = await file.arrayBuffer()
       const result = await mammoth.extractRawText({ arrayBuffer: buffer })
-      return result.value.slice(0, 12000)
+      return result.value.slice(0, 50000)
     } catch (err) {
       console.error("[Extraction] DOCX failed:", err)
       return ""
@@ -67,7 +67,7 @@ export async function extractTextFromFile(file: File): Promise<string> {
         const csv = XLSX.utils.sheet_to_csv(ws, { blankrows: false })
         texts.push(`Sheet: ${sheetName}\n${csv}`)
       }
-      return texts.join("\n\n").slice(0, 12000)
+      return texts.join("\n\n").slice(0, 50000)
     } catch (err) {
       console.error("[Extraction] XLSX failed:", err)
       return ""

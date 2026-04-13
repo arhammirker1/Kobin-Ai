@@ -27,7 +27,7 @@ import {
   Eye, CloudOff, Cloud, Loader2, X, FolderPlus, Users, Lock,
   Globe, ArrowLeft, Sparkles, Code, Image, FileIcon, Check,
   Clock, AlertCircle, RefreshCw, Send, ChevronLeft, ChevronDown,
-  Activity, MessageSquare, Zap, BookOpen, Download,
+  Activity, MessageSquare, Zap, BookOpen, Download, Pencil,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { toast } from "sonner"
@@ -351,6 +351,13 @@ export function VaultView() {
   const [fileContent, setFileContent] = useState<string | null>(null)
   const [fileLoading, setFileLoading] = useState(false)
 
+  // Code / DOCX viewer controls
+  const [codeAiWriterOpen, setCodeAiWriterOpen] = useState(false)
+  const [docxEditMode, setDocxEditMode] = useState(false)
+  const [docxAiWriterOpen, setDocxAiWriterOpen] = useState(false)
+  const codeViewerSaveRef = useRef<(() => void) | null>(null)
+  const docxViewerSaveRef = useRef<(() => void) | null>(null)
+
   // Context menu
   const [menuItemId, setMenuItemId] = useState<string | null>(null)
 
@@ -486,6 +493,44 @@ export function VaultView() {
     setRightPanelOpen(false)
   }
 
+  // ── Activity logging ───────────────────────────────────────────────────────
+  const logVaultActivity = useCallback(async (
+    itemId: string,
+    action: string,
+    details?: object,
+  ) => {
+    try {
+      await fetch("/api/vault/activity", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vault_item_id: itemId, action, details: details || {} }),
+      })
+    } catch (err) {
+      console.warn("[Vault/Activity] Log failed (non-blocking):", err)
+    }
+  }, [])
+
+  // ── Save edited file content (code / docx) ─────────────────────────────────
+  const saveFileContent = useCallback(async (content: string, type: "code" | "docx") => {
+    if (!activeItem) return
+    setIsSaving(true)
+    const { error } = await supabase
+      .from("vault_items")
+      .update({ extracted_text: content })
+      .eq("id", activeItem.id)
+    setIsSaving(false)
+    if (error) { console.error("[Vault/Save]", error); toast.error("Failed to save"); return }
+    toast.success("Saved")
+    await logVaultActivity(activeItem.id, "file_edited", { type, filename: activeItem.title })
+    // Re-embed with new content
+    fetch("/api/vault/embed", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ vault_item_id: activeItem.id }),
+    }).catch(() => {})
+    if (selectedFolderId) loadItems(selectedFolderId)
+  }, [activeItem, supabase, logVaultActivity, selectedFolderId])
+
   const selectFolder = (folder: VaultFolder) => {
     console.log(`[Vault/Nav] Selected folder=${folder.id} name="${folder.name}"`)
     setSelectedFolderId(folder.id)
@@ -529,12 +574,18 @@ export function VaultView() {
           setSignedUrl(url || null)
           console.log(`[Vault/Viewer] Signed URL obtained: ${url ? "✓" : "null"}`)
 
-          if (viewer === "code" && url) {
-            console.log(`[Vault/Viewer] Fetching raw file content for code viewer`)
-            const contentRes = await fetch(url)
-            const text = await contentRes.text()
-            setFileContent(text)
-            console.log(`[Vault/Viewer] Code content length: ${text.length}`)
+          if (viewer === "code") {
+            // Prefer previously-edited extracted_text; fall back to raw file
+            if (item.extracted_text) {
+              console.log(`[Vault/Viewer] Using extracted_text (edited) for code viewer`)
+              setFileContent(item.extracted_text)
+            } else if (url) {
+              console.log(`[Vault/Viewer] Fetching raw file content for code viewer`)
+              const contentRes = await fetch(url)
+              const text = await contentRes.text()
+              setFileContent(text)
+              console.log(`[Vault/Viewer] Code content length: ${text.length}`)
+            }
           }
         } else if (item.drive_file_url) {
           console.log(`[Vault/Viewer] Using Drive URL (legacy item)`)
@@ -586,6 +637,9 @@ export function VaultView() {
     setRightPanelOpen(false)
     setAiWriterOpen(false)
     setAiWriterResponse("")
+    setCodeAiWriterOpen(false)
+    setDocxEditMode(false)
+    setDocxAiWriterOpen(false)
   }
 
   // ── File select & AI labeling ──────────────────────────────────────────────
@@ -813,6 +867,10 @@ export function VaultView() {
     }
     console.log("[Vault/Note] ✓ Saved")
     toast.success("Saved")
+    await logVaultActivity(activeItem.id, "content_updated", {
+      title: docTitle,
+      title_changed: docTitle !== activeItem.title,
+    })
     fetch("/api/vault/embed", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1227,7 +1285,66 @@ export function VaultView() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  {activeViewer === "doc" && (
+                  {activeViewer === "code" && (
+                  <>
+                    <button
+                      onClick={() => setCodeAiWriterOpen((v) => !v)}
+                      className={cn(
+                        "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all",
+                        codeAiWriterOpen
+                          ? "bg-violet-500/20 border border-violet-500/30 text-violet-300"
+                          : "bg-white/5 border border-white/8 text-white/50 hover:text-white/80"
+                      )}
+                    >
+                      <Sparkles size={11} />Kobin AI
+                    </button>
+                    <button
+                      onClick={() => codeViewerSaveRef.current?.()}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white text-black hover:bg-white/90 rounded-lg text-[11px] font-semibold transition-all"
+                    >
+                      {isSaving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                      Save
+                    </button>
+                  </>
+                )}
+                {activeViewer === "docx" && (
+                  <>
+                    {docxEditMode && (
+                      <button
+                        onClick={() => setDocxAiWriterOpen((v) => !v)}
+                        className={cn(
+                          "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all",
+                          docxAiWriterOpen
+                            ? "bg-violet-500/20 border border-violet-500/30 text-violet-300"
+                            : "bg-white/5 border border-white/8 text-white/50 hover:text-white/80"
+                        )}
+                      >
+                        <Sparkles size={11} />Kobin AI
+                      </button>
+                    )}
+                    {docxEditMode && (
+                      <button
+                        onClick={() => docxViewerSaveRef.current?.()}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white text-black hover:bg-white/90 rounded-lg text-[11px] font-semibold transition-all"
+                      >
+                        {isSaving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                        Save
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setDocxEditMode((v) => !v)}
+                      className={cn(
+                        "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all border",
+                        docxEditMode
+                          ? "bg-blue-500/10 border-blue-500/20 text-blue-300"
+                          : "bg-white/5 border border-white/8 text-white/50 hover:text-white/80"
+                      )}
+                    >
+                      {docxEditMode ? <><Eye size={11} />View</> : <><Pencil size={11} />Edit</>}
+                    </button>
+                  </>
+                )}
+                {activeViewer === "doc" && (
                     <>
                       <button
                         onClick={() => setAiWriterOpen((v) => !v)}
@@ -1350,12 +1467,21 @@ export function VaultView() {
                   {/* Code — Monaco */}
                   {activeViewer === "code" && (
                     <div className="flex-1 flex flex-col overflow-hidden">
-                      <CodeViewerComponent content={fileContent} filename={activeItem?.title || ""} fileUrl={signedUrl} readOnly className="flex-1" />
+                      <CodeViewerComponent
+                        content={activeItem?.extracted_text || fileContent}
+                        filename={activeItem?.title || ""}
+                        fileUrl={signedUrl}
+                        onSave={(c) => saveFileContent(c, "code")}
+                        aiWriterOpen={codeAiWriterOpen}
+                        onAIWriterToggle={() => setCodeAiWriterOpen((v) => !v)}
+                        saveRef={codeViewerSaveRef}
+                        className="flex-1"
+                      />
                       <DeliverableApprovalStrip item={activeItem!} folders={folders} approvalStatus={approvalStatus} onApprove={() => setApprovalStatus("approved")} onRequestChanges={() => setApprovalStatus("changes_requested")} onReset={() => setApprovalStatus("none")} />
                     </div>
                   )}
 
-                  {/* DOCX — Mammoth */}
+                  {/* DOCX — Mammoth + TipTap edit */}
                   {activeViewer === "docx" && (
                     <div className="flex-1 flex flex-col overflow-hidden">
                       {fileLoading ? (
@@ -1364,7 +1490,18 @@ export function VaultView() {
                           <span className="text-[11px] text-white/30">Loading document…</span>
                         </div>
                       ) : (
-                        <DocxViewerComponent fileUrl={signedUrl} filename={activeItem?.title || "document.docx"} className="flex-1" />
+                        <DocxViewerComponent
+                          fileUrl={signedUrl}
+                          filename={activeItem?.title || "document.docx"}
+                          existingHtml={activeItem?.extracted_text || null}
+                          editMode={docxEditMode}
+                          onEditModeChange={setDocxEditMode}
+                          onSave={(html) => saveFileContent(html, "docx")}
+                          saveRef={docxViewerSaveRef}
+                          aiWriterOpen={docxAiWriterOpen}
+                          onAIWriterToggle={() => setDocxAiWriterOpen((v) => !v)}
+                          className="flex-1"
+                        />
                       )}
                       <DeliverableApprovalStrip item={activeItem!} folders={folders} approvalStatus={approvalStatus} onApprove={() => setApprovalStatus("approved")} onRequestChanges={() => setApprovalStatus("changes_requested")} onReset={() => setApprovalStatus("none")} />
                     </div>
@@ -2140,6 +2277,111 @@ function CommentsPanel({ itemId }: { itemId: string }) {
   )
 }
 
+// ── Activity Panel ────────────────────────────────────────────────────────────
+
+const ACTION_LABELS: Record<string, { text: string; dot: string }> = {
+  created:         { text: "Added to vault",      dot: "bg-violet-500" },
+  content_updated: { text: "Content edited",       dot: "bg-blue-400" },
+  title_changed:   { text: "Title changed",        dot: "bg-amber-400" },
+  file_edited:     { text: "File edited",          dot: "bg-blue-400" },
+  deleted:         { text: "Deleted",              dot: "bg-red-500" },
+  embedded:        { text: "Vectorised by AI",     dot: "bg-emerald-500" },
+  comment_added:   { text: "Comment added",        dot: "bg-sky-400" },
+  viewed:          { text: "Viewed",               dot: "bg-white/20" },
+}
+
+function ActivityPanel({ item }: { item: VaultItem }) {
+  const [logs, setLogs] = useState<Array<{
+    id: string; action: string; user_name: string; details: any; created_at: string
+  }>>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchLogs()
+  }, [item.id])
+
+  const fetchLogs = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/vault/activity?item_id=${item.id}`)
+      const json = await res.json()
+      setLogs(json.logs || [])
+    } catch (err) {
+      console.error("[ActivityPanel]", err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Always prepend the creation entry (guaranteed to exist even if logs table is empty)
+  const syntheticCreate = {
+    id: "create",
+    action: "created",
+    user_name: item.added_by_type,
+    details: {},
+    created_at: item.created_at,
+  }
+  const syntheticEmbed = item.embedding_status === "embedded"
+    ? [{
+        id: "embed",
+        action: "embedded",
+        user_name: "Kobin AI",
+        details: {},
+        created_at: item.created_at,
+      }]
+    : []
+
+  const allLogs = [
+    ...logs,
+    syntheticEmbed[0],
+    syntheticCreate,
+  ].filter(Boolean)
+
+  const initials = (name: string) =>
+    name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-6">
+        <Loader2 size={13} className="animate-spin text-white/20" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      {allLogs.map((log) => {
+        const meta = ACTION_LABELS[log.action] || { text: log.action, dot: "bg-white/20" }
+        const detailText = (() => {
+          if (log.details?.title_changed && log.details.title) return `→ "${log.details.title}"`
+          if (log.details?.filename) return log.details.filename
+          return null
+        })()
+        return (
+          <div key={log.id} className="flex gap-3">
+            <div className="flex flex-col items-center gap-0.5 shrink-0">
+              <div className={cn("w-1.5 h-1.5 rounded-full mt-1.5", meta.dot)} />
+              <div className="w-px flex-1 bg-white/5" />
+            </div>
+            <div className="pb-3">
+              <div className="flex items-baseline gap-1.5 flex-wrap">
+                <span className="text-[11px] font-semibold text-white/60">{log.user_name}</span>
+                <span className="text-[10px] text-white/30">{meta.text}</span>
+              </div>
+              {detailText && (
+                <p className="text-[9px] text-white/20 mt-0.5 font-mono truncate max-w-[180px]">{detailText}</p>
+              )}
+              <p className="text-[9px] text-white/15 mt-0.5">
+                {new Date(log.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+              </p>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── Right Panel ───────────────────────────────────────────────────────────────
 
 function RightPanel({
@@ -2336,24 +2578,7 @@ function RightPanel({
         {tab === "comments" && <CommentsPanel itemId={item.id} />}
 
         {tab === "activity" && (
-          <div className="space-y-3">
-            {[
-              { dot: "bg-violet-500", text: "Item added to vault", time: formatDate(item.created_at) },
-              {
-                dot: item.embedding_status === "embedded" ? "bg-emerald-500" : "bg-white/20",
-                text: item.embedding_status === "embedded" ? "Vectorised by Kobin AI" : "Awaiting vectorisation",
-                time: formatDate(item.created_at),
-              },
-            ].map((a, i) => (
-              <div key={i} className="flex gap-3">
-                <div className={cn("w-1.5 h-1.5 rounded-full mt-1.5 shrink-0", a.dot)} />
-                <div>
-                  <p className="text-[11px] text-white/50">{a.text}</p>
-                  <p className="text-[9px] text-white/20">{a.time}</p>
-                </div>
-              </div>
-            ))}
-          </div>
+          <ActivityPanel item={item} />
         )}
       </div>
     </div>

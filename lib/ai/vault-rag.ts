@@ -68,7 +68,7 @@ export async function vaultSemanticSearch(
     {
       p_founder_id: founderId,
       p_embedding:  vectorLiteral,
-      p_limit:      limit * 4,     // fetch more chunks, then deduplicate to items
+      p_limit:      limit * 10,    // larger buffer ensures diverse item coverage
       p_threshold:  threshold,
     }
   )
@@ -142,20 +142,46 @@ export async function vaultSemanticSearch(
   const pMap = Object.fromEntries((projectsRes.data || []).map((p) => [p.id, p.name]))
   const fMap = Object.fromEntries((foldersRes.data || []).map((f) => [f.id, f.name]))
 
-  return items
-    .map((item) => {
-      const chunkData = itemIdToChunks[item.id]
-      return {
-        ...item,
-        similarity: chunkData?.bestSim || 0,
-        best_chunk_text: chunkData?.bestText || undefined,
-        matched_chunks: chunkData?.count || 1,
-        project_name: item.project_id ? pMap[item.project_id] : undefined,
-        folder_name: fMap[item.folder_id],
-      }
-    })
-    .sort((a, b) => b.similarity - a.similarity)
-    .slice(0, limit)
+  const rawResults = items.map((item) => {
+    const chunkData = itemIdToChunks[item.id]
+    return {
+      ...item,
+      similarity: chunkData?.bestSim || 0,
+      best_chunk_text: chunkData?.bestText || undefined,
+      matched_chunks: chunkData?.count || 1,
+      project_name: item.project_id ? pMap[item.project_id] : undefined,
+      folder_name: fMap[item.folder_id],
+    }
+  }).sort((a, b) => b.similarity - a.similarity)
+
+  // ── Max Marginal Relevance (MMR) ─────────────────────────────────────────
+  // Balances relevance to query vs diversity across selected results.
+  // λ = 0.7 → 70% relevance, 30% diversity.
+  const MMR_LAMBDA = 0.7
+  const selected: typeof rawResults = []
+  const candidates = [...rawResults]
+
+  while (selected.length < limit && candidates.length > 0) {
+    let bestIdx = 0
+    let bestScore = -Infinity
+
+    for (let i = 0; i < candidates.length; i++) {
+      const relevance = candidates[i].similarity
+      // Penalise if already selected an item from the same folder (diversity)
+      const maxRedundancy = selected.length === 0 ? 0 : Math.max(
+        ...selected.map((s) =>
+          s.folder_id === candidates[i].folder_id ? 0.5 : 0
+        )
+      )
+      const score = MMR_LAMBDA * relevance - (1 - MMR_LAMBDA) * maxRedundancy
+      if (score > bestScore) { bestScore = score; bestIdx = i }
+    }
+
+    selected.push(candidates[bestIdx])
+    candidates.splice(bestIdx, 1)
+  }
+
+  return selected
 }
 
 // ── Related context for a specific vault item ────────────────────────────────
@@ -253,14 +279,40 @@ export async function buildVaultRAGContext(
 
     if (results.length === 0) return { context: "", sources: [] }
 
+    // ── Entity grounding: extract named entities from query ──────────────────
+    // If the query references a specific named subject, only include items that
+    // contain that name (prevents cross-domain hallucination).
+    const queryEntityPattern = /\b[A-Z][a-zA-Z]+(?:\s[A-Z][a-zA-Z]+)*\b/g
+    const queryEntities = [...new Set(userMessage.match(queryEntityPattern) || [])]
+      .filter(e => e.length > 3) // skip short words like "The"
+
+    const groundedResults = queryEntities.length > 0
+      ? results.filter((item) => {
+          const haystack = [
+            item.title, item.description, item.note_content,
+            item.best_chunk_text,
+          ].filter(Boolean).join(" ").toLowerCase()
+
+          // Include item if ANY query entity appears in its content
+          // OR if similarity is very high (≥0.75 → trust the vector)
+          return queryEntities.some(e => haystack.includes(e.toLowerCase())) ||
+            item.similarity >= 0.75
+        })
+      : results
+
+    // If grounding filtered everything out, fall back to top-2 raw results with a caveat
+    const finalResults = groundedResults.length > 0 ? groundedResults : results.slice(0, 2)
+
     const lines: string[] = [
       "## Relevant Knowledge from Your Vault:",
-      "Use the following context to answer. Cite the source title when referencing it.\n",
+      groundedResults.length === 0
+        ? "⚠️ No vault items directly mention the subject — showing closest matches.\n"
+        : "Use the following context to answer. Cite the source title when referencing it.\n",
     ]
 
     const sources: RAGSource[] = []
 
-    for (const item of results) {
+    for (const item of finalResults) {
       const sim = (item.similarity * 100).toFixed(0)
       const sourceLabel = `[${item.title}]`
 
@@ -294,6 +346,7 @@ export async function buildVaultRAGContext(
     return { context: "", sources: [] }
   }
 }
+
 
 // ── Hybrid search: combine keyword + semantic ────────────────────────────────
 
