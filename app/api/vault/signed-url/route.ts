@@ -28,14 +28,29 @@ export async function GET(request: Request) {
         if (!item) return NextResponse.json({ url: null }, { status: 404 })
 
         if (item.storage_path) {
+            // Determine if file should be viewed inline or downloaded
+            const ext = (item.storage_path.split(".").pop() || "").toLowerCase()
+            const inlineTypes = ["pdf", "jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "avif"]
+            const forceDownload = !inlineTypes.includes(ext)
+
             const { data, error } = await supabaseAdmin.storage
                 .from("vault")
-                .createSignedUrl(item.storage_path, 3600)
+                .createSignedUrl(item.storage_path, 3600, {
+                    download: forceDownload,
+                })
 
             if (error || !data?.signedUrl) {
                 return NextResponse.json({ url: null }, { status: 500 })
             }
-            return NextResponse.json({ url: data.signedUrl })
+            // Return both: inline URL for viewer, download URL for the download button
+            const { data: downloadData } = await supabaseAdmin.storage
+                .from("vault")
+                .createSignedUrl(item.storage_path, 3600, { download: true })
+
+            return NextResponse.json({
+                url: data.signedUrl,
+                download_url: downloadData?.signedUrl || data.signedUrl,
+            })
         }
 
         // Legacy Drive item

@@ -82,7 +82,6 @@ interface NoteEditorProps {
     /** Ref that gets assigned an insert function — call it to inject content into the editor */
     editorInsertRef?: React.MutableRefObject<((content: string) => void) | null>
 }
-
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function NoteEditor({
@@ -148,7 +147,7 @@ export default function NoteEditor({
         )
     }
 
-    return (
+        return (
         <TipTapEditorInner
             title={title}
             content={content}
@@ -187,11 +186,11 @@ function TipTapEditorInner({
     // ── Wire editorInsertRef so vault-view can inject AI content ───────────────
     useEffect(() => {
         if (!editorInsertRef) return
-        editorInsertRef.current = (rawContent: string) => {
+        editorInsertRef.current = (text: string) => {
             if (!editor) return
             // Convert plain-text paragraphs to TipTap-compatible content
             // TipTap insertContent handles plain strings correctly
-            editor.chain().focus().insertContent(rawContent).run()
+            editor.chain().focus().insertContent(text).run()
         }
         return () => {
             if (editorInsertRef) editorInsertRef.current = null

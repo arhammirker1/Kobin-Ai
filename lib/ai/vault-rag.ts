@@ -31,6 +31,9 @@ export interface VaultSearchResult {
   similarity: number
   project_name?: string
   folder_name?: string
+  // Chunk-level retrieval fields
+  best_chunk_text?: string    // The most relevant chunk from this document
+  matched_chunks?: number     // How many chunks matched
 }
 
 export interface RelatedContext {
@@ -40,6 +43,8 @@ export interface RelatedContext {
 }
 
 // ── Semantic search ──────────────────────────────────────────────────────────
+
+// ── Semantic search (chunk-aware) ────────────────────────────────────────────
 
 export async function vaultSemanticSearch(
   founderId: string,
@@ -51,74 +56,104 @@ export async function vaultSemanticSearch(
     itemType?: string
   } = {}
 ): Promise<VaultSearchResult[]> {
-  const { limit = 10, threshold = 0.20, projectId, itemType } = options
+  const { limit = 10, threshold = 0.18, projectId, itemType } = options
 
-  console.log(`[RAG/Semantic] Searching for: "${query}" (Founders: ${founderId})`)
+  console.log(`[RAG/Semantic] Searching for: "${query}"`)
   const queryEmbedding = await generateEmbedding(query)
   const vectorLiteral = `[${queryEmbedding.join(",")}]`
 
-  const { data: similarities, error } = await supabaseAdmin.rpc(
-    "vault_semantic_search",
+  // ── Try chunk-level search first (higher precision) ───────────────────────
+  const { data: chunkHits, error: chunkError } = await supabaseAdmin.rpc(
+    "vault_chunk_search",
     {
       p_founder_id: founderId,
       p_embedding:  vectorLiteral,
-      p_limit:      limit * 3,
+      p_limit:      limit * 4,     // fetch more chunks, then deduplicate to items
       p_threshold:  threshold,
     }
   )
 
-  if (error || !similarities || similarities.length === 0) {
-    if (error) console.error("[RAG/Semantic] RPC Error:", error)
-    else console.log(`[RAG/Semantic] No results above threshold (${threshold})`)
-    return []
-  }
-  console.log(`[RAG/Semantic] RPC returned ${similarities.length} raw matches`)
+  let itemIdToChunks: Record<string, { bestSim: number; bestText: string; count: number }> = {}
+  let useChunks = false
 
-  // Fetch full item details
-  const itemIds = similarities.map((s: any) => s.vault_item_id)
-  let query2 = supabaseAdmin
+  if (!chunkError && chunkHits && chunkHits.length > 0) {
+    useChunks = true
+    console.log(`[RAG/Semantic] Chunk search: ${chunkHits.length} hits → deduplicating`)
+
+    // Group by vault_item_id, keep best chunk per item
+    for (const hit of chunkHits as Array<{ vault_item_id: string; chunk_text: string; similarity: number }>) {
+      const existing = itemIdToChunks[hit.vault_item_id]
+      if (!existing || hit.similarity > existing.bestSim) {
+        itemIdToChunks[hit.vault_item_id] = {
+          bestSim: hit.similarity,
+          bestText: hit.chunk_text,
+          count: (existing?.count || 0) + 1,
+        }
+      } else {
+        existing.count++
+      }
+    }
+  } else {
+    // ── Fall back to item-level search (legacy items without chunks) ──────────
+    console.log(`[RAG/Semantic] Falling back to item-level search`)
+    const { data: similarities, error } = await supabaseAdmin.rpc(
+      "vault_semantic_search",
+      { p_founder_id: founderId, p_embedding: vectorLiteral, p_limit: limit * 2, p_threshold: threshold }
+    )
+    if (error || !similarities?.length) {
+      if (error) console.error("[RAG/Semantic] Item-level RPC error:", error)
+      return []
+    }
+    for (const s of similarities) {
+      itemIdToChunks[s.vault_item_id] = { bestSim: s.similarity, bestText: "", count: 1 }
+    }
+  }
+
+  const uniqueItemIds = Object.keys(itemIdToChunks)
+  if (uniqueItemIds.length === 0) return []
+  console.log(`[RAG/Semantic] ${uniqueItemIds.length} unique items after dedup`)
+
+  // ── Fetch full item details ───────────────────────────────────────────────
+  let q = supabaseAdmin
     .from("vault_items")
     .select(`
       id, title, description, item_type, document_type,
       folder_id, project_id, drive_file_url, link_url,
       note_content, added_by_type, created_at, embedding_status
     `)
-    .in("id", itemIds)
+    .in("id", uniqueItemIds)
     .eq("founder_id", founderId)
 
-  if (projectId) query2 = query2.eq("project_id", projectId)
-  if (itemType)  query2 = query2.eq("item_type", itemType)
+  if (projectId) q = q.eq("project_id", projectId)
+  if (itemType)  q = q.eq("item_type", itemType)
 
-  const { data: items } = await query2
+  const { data: items } = await q
   if (!items) return []
 
-  // Build lookup maps for project + folder names
+  // ── Resolve project + folder names ────────────────────────────────────────
   const pIds = [...new Set(items.map((i) => i.project_id).filter(Boolean))] as string[]
   const fIds = [...new Set(items.map((i) => i.folder_id).filter(Boolean))] as string[]
 
   const [projectsRes, foldersRes] = await Promise.all([
-    pIds.length > 0
-      ? supabaseAdmin.from("projects").select("id, name").in("id", pIds)
-      : { data: [] },
-    fIds.length > 0
-      ? supabaseAdmin.from("vault_folders").select("id, name").in("id", fIds)
-      : { data: [] },
+    pIds.length > 0 ? supabaseAdmin.from("projects").select("id, name").in("id", pIds) : { data: [] },
+    fIds.length > 0 ? supabaseAdmin.from("vault_folders").select("id, name").in("id", fIds) : { data: [] },
   ])
 
   const pMap = Object.fromEntries((projectsRes.data || []).map((p) => [p.id, p.name]))
   const fMap = Object.fromEntries((foldersRes.data || []).map((f) => [f.id, f.name]))
 
-  const simMap = Object.fromEntries(
-    similarities.map((s: any) => [s.vault_item_id, s.similarity])
-  )
-
   return items
-    .map((item) => ({
-      ...item,
-      similarity: simMap[item.id] || 0,
-      project_name: item.project_id ? pMap[item.project_id] : undefined,
-      folder_name: fMap[item.folder_id],
-    }))
+    .map((item) => {
+      const chunkData = itemIdToChunks[item.id]
+      return {
+        ...item,
+        similarity: chunkData?.bestSim || 0,
+        best_chunk_text: chunkData?.bestText || undefined,
+        matched_chunks: chunkData?.count || 1,
+        project_name: item.project_id ? pMap[item.project_id] : undefined,
+        folder_name: fMap[item.folder_id],
+      }
+    })
     .sort((a, b) => b.similarity - a.similarity)
     .slice(0, limit)
 }
@@ -180,39 +215,83 @@ export async function getRelatedContext(
     .sort((a, b) => b.similarity - a.similarity)
 }
 
-// ── Build RAG context string for AI prompts ──────────────────────────────────
+// ── Source attribution type ───────────────────────────────────────────────────
+
+export interface RAGSource {
+  id: string
+  title: string
+  document_type: string
+  similarity: number
+  project_name?: string
+  chunk_preview?: string   // first 120 chars of matched chunk
+}
+
+export interface RAGContext {
+  context: string
+  sources: RAGSource[]
+}
+
+// ── Build RAG context for AI prompts (with source attribution) ────────────────
 
 export async function buildVaultRAGContext(
   founderId: string,
   userMessage: string,
   options: { maxItems?: number; projectId?: string } = {}
-): Promise<string> {
-  const { maxItems = 5, projectId } = options
+): Promise<RAGContext> {
+  const { maxItems = 6, projectId } = options
 
   try {
-    console.log(`[RAG/Context] Building prompt context for message: "${userMessage.slice(0, 50)}..."`)
+    console.log(`[RAG/Context] Building context for: "${userMessage.slice(0, 60)}..."`)
+
     const results = await vaultSemanticSearch(founderId, userMessage, {
       limit: maxItems,
-      threshold: 0.30,
+      threshold: 0.22,
       projectId,
     })
 
-    console.log(`[RAG/Context] Injected ${results.length} vault items into AI memory`)
+    console.log(`[RAG/Context] ${results.length} items retrieved`)
 
-    if (results.length === 0) return ""
+    if (results.length === 0) return { context: "", sources: [] }
 
-    const lines = ["## Relevant Vault Knowledge:"]
+    const lines: string[] = [
+      "## Relevant Knowledge from Your Vault:",
+      "Use the following context to answer. Cite the source title when referencing it.\n",
+    ]
+
+    const sources: RAGSource[] = []
+
     for (const item of results) {
-      lines.push(`\n### ${item.title} (${item.document_type} · ${(item.similarity * 100).toFixed(0)}% relevant)`)
-      if (item.description) lines.push(item.description)
-      if (item.note_content) lines.push(item.note_content.slice(0, 300))
-      if (item.project_name) lines.push(`Project: ${item.project_name}`)
+      const sim = (item.similarity * 100).toFixed(0)
+      const sourceLabel = `[${item.title}]`
+
+      lines.push(`### ${sourceLabel} — ${item.document_type} (${sim}% match)`)
+
+      // Prefer best matched chunk over full content (more precise)
+      if (item.best_chunk_text) {
+        lines.push(item.best_chunk_text.slice(0, 600))
+      } else if (item.note_content) {
+        lines.push(item.note_content.slice(0, 500))
+      } else if (item.description) {
+        lines.push(item.description)
+      }
+
+      if (item.project_name) lines.push(`*Project: ${item.project_name}*`)
+      lines.push("") // spacer
+
+      sources.push({
+        id: item.id,
+        title: item.title,
+        document_type: item.document_type,
+        similarity: item.similarity,
+        project_name: item.project_name,
+        chunk_preview: item.best_chunk_text?.slice(0, 120) || item.description?.slice(0, 120),
+      })
     }
 
-    return lines.join("\n")
+    return { context: lines.join("\n"), sources }
   } catch (err) {
     console.error("[RAG] buildVaultRAGContext error:", err)
-    return ""
+    return { context: "", sources: [] }
   }
 }
 

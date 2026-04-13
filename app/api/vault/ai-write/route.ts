@@ -10,7 +10,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { supabaseAdmin } from "@/lib/supabase/admin"
-import { buildVaultRAGContext } from "@/lib/ai/vault-rag"
+import { buildVaultRAGContext, type RAGSource } from "@/lib/ai/vault-rag"
 import { getGroqClient, GROQ_MODEL_STD } from "@/lib/ai/groq"
 
 const SSE_HEADERS = {
@@ -53,28 +53,24 @@ export async function POST(request: Request) {
       if (tm?.founder_id) founderId = tm.founder_id
     }
 
-    // Retrieve relevant vault context
-    const vaultContext = await buildVaultRAGContext(
+    // Retrieve relevant vault context with source attribution
+    const { context: vaultContext, sources } = await buildVaultRAGContext(
       founderId,
       `${documentTitle || ""} ${prompt}`,
-      { maxItems: 4, projectId }
+      { maxItems: 5, projectId }
     )
 
     const systemPrompt = `You are an expert agency document writer embedded in Kobin AI.
 You help founders write professional documents: proposals, briefs, SOPs, reports, and notes.
-
-${vaultContext ? vaultContext + "\n\n" : ""}${
-      documentTitle
-        ? `Current document: "${documentTitle}"\n${
-            documentContent
-              ? `Existing content:\n${documentContent.slice(0, 1000)}\n\n`
-              : ""
-          }`
-        : ""
-    }
-Write in clear, professional prose. Be specific and actionable.
-If inserting into an existing document, match its tone and style.
-Return only the written content — no preamble, no explanation.`
+${vaultContext ? `\n${vaultContext}\n` : ""}
+${documentTitle
+  ? `Current document: "${documentTitle}"\n${documentContent ? `Existing content:\n${documentContent.slice(0, 1000)}\n\n` : ""}`
+  : ""}
+Rules:
+- Write in clear, professional prose. Be specific and actionable.
+- If inserting into an existing document, match its tone and style.
+- When you use information from the vault context above, naturally reference the source (e.g. "Based on the proposal..." or "As outlined in the brief...").
+- Return ONLY the written content — no preamble, no explanation, no meta-commentary.`
 
     const groq = getGroqClient()
     const stream = await groq.chat.completions.create({
@@ -91,19 +87,22 @@ Return only the written content — no preamble, no explanation.`
     const enc = new TextEncoder()
     const readable = new ReadableStream({
       async start(ctrl) {
+        // Emit sources FIRST so UI can show them immediately
+        if (sources.length > 0) {
+          ctrl.enqueue(enc.encode(
+            `data: ${JSON.stringify({ type: "sources", sources })}\n\n`
+          ))
+        }
+
         for await (const chunk of stream) {
           const delta = chunk.choices[0]?.delta?.content
           if (delta) {
-            ctrl.enqueue(
-              enc.encode(
-                `data: ${JSON.stringify({ type: "delta", content: delta })}\n\n`
-              )
-            )
+            ctrl.enqueue(enc.encode(
+              `data: ${JSON.stringify({ type: "delta", content: delta })}\n\n`
+            ))
           }
         }
-        ctrl.enqueue(
-          enc.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`)
-        )
+        ctrl.enqueue(enc.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`))
         ctrl.close()
       },
     })

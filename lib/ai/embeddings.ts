@@ -74,7 +74,7 @@ function md5(text: string): string {
   return crypto.createHash("md5").update(text).digest("hex")
 }
 
-// ── Upsert embedding for a vault item ───────────────────────────────────────
+// ── Upsert embedding for a vault item (item-level + chunked) ─────────────────
 
 export async function upsertVaultEmbedding(
   vaultItemId: string,
@@ -86,7 +86,7 @@ export async function upsertVaultEmbedding(
 
   console.log(`[Embed/Upsert] Starting for item ${vaultItemId}. Content hash: ${hash}`)
 
-  // Check if already embedded with same content
+  // Check if already embedded with same content hash
   const { data: existing } = await supabaseAdmin
     .from("vault_embeddings")
     .select("content_hash")
@@ -94,14 +94,13 @@ export async function upsertVaultEmbedding(
     .maybeSingle()
 
   if (existing?.content_hash === hash) {
-    console.log(`[Embed/Upsert] Skipping ${vaultItemId} — hash matches existing embedding`)
+    console.log(`[Embed/Upsert] Skipping ${vaultItemId} — hash unchanged`)
     return
   }
 
   try {
+    // ── 1. Item-level embedding (for overview search) ────────────────────────
     const embedding = await generateEmbedding(text)
-
-    // Store as a Postgres vector literal: '[0.1, 0.2, ...]'
     const vectorLiteral = `[${embedding.join(",")}]`
 
     await supabaseAdmin.from("vault_embeddings").upsert(
@@ -115,21 +114,89 @@ export async function upsertVaultEmbedding(
       { onConflict: "vault_item_id" }
     )
 
-    // Update embedding status on the item
+    // ── 2. Chunk-level embeddings (for fine-grained RAG) ─────────────────────
+    // Only chunk if there's substantial text content
+    const rawText = [
+      item.note_content,
+      item.extracted_text,
+      item.description,
+    ].filter(Boolean).join("\n\n")
+
+    if (rawText.length > 200) {
+      await upsertVaultChunks(vaultItemId, founderId, rawText)
+    }
+
+    // ── 3. Mark as embedded ──────────────────────────────────────────────────
     await supabaseAdmin
       .from("vault_items")
       .update({ embedding_status: "embedded" })
       .eq("id", vaultItemId)
 
-    console.log(`[Embed/Upsert] ✓ Successfully stored vector for ${vaultItemId} in Supabase`)
+    console.log(`[Embed/Upsert] ✓ Item ${vaultItemId} embedded (item-level + chunks)`)
   } catch (err) {
     console.error(`[Embed] Failed for ${vaultItemId}:`, err)
-
     await supabaseAdmin
       .from("vault_items")
       .update({ embedding_status: "failed" })
       .eq("id", vaultItemId)
   }
+}
+
+// ── Chunk a document and embed each chunk ────────────────────────────────────
+
+export async function upsertVaultChunks(
+  vaultItemId: string,
+  founderId: string,
+  rawText: string
+): Promise<void> {
+  const { smartChunk } = await import("./chunking")
+  const chunks = smartChunk(rawText)
+
+  if (chunks.length === 0) return
+
+  console.log(`[Embed/Chunks] Embedding ${chunks.length} chunks for ${vaultItemId}`)
+
+  // Delete stale chunks for this item
+  await supabaseAdmin
+    .from("vault_chunks")
+    .delete()
+    .eq("vault_item_id", vaultItemId)
+
+  // Embed in parallel batches of 5 to stay within HuggingFace rate limits
+  const BATCH = 5
+  for (let i = 0; i < chunks.length; i += BATCH) {
+    const batch = chunks.slice(i, i + BATCH)
+
+    await Promise.all(
+      batch.map(async (chunk) => {
+        try {
+          const embedding = await generateEmbedding(chunk.text)
+          const vectorLiteral = `[${embedding.join(",")}]`
+
+          await supabaseAdmin.from("vault_chunks").upsert(
+            {
+              vault_item_id: vaultItemId,
+              founder_id: founderId,
+              chunk_index: chunk.index,
+              chunk_text: chunk.text,
+              embedding: vectorLiteral,
+              token_count: chunk.tokenEstimate,
+            },
+            { onConflict: "vault_item_id,chunk_index" }
+          )
+        } catch (err) {
+          console.error(`[Embed/Chunks] Failed chunk ${chunk.index} for ${vaultItemId}:`, err)
+        }
+      })
+    )
+
+    // Brief pause between batches
+    if (i + BATCH < chunks.length) {
+      await new Promise((r) => setTimeout(r, 200))
+    }
+  }
+
+  console.log(`[Embed/Chunks] ✓ ${chunks.length} chunks stored for ${vaultItemId}`)
 }
 
 // ── Batch embed all pending items for a founder ──────────────────────────────
@@ -148,8 +215,7 @@ export async function embedPendingItems(founderId: string): Promise<number> {
   for (const item of items) {
     await upsertVaultEmbedding(item.id, founderId, item)
     count++
-    // Small delay to avoid rate limits
-    await new Promise((r) => setTimeout(r, 100))
+    await new Promise((r) => setTimeout(r, 150))
   }
 
   return count

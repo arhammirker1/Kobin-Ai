@@ -141,27 +141,27 @@ const DOCUMENT_TYPES = [
 ]
 
 const FOLDER_META: Record<FolderType, { label: string; icon: React.ReactNode; clientVisible: boolean; color: string }> = {
-  root:           { label: "Vault Root",       icon: <FolderOpen size={13} />, clientVisible: false, color: "text-white/30" },
-  project:        { label: "Project",          icon: <FolderOpen size={13} />, clientVisible: false, color: "text-white/30" },
-  internal:       { label: "Internal",         icon: <Lock size={13} />,       clientVisible: false, color: "text-white/30" },
-  client_uploads: { label: "Client Uploads",   icon: <Users size={13} />,      clientVisible: true,  color: "text-blue-400" },
-  deliverables:   { label: "Deliverables",     icon: <Globe size={13} />,      clientVisible: true,  color: "text-violet-400" },
-  custom:         { label: "Folder",           icon: <FolderOpen size={13} />, clientVisible: false, color: "text-white/30" },
+  root: { label: "Vault Root", icon: <FolderOpen size={13} />, clientVisible: false, color: "text-white/30" },
+  project: { label: "Project", icon: <FolderOpen size={13} />, clientVisible: false, color: "text-white/30" },
+  internal: { label: "Internal", icon: <Lock size={13} />, clientVisible: false, color: "text-white/30" },
+  client_uploads: { label: "Client Uploads", icon: <Users size={13} />, clientVisible: true, color: "text-blue-400" },
+  deliverables: { label: "Deliverables", icon: <Globe size={13} />, clientVisible: true, color: "text-violet-400" },
+  custom: { label: "Folder", icon: <FolderOpen size={13} />, clientVisible: false, color: "text-white/30" },
 }
 
 const TYPE_CONFIG: Record<ItemType, { icon: React.ReactNode; badge: string; color: string }> = {
-  file: { icon: <FileText size={14} />, badge: "File",  color: "bg-blue-500/10 text-blue-400 border-blue-500/20" },
-  link: { icon: <Link2 size={14} />,    badge: "Link",  color: "bg-violet-500/10 text-violet-400 border-violet-500/20" },
+  file: { icon: <FileText size={14} />, badge: "File", color: "bg-blue-500/10 text-blue-400 border-blue-500/20" },
+  link: { icon: <Link2 size={14} />, badge: "Link", color: "bg-violet-500/10 text-violet-400 border-violet-500/20" },
   note: { icon: <StickyNote size={14} />, badge: "Note", color: "bg-amber-500/10 text-amber-400 border-amber-500/20" },
 }
 
 const DOC_TYPE_OVERRIDES: Partial<Record<string, { icon: React.ReactNode; badge: string; color: string }>> = {
-  "Code":         { icon: <Code size={14} />,    badge: "Code",     color: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },
-  "Design Asset": { icon: <Image size={14} />,   badge: "Design",   color: "bg-pink-500/10 text-pink-400 border-pink-500/20" },
-  "Spreadsheet":  { icon: <FileIcon size={14} />, badge: "Sheet",   color: "bg-green-500/10 text-green-400 border-green-500/20" },
-  "Presentation": { icon: <FileIcon size={14} />, badge: "Slides",  color: "bg-orange-500/10 text-orange-400 border-orange-500/20" },
-  "Contract":     { icon: <FileText size={14} />, badge: "Contract", color: "bg-red-500/10 text-red-400 border-red-500/20" },
-  "Report":       { icon: <FileText size={14} />, badge: "Report",  color: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20" },
+  "Code": { icon: <Code size={14} />, badge: "Code", color: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },
+  "Design Asset": { icon: <Image size={14} />, badge: "Design", color: "bg-pink-500/10 text-pink-400 border-pink-500/20" },
+  "Spreadsheet": { icon: <FileIcon size={14} />, badge: "Sheet", color: "bg-green-500/10 text-green-400 border-green-500/20" },
+  "Presentation": { icon: <FileIcon size={14} />, badge: "Slides", color: "bg-orange-500/10 text-orange-400 border-orange-500/20" },
+  "Contract": { icon: <FileText size={14} />, badge: "Contract", color: "bg-red-500/10 text-red-400 border-red-500/20" },
+  "Report": { icon: <FileText size={14} />, badge: "Report", color: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20" },
 }
 
 function getTypeConfig(item: { item_type: ItemType; document_type?: string }) {
@@ -173,8 +173,8 @@ function getTypeConfig(item: { item_type: ItemType; document_type?: string }) {
 
 const ADDED_BY_COLOR: Record<AddedByType, string> = {
   founder: "bg-violet-500/10 text-violet-400",
-  team:    "bg-blue-500/10 text-blue-400",
-  client:  "bg-emerald-500/10 text-emerald-400",
+  team: "bg-blue-500/10 text-blue-400",
+  client: "bg-emerald-500/10 text-emerald-400",
 }
 
 // ── Document types that should always open in TipTap (FIX 1) ─────────────────
@@ -308,6 +308,9 @@ export function VaultView() {
   const [aiWriterPrompt, setAiWriterPrompt] = useState("")
   const [aiWriterResponse, setAiWriterResponse] = useState("")
   const [aiWriterLoading, setAiWriterLoading] = useState(false)
+  const [aiWriterSources, setAiWriterSources] = useState<Array<{
+    id: string; title: string; document_type: string; similarity: number; chunk_preview?: string
+  }>>([])
   const noteEditorInsertRef = useRef<((content: string) => void) | null>(null)
 
   // Doc editor
@@ -850,7 +853,9 @@ export function VaultView() {
           if (line.startsWith("data: ")) {
             try {
               const parsed = JSON.parse(line.slice(6))
-              if (parsed.type === "delta") {
+              if (parsed.type === "sources") {
+                setAiWriterSources(parsed.sources || [])
+              } else if (parsed.type === "delta") {
                 setAiWriterResponse((prev) => prev + parsed.content)
               }
             } catch { }
@@ -870,15 +875,14 @@ export function VaultView() {
     if (!aiWriterResponse) return
 
     if (noteEditorInsertRef.current) {
-      // Inject directly into live TipTap editor — preserves cursor position
       noteEditorInsertRef.current("\n\n" + aiWriterResponse)
     } else {
-      // Fallback: update raw docContent (plain text / non-TipTap mode)
       setDocContent((prev) => prev + "\n\n" + aiWriterResponse)
     }
 
     setAiWriterResponse("")
     setAiWriterPrompt("")
+    setAiWriterSources([])
     toast.success("Content inserted into document")
   }
 
@@ -1294,9 +1298,10 @@ export function VaultView() {
                           setPrompt={setAiWriterPrompt}
                           response={aiWriterResponse}
                           loading={aiWriterLoading}
+                          sources={aiWriterSources}
                           onRun={runAIWriter}
                           onInsert={insertAIResponse}
-                          onDiscard={() => { setAiWriterResponse(""); setAiWriterPrompt("") }}
+                          onDiscard={() => { setAiWriterResponse(""); setAiWriterPrompt(""); setAiWriterSources([]) }}
                           onClose={() => setAiWriterOpen(false)}
                         />
                       )}
@@ -1549,8 +1554,8 @@ export function VaultView() {
               <div className="grid grid-cols-3 gap-3">
                 {([
                   { type: "file" as ItemType, label: "File Upload", icon: <Upload size={20} />, color: "text-blue-400" },
-                  { type: "link" as ItemType, label: "Link",        icon: <Link2 size={20} />,  color: "text-emerald-400" },
-                  { type: "note" as ItemType, label: "Note",        icon: <StickyNote size={20} />, color: "text-amber-400" },
+                  { type: "link" as ItemType, label: "Link", icon: <Link2 size={20} />, color: "text-emerald-400" },
+                  { type: "note" as ItemType, label: "Note", icon: <StickyNote size={20} />, color: "text-amber-400" },
                 ]).map(({ type, label, icon, color }) => (
                   <button
                     key={type}
@@ -1810,8 +1815,8 @@ function VaultCard({
 
   const accentGradient =
     item.item_type === "file" ? "bg-gradient-to-r from-blue-500 to-cyan-500" :
-    item.item_type === "link" ? "bg-gradient-to-r from-violet-500 to-purple-500" :
-    "bg-gradient-to-r from-amber-500 to-orange-500"
+      item.item_type === "link" ? "bg-gradient-to-r from-violet-500 to-purple-500" :
+        "bg-gradient-to-r from-amber-500 to-orange-500"
 
   return (
     <div
@@ -1908,7 +1913,7 @@ function DeliverableApprovalStrip({
         {approvalStatus === "changes_requested" && <AlertCircle size={13} className="text-red-400" />}
         <span className={cn("text-[11px] font-semibold",
           approvalStatus === "none" ? "text-white/40" :
-          approvalStatus === "approved" ? "text-emerald-400" : "text-red-400"
+            approvalStatus === "approved" ? "text-emerald-400" : "text-red-400"
         )}>
           {approvalStatus === "none" ? "Awaiting approval" : approvalStatus === "approved" ? "Approved" : "Changes requested"}
         </span>
@@ -1933,9 +1938,10 @@ function DeliverableApprovalStrip({
 // ── AI Writer Panel ──────────────────────────────────────────────────────────
 
 function AIWriterPanel({
-  prompt, setPrompt, response, loading, onRun, onInsert, onDiscard, onClose,
+  prompt, setPrompt, response, loading, sources, onRun, onInsert, onDiscard, onClose,
 }: {
   prompt: string; setPrompt: (v: string) => void; response: string; loading: boolean
+  sources: Array<{ id: string; title: string; document_type: string; similarity: number; chunk_preview?: string }>
   onRun: () => void; onInsert: () => void; onDiscard: () => void; onClose: () => void
 }) {
   return (
@@ -1961,9 +1967,31 @@ function AIWriterPanel({
         )}
         {response && (
           <>
-            <div className="p-2.5 bg-white/3 border border-white/8 rounded-lg text-[10px] text-white/60 leading-relaxed whitespace-pre-wrap">{response}</div>
+            <div className="p-2.5 bg-white/3 border border-white/8 rounded-lg text-[10px] text-white/60 leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto">{response}</div>
+
+            {/* Source attribution */}
+            {sources.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-[8px] font-bold uppercase tracking-widest text-white/20">Sources used</p>
+                {sources.map((src) => (
+                  <div key={src.id} className="flex items-start gap-2 p-1.5 bg-violet-500/5 border border-violet-500/15 rounded-lg">
+                    <div className="w-1.5 h-1.5 rounded-full bg-violet-500/50 mt-1 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-semibold text-violet-300/80 truncate">{src.title}</span>
+                        <span className="text-[8px] text-violet-400/40 shrink-0">{(src.similarity * 100).toFixed(0)}%</span>
+                      </div>
+                      {src.chunk_preview && (
+                        <p className="text-[9px] text-white/25 mt-0.5 line-clamp-2 leading-relaxed">{src.chunk_preview}</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="flex gap-2">
-              <button onClick={onInsert} className="flex-1 py-1.5 bg-violet-500/15 border border-violet-500/30 rounded text-[10px] font-semibold text-violet-400 hover:bg-violet-500/25 transition-colors">Insert</button>
+              <button onClick={onInsert} className="flex-1 py-1.5 bg-violet-500/15 border border-violet-500/30 rounded text-[10px] font-semibold text-violet-400 hover:bg-violet-500/25 transition-colors">Insert into doc</button>
               <button onClick={onDiscard} className="flex-1 py-1.5 bg-white/5 border border-white/8 rounded text-[10px] text-white/40 hover:bg-white/10 transition-colors">Discard</button>
             </div>
           </>
@@ -2125,7 +2153,7 @@ function RightPanel({
   onOpenRelated: (item: VaultItem) => void
 }) {
   const TABS: { key: RightPanelTab; label: string }[] = [
-    { key: "context",  label: "Context" },
+    { key: "context", label: "Context" },
     { key: "approval", label: "Approval" },
     { key: "comments", label: "Comments" },
     { key: "activity", label: "Activity" },
@@ -2168,7 +2196,7 @@ function RightPanel({
                 {item.embedding_status === "embedded"
                   ? <><span className="text-violet-400 font-semibold">Vectorised</span> · pgvector indexed</>
                   : item.embedding_status === "pending" ? "Embedding in progress…"
-                  : "Not yet vectorised"}
+                    : "Not yet vectorised"}
               </span>
             </div>
 
@@ -2263,12 +2291,45 @@ function RightPanel({
               />
             </div>
 
-            {/* File preview in approval tab */}
-            {signedUrl && (
-              <div className="w-full rounded-xl overflow-hidden border border-white/8 bg-white/3" style={{ height: 240 }}>
-                <iframe src={signedUrl} className="w-full h-full border-0" title={item.title} allow="autoplay" />
-              </div>
-            )}
+            {/* File preview — ONLY for types that render inline (PDF, images) */}
+            {(() => {
+              const storagePath = item.storage_path || ""
+              const ext = (storagePath.split(".").pop() || "").toLowerCase()
+              const inlinePreviewable = ["pdf", "jpg", "jpeg", "png", "gif", "webp", "svg", "bmp"].includes(ext)
+
+              if (signedUrl && inlinePreviewable) {
+                return (
+                  <div className="w-full rounded-xl overflow-hidden border border-white/8 bg-white/3" style={{ height: 240 }}>
+                    <iframe src={signedUrl} className="w-full h-full border-0" title={item.title} />
+                  </div>
+                )
+              }
+
+              if (signedUrl) {
+                return (
+                  <div className="p-3 bg-white/3 border border-white/8 rounded-xl flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center text-white/30 text-[10px] font-bold uppercase">
+                      {ext || "?"}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[11px] font-medium text-white/70 truncate">{item.title}</p>
+                      <p className="text-[9px] text-white/30 mt-0.5">Preview not available for this file type</p>
+                    </div>
+                    <a
+
+                      href={signedUrl}
+                      download
+                      onClick={(e) => e.stopPropagation()}
+                      className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 bg-white/5 border border-white/10 rounded-lg text-[10px] text-white/50 hover:text-white/80 transition-colors"
+                    >
+                      <Download size={10} />Download
+                    </a>
+                  </div>
+                )
+              }
+
+              return null
+            })()}
           </div>
         )}
 
