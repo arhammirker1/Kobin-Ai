@@ -31,6 +31,47 @@ import {
 import { createClient } from "@/lib/supabase/client"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
+import dynamic from "next/dynamic"
+
+// Native viewer suite — loaded on demand to keep initial bundle small
+const NoteEditor = dynamic(() => import("@/components/vault/note-editor"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex-1 flex items-center justify-center">
+      <Loader2 size={16} className="animate-spin text-white/30" />
+    </div>
+  ),
+})
+const CodeViewerComponent = dynamic(() => import("@/components/vault/code-viewer"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex-1 flex items-center justify-center">
+      <Loader2 size={16} className="animate-spin text-white/30" />
+    </div>
+  ),
+})
+const SpreadsheetViewerComponent = dynamic(() => import("@/components/vault/spreadsheet-viewer"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex-1 flex items-center justify-center">
+      <Loader2 size={16} className="animate-spin text-white/30" />
+    </div>
+  ),
+})
+const DocxViewerComponent = dynamic(() => import("@/components/vault/docx-viewer"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex-1 flex items-center justify-center">
+      <Loader2 size={16} className="animate-spin text-white/30" />
+    </div>
+  ),
+})
+
+
+
+const DocxViewer = dynamic(() => import("@/components/vault/docx-viewer"), { ssr: false })
+const SpreadsheetViewer = dynamic(() => import("@/components/vault/spreadsheet-viewer"), { ssr: false })
+const CodeViewer = dynamic(() => import("@/components/vault/code-viewer"), { ssr: false })
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -39,7 +80,7 @@ type ItemType = "file" | "link" | "note"
 type AddedByType = "founder" | "team" | "client"
 type EmbedStatus = "pending" | "embedded" | "failed" | "skipped"
 type ApprovalStatus = "pending" | "approved" | "changes_requested" | "none"
-type ViewerType = "doc" | "image" | "pdf" | "code" | "link" | "file" | null
+type ViewerType = "doc" | "image" | "pdf" | "code" | "link" | "file" | "docx" | "spreadsheet" | null
 type RightPanelTab = "context" | "approval" | "comments" | "activity"
 type FilterType = "all" | "file" | "link" | "note"
 
@@ -145,6 +186,13 @@ function getViewerType(item: VaultItem): ViewerType {
   const ext = (item.title || "").toLowerCase().split(".").pop() || ""
   const dt = item.document_type || ""
 
+  // Spreadsheets — native TanStack table viewer
+  const spreadsheetExts = ["xlsx", "xls", "csv", "tsv"]
+  if (spreadsheetExts.includes(ext) || dt === "Spreadsheet") return "spreadsheet"
+
+  // Word docs — native mammoth viewer
+  if (ext === "docx") return "docx"
+
   const imageExts = ["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "avif"]
   const codeExts = ["js", "ts", "tsx", "jsx", "py", "rb", "go", "rs", "java",
     "cpp", "c", "h", "css", "scss", "html", "json", "yaml",
@@ -158,6 +206,44 @@ function getViewerType(item: VaultItem): ViewerType {
 
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+}
+
+// ── Text extraction helper ─────────────────────────────────────────────────────
+
+async function extractTextFromFile(file: File): Promise<string> {
+  const ext = file.name.split(".").pop()?.toLowerCase() || ""
+  const textExts = ["txt", "md", "js", "ts", "tsx", "jsx", "py", "rb", "go",
+    "rs", "java", "cpp", "c", "h", "css", "scss", "html", "json",
+    "yaml", "yml", "sql", "sh", "bash", "env", "toml", "graphql"]
+
+  if (textExts.includes(ext)) {
+    return new Promise((resolve) => {
+      const reader = new FileReader()
+      reader.onload = (e) => resolve(((e.target?.result as string) || "").slice(0, 8000))
+      reader.onerror = () => resolve("")
+      reader.readAsText(file)
+    })
+  }
+
+  if (ext === "docx" || ext === "doc") {
+    try {
+      const mammoth = await import("mammoth") as any
+      const buffer = await file.arrayBuffer()
+      const result = await mammoth.extractRawText({ arrayBuffer: buffer })
+      return (result.value || "").slice(0, 8000)
+    } catch { return "" }
+  }
+
+  if (["xlsx", "xls", "csv", "tsv"].includes(ext)) {
+    try {
+      const XLSX = await import("xlsx")
+      const buffer = await file.arrayBuffer()
+      const wb = XLSX.read(buffer, { type: "buffer" })
+      return wb.SheetNames.map((n) => XLSX.utils.sheet_to_csv(wb.Sheets[n])).join("\n\n").slice(0, 8000)
+    } catch { return "" }
+  }
+
+  return ""
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
@@ -227,18 +313,30 @@ export function VaultView() {
   })
   const [uploadFile, setUploadFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleFileSelect = async (file: File | null) => {
     setUploadFile(file)
+    setExtractedText("")
     if (!file) return
     if (!aiLabelMode) return
     setIsAiLabeling(true)
     try {
+      // Step 1: Extract text from file contents for rich AI understanding
+      const { extractTextFromFile } = await import("@/lib/vault/extraction")
+      const text = await extractTextFromFile(file)
+      setExtractedText(text)
+
+      // Step 2: Send extracted text to AI labeler — gives real content-based labels
       const res = await fetch("/api/vault/ai-label", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filename: file.name, fileType: file.type }),
+        body: JSON.stringify({
+          filename: file.name,
+          fileType: file.type,
+          extracted_text: text || undefined,
+        }),
       })
       if (res.ok) {
         const data = await res.json()
@@ -249,7 +347,9 @@ export function VaultView() {
           document_type: data.document_type || f.document_type,
         }))
       }
-    } catch { }
+    } catch (err) {
+      console.error("[handleFileSelect]", err)
+    }
     setIsAiLabeling(false)
   }
 
@@ -264,6 +364,7 @@ export function VaultView() {
   // AI labeling
   const [aiLabelMode, setAiLabelMode] = useState(true)
   const [isAiLabeling, setIsAiLabeling] = useState(false)
+  const [extractedText, setExtractedText] = useState<string>("")
   const [signedUrl, setSignedUrl] = useState<string | null>(null)
   const [fileContent, setFileContent] = useState<string | null>(null)
   const [fileLoading, setFileLoading] = useState(false)
@@ -469,6 +570,7 @@ export function VaultView() {
     setAddForm({ title: "", description: "", document_type: "Content", link_url: "", note_content: "" })
     setUploadFile(null)
     setAddItemType(null)
+    setExtractedText("")
   }
 
   const handleAddItem = async () => {
@@ -486,10 +588,16 @@ export function VaultView() {
         const formData = new FormData()
         formData.append("file", uploadFile)
         formData.append("folder_id", selectedFolderId)
+        // Pass client-extracted text so server can use it (or extract PDF server-side)
+        if (extractedText) formData.append("extracted_text", extractedText)
         const res = await fetch("/api/vault/upload-internal", { method: "POST", body: formData })
         const json = await res.json()
         if (!res.ok) throw new Error(json.message)
         storagePath = json.storage_path
+        // Server may have extracted PDF text — use it if we don't have client text
+        if (!extractedText && json.extracted_text) {
+          setExtractedText(json.extracted_text)
+        }
       }
 
       const { data: newItem, error } = await supabase.from("vault_items").insert({
@@ -508,6 +616,7 @@ export function VaultView() {
         added_by: userId,
         added_by_type: isFounder ? "founder" : "team",
         embedding_status: "pending",
+        extracted_text: addItemType === "file" ? (extractedText || null) : null,
       }).select().single()
 
       if (error) throw error
@@ -546,10 +655,12 @@ export function VaultView() {
 
   const saveNote = async () => {
     if (!activeItem) return
+    setIsSaving(true)
     const { error } = await supabase
       .from("vault_items")
       .update({ title: docTitle, note_content: docContent })
       .eq("id", activeItem.id)
+    setIsSaving(false)
     if (error) { toast.error("Failed to save"); return }
     toast.success("Saved")
     // Re-embed after edit
@@ -1024,49 +1135,21 @@ export function VaultView() {
 
               {/* Viewer body */}
               <div className="flex-1 flex overflow-hidden">
-                {/* Doc editor */}
+                {/* Doc editor — TipTap (Notion-style) */}
                 {activeViewer === "doc" && (
                   <div className="flex-1 flex overflow-hidden">
-                    <div className="flex-1 flex flex-col overflow-hidden">
-                      {/* Toolbar */}
-                      <div className="px-3 py-2 border-b border-white/5 flex items-center gap-1 bg-[#1a1a18] flex-shrink-0 flex-wrap">
-                        {["B", "I", "U"].map((f) => (
-                          <button key={f} className="w-6 h-6 flex items-center justify-center rounded text-[11px] font-bold text-white/40 hover:text-white hover:bg-white/8 transition-all">{f}</button>
-                        ))}
-                        <div className="w-px h-3 bg-white/10 mx-1" />
-                        {["H1", "H2"].map((h) => (
-                          <button key={h} className="px-1.5 h-6 flex items-center justify-center rounded text-[9px] font-bold text-white/40 hover:text-white hover:bg-white/8 transition-all">{h}</button>
-                        ))}
-                        <div className="w-px h-3 bg-white/10 mx-1" />
-                        {["•", "1.", "☐"].map((t) => (
-                          <button key={t} className="w-6 h-6 flex items-center justify-center rounded text-[11px] text-white/40 hover:text-white hover:bg-white/8 transition-all">{t}</button>
-                        ))}
-                        <div className="w-px h-3 bg-white/10 mx-1" />
-                        <button className="px-2 h-6 flex items-center justify-center rounded text-[9px] font-bold text-violet-400 bg-violet-500/10 border border-violet-500/20 hover:bg-violet-500/20 transition-all">/ kobin</button>
-                      </div>
-                      {/* Editor */}
-                      <div className="flex-1 overflow-y-auto px-12 py-8">
-                        <input
-                          className="w-full bg-transparent text-[22px] font-bold text-white/90 outline-none placeholder:text-white/15 mb-3"
-                          value={docTitle}
-                          onChange={(e) => setDocTitle(e.target.value)}
-                          placeholder="Untitled…"
-                        />
-                        <div className="text-[10px] text-white/20 mb-6">
-                          {activeItem && formatDate(activeItem.created_at)} · {selectedProject?.name}
-                        </div>
-                        <textarea
-                          className="w-full bg-transparent text-[13px] leading-7 text-white/70 outline-none resize-none placeholder:text-white/20 min-h-[400px]"
-                          value={docContent}
-                          onChange={(e) => setDocContent(e.target.value)}
-                          placeholder="Start writing… or press / for AI commands"
-                        />
-                      </div>
-                      <div className="px-4 py-2 border-t border-white/5 bg-[#1a1a18] flex-shrink-0">
-                        <p className="text-[9px] text-white/20">Type <span className="font-mono border border-white/10 rounded px-1">/kobin</span> for AI · <span className="font-mono border border-white/10 rounded px-1">⌘S</span> to save</p>
-                      </div>
-                    </div>
-                    {/* AI Writer panel */}
+                    <NoteEditor
+                      title={docTitle}
+                      content={docContent}
+                      onTitleChange={setDocTitle}
+                      onContentChange={setDocContent}
+                      onSave={saveNote}
+                      isSaving={false}
+                      projectName={selectedProject?.name}
+                      createdAt={activeItem?.created_at}
+                      className="flex-1"
+                      onAIWrite={() => setAiWriterOpen(true)}
+                    />
                     {aiWriterOpen && (
                       <AIWriterPanel
                         prompt={aiWriterPrompt}
@@ -1129,34 +1212,58 @@ export function VaultView() {
                 )}
 
                 {/* ── Code viewer ── */}
+                {/* ── Code viewer — Monaco Editor ── */}
                 {activeViewer === "code" && (
-                  <div className="flex-1 flex flex-col overflow-hidden bg-[#0d0d0c]">
-                    <div className="flex items-center gap-2 px-4 py-2 border-b border-white/5 bg-[#161614] flex-shrink-0">
-                      <Code size={11} className="text-teal-400" />
-                      <span className="text-[11px] font-mono text-white/40">{activeItem?.title}</span>
-                    </div>
-                    <div className="flex-1 overflow-auto">
-                      {fileLoading ? (
-                        <div className="flex items-center justify-center h-32 gap-2">
-                          <Loader2 size={14} className="animate-spin text-white/30" />
-                          <span className="text-[11px] text-white/30">Loading file…</span>
-                        </div>
-                      ) : fileContent !== null ? (
-                        <pre className="p-6 font-mono text-[12px] leading-[1.7] text-white/70 whitespace-pre-wrap break-words">
-                          <code>{fileContent}</code>
-                        </pre>
-                      ) : (
-                        <div className="flex flex-col items-center justify-center h-full gap-4 p-8">
-                          <Code size={32} className="text-white/15" />
-                          <p className="text-[12px] text-white/30">Could not load file content</p>
-                          {signedUrl && (
-                            <a href={signedUrl} download className="flex items-center gap-2 px-4 py-2 bg-white text-black rounded-lg text-[12px] font-semibold hover:bg-white/90 transition-colors">
-                              <Download size={13} />Download
-                            </a>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                  <div className="flex-1 flex flex-col overflow-hidden">
+                    <CodeViewerComponent
+                      content={fileContent}
+                      filename={activeItem?.title || ""}
+                      fileUrl={signedUrl}
+                      readOnly={true}
+                      className="flex-1"
+                    />
+                    {folders.find(f => f.id === activeItem?.folder_id)?.folder_type === "deliverables" && (
+                      <ApprovalStrip status={approvalStatus} onApprove={() => setApprovalStatus("approved")} onRequestChanges={() => setApprovalStatus("changes_requested")} onReset={() => setApprovalStatus("none")} />
+                    )}
+                  </div>
+                )}
+
+                {/* ── DOCX viewer ── */}
+                {activeViewer === "docx" && (
+                  <div className="flex-1 flex flex-col overflow-hidden">
+                    {fileLoading ? (
+                      <div className="flex-1 flex items-center justify-center gap-2">
+                        <Loader2 size={14} className="animate-spin text-white/30" />
+                        <span className="text-[11px] text-white/30">Loading document…</span>
+                      </div>
+                    ) : (
+                      <DocxViewer
+                        fileUrl={signedUrl}
+                        filename={activeItem?.title || "document.docx"}
+                        className="flex-1"
+                      />
+                    )}
+                    {folders.find(f => f.id === activeItem?.folder_id)?.folder_type === "deliverables" && (
+                      <ApprovalStrip status={approvalStatus} onApprove={() => setApprovalStatus("approved")} onRequestChanges={() => setApprovalStatus("changes_requested")} onReset={() => setApprovalStatus("none")} />
+                    )}
+                  </div>
+                )}
+
+                {/* ── Spreadsheet viewer ── */}
+                {activeViewer === "spreadsheet" && (
+                  <div className="flex-1 flex flex-col overflow-hidden">
+                    {fileLoading ? (
+                      <div className="flex-1 flex items-center justify-center gap-2">
+                        <Loader2 size={14} className="animate-spin text-white/30" />
+                        <span className="text-[11px] text-white/30">Loading spreadsheet…</span>
+                      </div>
+                    ) : (
+                      <SpreadsheetViewer
+                        fileUrl={signedUrl}
+                        filename={activeItem?.title || "spreadsheet.xlsx"}
+                        className="flex-1"
+                      />
+                    )}
                     {folders.find(f => f.id === activeItem?.folder_id)?.folder_type === "deliverables" && (
                       <ApprovalStrip status={approvalStatus} onApprove={() => setApprovalStatus("approved")} onRequestChanges={() => setApprovalStatus("changes_requested")} onReset={() => setApprovalStatus("none")} />
                     )}
@@ -1178,6 +1285,34 @@ export function VaultView() {
                       )}
                     </div>
                     {folders.find(f => f.id === activeItem?.folder_id)?.folder_type === "deliverables" && (
+                      <ApprovalStrip status={approvalStatus} onApprove={() => setApprovalStatus("approved")} onRequestChanges={() => setApprovalStatus("changes_requested")} onReset={() => setApprovalStatus("none")} />
+                    )}
+                  </div>
+                )}
+
+                {/* ── DOCX viewer — Mammoth (native Word rendering) ── */}
+                {activeViewer === "docx" && activeItem && (
+                  <div className="flex-1 flex flex-col overflow-hidden">
+                    <DocxViewerComponent
+                      fileUrl={signedUrl}
+                      filename={activeItem.title}
+                      className="flex-1"
+                    />
+                    {folders.find(f => f.id === activeItem.folder_id)?.folder_type === "deliverables" && (
+                      <ApprovalStrip status={approvalStatus} onApprove={() => setApprovalStatus("approved")} onRequestChanges={() => setApprovalStatus("changes_requested")} onReset={() => setApprovalStatus("none")} />
+                    )}
+                  </div>
+                )}
+
+                {/* ── Spreadsheet viewer — XLSX / CSV (native table) ── */}
+                {activeViewer === "spreadsheet" && activeItem && (
+                  <div className="flex-1 flex flex-col overflow-hidden">
+                    <SpreadsheetViewerComponent
+                      fileUrl={signedUrl}
+                      filename={activeItem.title}
+                      className="flex-1"
+                    />
+                    {folders.find(f => f.id === activeItem.folder_id)?.folder_type === "deliverables" && (
                       <ApprovalStrip status={approvalStatus} onApprove={() => setApprovalStatus("approved")} onRequestChanges={() => setApprovalStatus("changes_requested")} onReset={() => setApprovalStatus("none")} />
                     )}
                   </div>

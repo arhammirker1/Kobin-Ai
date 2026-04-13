@@ -56,7 +56,7 @@ export async function POST(request: Request) {
     // Fetch item to build embedding text
     const { data: item } = await supabaseAdmin
       .from("vault_items")
-      .select("id, title, description, note_content, link_url, document_type, item_type")
+      .select("id, title, description, note_content, link_url, document_type, item_type, extracted_text")
       .eq("id", vault_item_id)
       .eq("founder_id", founderId)
       .single()

@@ -51,6 +51,7 @@ export function buildEmbeddingText(item: {
   link_url?: string | null
   document_type?: string | null
   item_type?: string | null
+  extracted_text?: string | null
 }): string {
   const parts: string[] = []
 
@@ -59,8 +60,12 @@ export function buildEmbeddingText(item: {
   if (item.document_type) parts.push(`Type: ${item.document_type}`)
   if (item.item_type)     parts.push(`Format: ${item.item_type}`)
   if (item.description)   parts.push(`Description: ${item.description}`)
-  if (item.note_content)  parts.push(`Content: ${item.note_content}`)
+  if (item.note_content)  parts.push(`Content: ${item.note_content?.slice(0, 4000)}`)
   if (item.link_url)      parts.push(`URL: ${item.link_url}`)
+  // Full document content — makes semantic search NotebookLM-level
+  if (item.extracted_text) {
+    parts.push(`\nDocument Content:\n${item.extracted_text.slice(0, 6000)}`)
+  }
 
   return parts.join("\n")
 }
@@ -132,7 +137,7 @@ export async function upsertVaultEmbedding(
 export async function embedPendingItems(founderId: string): Promise<number> {
   const { data: items } = await supabaseAdmin
     .from("vault_items")
-    .select("id, title, description, note_content, link_url, document_type, item_type")
+    .select("id, title, description, note_content, link_url, document_type, item_type, extracted_text")
     .eq("founder_id", founderId)
     .eq("embedding_status", "pending")
     .limit(50)

@@ -62,7 +62,7 @@ export default function CodeViewer({
     readOnly = true,
     className,
 }: CodeViewerProps) {
-    const { resolvedTheme } = useTheme()
+    const { resolvedTheme = "dark" } = useTheme()
     const [monacoLoaded, setMonacoLoaded] = useState(false)
     const [loadError, setLoadError] = useState(false)
     const [copied, setCopied] = useState(false)
