@@ -1,0 +1,707 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --bg:#161614;--bg2:#1C1C1A;--bg3:#222220;--bg4:#2A2A28;
+  --border:#333331;--border2:#3A3A38;
+  --fg:#F0EFEC;--fg2:#B8B6B0;--fg3:#6B6A65;--fg4:#3E3E3C;
+  --violet:#5B4FE8;--violet2:#7C3AED;--vbg:rgba(91,79,232,0.12);--vbdr:rgba(91,79,232,0.3);
+  --emerald:#3DD68C;--ebg:rgba(61,214,140,0.1);
+  --amber:#F5A623;--abg:rgba(245,166,35,0.1);
+  --red:#E5534B;--rbg:rgba(229,83,75,0.1);
+  --blue:#54B8F5;--bbg:rgba(84,184,245,0.1);
+  --pink:#EC4899;--pbg:rgba(236,72,153,0.1);
+  --teal:#14B8A6;--tbg:rgba(20,184,166,0.1);
+}
+body{font-family:'Geist',-apple-system,sans-serif;background:var(--bg);color:var(--fg);font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;height:600px;overflow:hidden;}
+::-webkit-scrollbar{width:3px;height:3px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
+svg{display:block;}
+button{font-family:inherit;cursor:pointer;}
+
+.shell{display:flex;width:100%;height:600px;overflow:hidden;background:var(--bg);}
+
+/* PICKER BAR */
+.picker{width:200px;flex-shrink:0;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
+.picker-hd{padding:12px 12px 8px;border-bottom:1px solid var(--border);}
+.picker-logo{display:flex;align-items:center;gap:7px;margin-bottom:10px;}
+.logo-box{width:24px;height:24px;background:linear-gradient(135deg,var(--violet),var(--violet2));border-radius:6px;display:flex;align-items:center;justify-content:center;}
+.logo-box svg{width:11px;height:11px;}
+.picker-title{font-size:11px;font-weight:600;color:var(--fg3);letter-spacing:.08em;text-transform:uppercase;}
+.picker-sub{font-size:10px;color:var(--fg4);margin-top:2px;}
+.picker-list{flex:1;overflow-y:auto;padding:6px;}
+.picker-sec{font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--fg4);padding:8px 6px 3px;}
+.pitem{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:6px;cursor:pointer;transition:all .15s;color:var(--fg2);font-size:12px;border:none;background:none;width:100%;text-align:left;}
+.pitem:hover{background:var(--bg3);color:var(--fg);}
+.pitem.active{background:var(--vbg);color:var(--violet);}
+.pitem-ic{width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.pitem-ic svg{width:12px;height:12px;}
+.pitem-info{flex:1;min-width:0;}
+.pitem-name{font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pitem-meta{font-size:10px;color:var(--fg3);}
+.pitem.active .pitem-meta{color:var(--violet);opacity:.7;}
+.picker-foot{padding:10px;border-top:1px solid var(--border);}
+.ai-strip-sm{display:flex;align-items:center;gap:6px;padding:7px 8px;background:var(--vbg);border:1px solid var(--vbdr);border-radius:6px;}
+.ai-strip-sm svg{width:10px;height:10px;color:var(--violet);flex-shrink:0;}
+.ai-strip-sm span{font-size:10px;color:var(--fg3);}
+.ai-strip-sm strong{color:var(--violet);font-weight:500;}
+
+/* VIEWER AREA */
+.viewer-area{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+
+/* TOP BAR */
+.vhd{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;}
+.vhd-info{flex:1;min-width:0;}
+.vhd-title{font-size:13px;font-weight:600;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.vhd-meta{font-size:10px;color:var(--fg3);margin-top:1px;}
+.vhd-acts{display:flex;gap:5px;flex-shrink:0;}
+.vbtn{display:flex;align-items:center;gap:4px;padding:5px 9px;border-radius:6px;font-size:11px;font-weight:500;cursor:pointer;transition:all .15s;border:none;font-family:inherit;}
+.vbtn-p{background:var(--fg);color:var(--bg);}
+.vbtn-p:hover{background:#d4d2ce;}
+.vbtn-g{background:transparent;color:var(--fg2);border:1px solid var(--border);}
+.vbtn-g:hover{background:var(--bg3);color:var(--fg);}
+.vbtn-v{background:var(--vbg);color:var(--violet);border:1px solid var(--vbdr);}
+.vbtn-v:hover{background:rgba(91,79,232,.2);}
+.vbtn svg{width:11px;height:11px;}
+.vtabs{display:flex;padding:0 14px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;}
+.vtab{padding:7px 10px;font-size:11px;font-weight:500;cursor:pointer;color:var(--fg3);border-bottom:2px solid transparent;border-top:none;border-left:none;border-right:none;background:none;font-family:inherit;transition:all .15s;margin-bottom:-1px;}
+.vtab:hover{color:var(--fg2);}
+.vtab.active{color:var(--violet);border-bottom-color:var(--violet);}
+
+/* PANELS */
+.panel{flex:1;overflow:hidden;display:none;}
+.panel.show{display:flex;flex-direction:column;}
+
+/* ── DOC EDITOR ── */
+.ed-toolbar{display:flex;align-items:center;gap:1px;padding:5px 8px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;flex-wrap:wrap;}
+.tbb{width:22px;height:22px;display:flex;align-items:center;justify-content:center;border-radius:4px;cursor:pointer;transition:all .15s;color:var(--fg3);background:none;border:none;font-size:10px;font-weight:700;font-family:inherit;}
+.tbb:hover{background:var(--bg3);color:var(--fg);}
+.tbb.on{background:var(--bg4);color:var(--fg);}
+.tsep{width:1px;height:12px;background:var(--border);margin:0 3px;}
+.slash-btn{padding:0 7px;height:22px;background:var(--vbg);color:var(--violet);border:1px solid var(--vbdr);border-radius:4px;font-size:10px;font-weight:600;font-family:inherit;cursor:pointer;}
+.ed-body{flex:1;overflow-y:auto;padding:28px 36px;background:var(--bg);}
+.ed-h1{font-size:22px;font-weight:700;color:var(--fg);margin-bottom:4px;}
+.ed-meta2{font-size:10px;color:var(--fg3);margin-bottom:20px;display:flex;gap:8px;}
+.ed-h2{font-size:16px;font-weight:600;color:var(--fg);margin:16px 0 6px;}
+.ed-h3{font-size:13px;font-weight:600;color:var(--fg2);margin:12px 0 4px;}
+.ed-p{font-size:13px;color:var(--fg2);line-height:1.7;margin-bottom:10px;}
+.todo-row{display:flex;align-items:flex-start;gap:7px;margin-bottom:5px;}
+.tcb{width:13px;height:13px;border:1.5px solid var(--border2);border-radius:3px;flex-shrink:0;margin-top:3px;display:flex;align-items:center;justify-content:center;cursor:pointer;}
+.tcb.chk{background:var(--violet);border-color:var(--violet);}
+.tcb.chk::after{content:'✓';font-size:8px;color:white;font-weight:700;}
+.todo-txt{font-size:12px;color:var(--fg2);}
+.todo-txt.done{text-decoration:line-through;color:var(--fg4);}
+.callout{display:flex;align-items:flex-start;gap:7px;padding:9px 11px;background:var(--vbg);border:1px solid var(--vbdr);border-radius:6px;margin:10px 0;}
+.callout-icon{font-size:13px;flex-shrink:0;}
+.callout-text{font-size:12px;color:var(--fg2);line-height:1.5;}
+.bq{border-left:3px solid var(--violet);padding-left:12px;color:var(--fg3);font-style:italic;font-size:12px;margin:10px 0;}
+pre.code-block{background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:12px;margin:10px 0;overflow-x:auto;}
+pre.code-block code{font-family:'Geist Mono','Courier New',monospace;font-size:11px;color:var(--fg2);}
+.kw{color:#C792EA;}.fn{color:#82AAFF;}.str{color:#C3E88D;}.cm3{color:#546E7A;font-style:italic;}.num2{color:#F78C6C;}
+.ed-hint{font-size:10px;color:var(--fg4);padding:6px 36px;border-top:1px solid var(--border);background:var(--bg2);flex-shrink:0;}
+.ed-hint kbd{padding:1px 4px;background:var(--bg3);border:1px solid var(--border);border-radius:3px;font-size:9px;color:var(--fg3);font-family:monospace;}
+.ai-sug{display:flex;align-items:flex-start;gap:6px;padding:8px 10px;background:var(--vbg);border:1px solid var(--vbdr);border-radius:6px;margin-bottom:8px;}
+.ai-sug-dot{width:14px;height:14px;background:linear-gradient(135deg,var(--violet),var(--violet2));border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;}
+.ai-sug-dot svg{width:8px;height:8px;}
+.ai-sug-txt{font-size:11px;color:var(--fg2);line-height:1.4;}
+.ai-sug-txt strong{color:var(--violet);font-weight:500;}
+.ai-sug-actions{display:flex;gap:5px;margin-top:6px;}
+.ai-act{padding:3px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;font-size:10px;color:var(--fg2);cursor:pointer;font-family:inherit;}
+.ai-act.p{background:var(--vbg);color:var(--violet);border-color:var(--vbdr);}
+.ai-act:hover{background:var(--bg4);}
+
+/* ── IMAGE VIEWER ── */
+.img-panel{flex:1;display:flex;overflow:hidden;}
+.img-grid-area{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;align-items:center;}
+.img-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;max-width:580px;width:100%;}
+.img-cell{aspect-ratio:1;border-radius:7px;cursor:pointer;transition:all .15s;border:2px solid transparent;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:white;}
+.img-cell:hover{transform:scale(1.02);}
+.img-cell.sel{border-color:var(--violet);}
+.img-sel-preview{max-width:580px;width:100%;margin-top:10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;display:flex;align-items:center;gap:10px;}
+.img-sel-thumb{width:60px;height:60px;border-radius:6px;flex-shrink:0;}
+.img-sel-info{flex:1;}
+.img-sel-title{font-size:12px;font-weight:600;color:var(--fg);}
+.img-sel-sub{font-size:10px;color:var(--fg3);margin-top:2px;}
+.img-tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:5px;}
+.itag{padding:2px 6px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;font-size:10px;color:var(--fg3);}
+.img-ai-panel{width:230px;border-left:1px solid var(--border);padding:12px;overflow-y:auto;background:var(--bg2);}
+.iap-h{font-size:10px;font-weight:700;color:var(--fg);margin-bottom:8px;display:flex;align-items:center;gap:5px;}
+.iap-h svg{width:11px;height:11px;color:var(--violet);}
+.iap-sec{font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--fg4);margin-bottom:4px;margin-top:8px;}
+.iap-result{padding:7px 9px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:11px;color:var(--fg2);line-height:1.5;margin-bottom:4px;}
+.iap-input-row{display:flex;gap:4px;margin-top:8px;}
+.iap-input{flex:1;padding:5px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;font-size:11px;color:var(--fg);font-family:inherit;outline:none;}
+.iap-input:focus{border-color:var(--vbdr);}
+.iap-input::placeholder{color:var(--fg4);}
+.iap-send{width:24px;height:24px;background:var(--violet);border:none;border-radius:5px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;}
+.iap-send:hover{background:var(--violet2);}
+.iap-send svg{width:10px;height:10px;color:white;}
+.ai-resp-box{padding:8px;background:var(--vbg);border:1px solid var(--vbdr);border-radius:6px;font-size:11px;color:var(--fg2);line-height:1.5;margin-top:6px;display:none;}
+.ai-resp-box.show{display:block;}
+.ai-typing{display:flex;gap:3px;align-items:center;}
+.ai-dot{width:5px;height:5px;border-radius:50%;background:var(--violet);animation:pulse 1s ease infinite;}
+.ai-dot:nth-child(2){animation-delay:.2s;}
+.ai-dot:nth-child(3){animation-delay:.4s;}
+
+/* ── PDF VIEWER ── */
+.pdf-panel{flex:1;display:flex;overflow:hidden;}
+.pdf-main{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.pdf-toolbar{display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;}
+.ptb-btn{display:flex;align-items:center;gap:4px;padding:4px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;font-size:11px;color:var(--fg2);cursor:pointer;font-family:inherit;}
+.ptb-btn:hover{background:var(--bg4);color:var(--fg);}
+.ptb-btn svg{width:10px;height:10px;}
+.pdf-pg-info{font-size:11px;color:var(--fg3);flex:1;text-align:center;}
+.pdf-pages{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;align-items:center;gap:10px;background:var(--bg);}
+.pdf-page{width:100%;max-width:520px;background:white;border-radius:6px;padding:30px 36px;color:#1a1a1a;line-height:1.7;box-shadow:0 2px 12px rgba(0,0,0,.5);}
+.pdf-page h1{font-size:18px;font-weight:700;margin-bottom:6px;border-bottom:2px solid #e0e0e0;padding-bottom:6px;}
+.pdf-page h2{font-size:14px;font-weight:600;margin:14px 0 5px;}
+.pdf-page p{font-size:12px;margin-bottom:8px;color:#333;}
+.pdf-page .hl{background:rgba(91,79,232,.15);padding:1px 3px;border-radius:2px;}
+.pdf-page .metric{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;background:#f3f3f0;border-radius:4px;font-size:11px;font-weight:600;margin:2px;}
+.pdf-ai{width:220px;border-left:1px solid var(--border);padding:12px;overflow-y:auto;background:var(--bg2);}
+
+/* ── CODE EDITOR ── */
+.code-panel{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.code-toolbar{display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;}
+.ce-lang{padding:3px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;font-size:11px;color:var(--fg2);font-family:inherit;outline:none;}
+.ce-run{display:flex;align-items:center;gap:4px;padding:4px 10px;background:var(--ebg);border:1px solid rgba(61,214,140,.3);border-radius:5px;font-size:11px;font-weight:600;color:var(--emerald);cursor:pointer;font-family:inherit;}
+.ce-run:hover{background:rgba(61,214,140,.2);}
+.ce-run svg{width:10px;height:10px;}
+.ce-body{flex:1;display:flex;overflow:hidden;}
+.ce-nums{width:36px;padding:12px 0;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0;overflow:hidden;}
+.ce-num{font-size:11px;font-family:'Geist Mono',monospace;color:var(--fg4);padding:0 8px;line-height:1.6;}
+.ce-code{flex:1;padding:12px;overflow:auto;font-family:'Geist Mono','Courier New',monospace;font-size:11.5px;line-height:1.6;color:var(--fg2);outline:none;background:var(--bg);}
+.ce-out{height:120px;border-top:1px solid var(--border);background:var(--bg2);flex-shrink:0;display:flex;flex-direction:column;}
+.ce-out-hd{display:flex;align-items:center;gap:5px;padding:5px 10px;border-bottom:1px solid var(--border);font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--fg4);}
+.ce-out-hd svg{width:10px;height:10px;}
+.ce-out-body{flex:1;overflow-y:auto;padding:7px 10px;font-family:'Geist Mono',monospace;font-size:11px;color:var(--fg2);}
+.ce-run-btn-active{animation:none;}
+.run-anim{animation:runpulse .5s ease;}
+@keyframes runpulse{0%,100%{transform:scale(1)}50%{transform:scale(.95)}}
+
+/* ── APPROVAL PANEL ── */
+.appr-section{padding:12px;background:var(--bg2);border-radius:8px;border:1px solid var(--border);margin-bottom:12px;}
+.appr-status-bar{display:flex;align-items:center;gap:7px;padding:8px 10px;background:var(--abg);border:1px solid rgba(245,166,35,.2);border-radius:6px;margin-bottom:10px;}
+.appr-status-bar svg{width:13px;height:13px;color:var(--amber);}
+.appr-status-bar span{font-size:11px;color:var(--fg2);}
+.appr-status-bar strong{color:var(--amber);}
+.appr-btns{display:flex;gap:6px;margin-bottom:8px;}
+.appr-ok{flex:1;padding:7px;background:var(--ebg);border:1px solid rgba(61,214,140,.3);border-radius:6px;font-size:11px;font-weight:600;color:var(--emerald);cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:4px;}
+.appr-ok:hover{background:rgba(61,214,140,.2);}
+.appr-ok svg{width:11px;height:11px;}
+.appr-rej{flex:1;padding:7px;background:var(--rbg);border:1px solid rgba(229,83,75,.3);border-radius:6px;font-size:11px;font-weight:600;color:var(--red);cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:4px;}
+.appr-rej:hover{background:rgba(229,83,75,.2);}
+.appr-rej svg{width:11px;height:11px;}
+.appr-ta{width:100%;padding:6px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;font-size:11px;color:var(--fg);font-family:inherit;outline:none;resize:none;}
+.appr-ta:focus{border-color:var(--vbdr);}
+.appr-ta::placeholder{color:var(--fg4);}
+.appr-approved-state{display:flex;align-items:center;gap:7px;padding:8px 10px;background:var(--ebg);border:1px solid rgba(61,214,140,.2);border-radius:6px;}
+.appr-approved-state svg{width:13px;height:13px;color:var(--emerald);}
+.appr-approved-state span{font-size:11px;color:var(--fg2);}
+.appr-approved-state strong{color:var(--emerald);}
+
+.emb-strip{display:flex;align-items:center;gap:5px;padding:5px 8px;background:var(--ebg);border:1px solid rgba(61,214,140,.15);border-radius:5px;margin-bottom:10px;}
+.emb-strip svg{width:10px;height:10px;color:var(--emerald);}
+.emb-strip span{font-size:10px;color:var(--fg3);}
+.emb-strip strong{color:var(--emerald);font-weight:500;}
+.emb-pulse{animation:pulse 2s ease infinite;}
+
+/* CONTEXT IN PDF/IMG */
+.ctx-item{display:flex;align-items:center;gap:6px;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;margin-bottom:4px;cursor:pointer;transition:all .15s;}
+.ctx-item:hover{background:var(--bg3);}
+.ctx-item-ic{width:24px;height:24px;border-radius:5px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.ctx-item-ic svg{width:11px;height:11px;}
+.ctx-item-info{flex:1;min-width:0;}
+.ctx-item-title{font-size:11px;font-weight:500;color:var(--fg);}
+.ctx-item-sub{font-size:10px;color:var(--fg3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ctx-badge{font-size:9px;font-weight:600;padding:2px 5px;border-radius:3px;}
+
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+.fadeIn{animation:fadeIn .2s ease both;}
+</style>
+
+<div class="shell">
+<!-- PICKER -->
+<div class="picker">
+  <div class="picker-hd">
+    <div class="picker-logo">
+      <div class="logo-box"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div>
+      <div>
+        <div style="font-size:12px;font-weight:600;color:var(--fg);">Kobin Vault</div>
+        <div style="font-size:10px;color:var(--fg3);">File viewer demo</div>
+      </div>
+    </div>
+    <div class="picker-title">Open a file</div>
+    <div class="picker-sub">Click any file below to preview</div>
+  </div>
+  <div class="picker-list">
+    <div class="picker-sec">Documents</div>
+    <button class="pitem active" onclick="openFile('doc',this)">
+      <div class="pitem-ic" style="background:var(--vbg);color:var(--violet);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div>
+      <div class="pitem-info"><div class="pitem-name">Kickoff Notes</div><div class="pitem-meta">Note · Apr 3</div></div>
+    </button>
+    <button class="pitem" onclick="openFile('pdf',this)">
+      <div class="pitem-ic" style="background:var(--rbg);color:var(--red);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
+      <div class="pitem-info"><div class="pitem-name">Q1 Report</div><div class="pitem-meta">PDF · 12 pages</div></div>
+    </button>
+    <div class="picker-sec">Media</div>
+    <button class="pitem" onclick="openFile('img',this)">
+      <div class="pitem-ic" style="background:var(--pbg);color:var(--pink);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></div>
+      <div class="pitem-info"><div class="pitem-name">Brand Photos</div><div class="pitem-meta">Image · 15 files</div></div>
+    </button>
+    <div class="picker-sec">Code</div>
+    <button class="pitem" onclick="openFile('code',this)">
+      <div class="pitem-ic" style="background:var(--tbg);color:var(--teal);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></div>
+      <div class="pitem-info"><div class="pitem-name">Webhook Handler</div><div class="pitem-meta">TypeScript · 84 lines</div></div>
+    </button>
+    <div class="picker-sec" style="margin-top:6px;">Approvals</div>
+    <button class="pitem" onclick="openFile('appr',this)">
+      <div class="pitem-ic" style="background:var(--abg);color:var(--amber);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+      <div class="pitem-info"><div class="pitem-name">Insta Pack</div><div class="pitem-meta">⏳ Awaiting approval</div></div>
+    </button>
+  </div>
+  <div class="picker-foot">
+    <div class="ai-strip-sm">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+      <span><strong>5 items</strong> indexed in AI memory</span>
+    </div>
+  </div>
+</div>
+
+<!-- VIEWER -->
+<div class="viewer-area">
+  <!-- TOPBAR — updated per file -->
+  <div class="vhd" id="vhd">
+    <div class="vhd-info">
+      <div class="vhd-title" id="vhd-title">Project Kickoff Notes — Kobin v2</div>
+      <div class="vhd-meta" id="vhd-meta">Kobin / Notes · Edited 2 min ago · Auto-saved</div>
+    </div>
+    <div class="vhd-acts" id="vhd-acts">
+      <button class="vbtn vbtn-v" id="ai-btn" onclick="toggleAIBar()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>Kobin AI</button>
+      <button class="vbtn vbtn-g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>Share</button>
+      <button class="vbtn vbtn-p" id="primary-btn">Send for Approval</button>
+    </div>
+  </div>
+  <!-- AI BAR -->
+  <div id="ai-bar" style="display:none;padding:8px 14px;background:var(--vbg);border-bottom:1px solid var(--vbdr);flex-shrink:0;display:none;">
+    <div style="display:flex;align-items:center;gap:8px;">
+      <div style="width:18px;height:18px;background:linear-gradient(135deg,var(--violet),var(--violet2));border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div>
+      <input id="ai-input" style="flex:1;background:transparent;border:none;outline:none;font-size:12px;color:var(--fg);font-family:inherit;" placeholder="Ask Kobin AI about this file…"/>
+      <button onclick="sendAI()" style="padding:4px 10px;background:var(--violet);border:none;border-radius:5px;font-size:11px;font-weight:600;color:white;cursor:pointer;font-family:inherit;">Ask</button>
+      <button onclick="toggleAIBar()" style="background:none;border:none;color:var(--fg3);cursor:pointer;padding:2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div id="ai-response" style="display:none;margin-top:7px;font-size:11px;color:var(--fg2);line-height:1.5;padding:7px 9px;background:rgba(0,0,0,.2);border-radius:5px;border-left:2px solid var(--violet);"></div>
+  </div>
+  <!-- TABS -->
+  <div class="vtabs" id="vtabs">
+    <button class="vtab active" onclick="switchVTab(this,'main')">View</button>
+    <button class="vtab" onclick="switchVTab(this,'ctx')">Context</button>
+  </div>
+
+  <!-- DOC PANEL -->
+  <div class="panel show" id="panel-doc">
+    <div class="ed-toolbar">
+      <button class="tbb" id="b-btn" onclick="toggleTool('b-btn')"><b>B</b></button>
+      <button class="tbb" id="i-btn" onclick="toggleTool('i-btn')"><i>I</i></button>
+      <button class="tbb" id="u-btn" onclick="toggleTool('u-btn')"><u>U</u></button>
+      <div class="tsep"></div>
+      <button class="tbb" style="font-size:9px;">H1</button>
+      <button class="tbb" style="font-size:9px;">H2</button>
+      <button class="tbb" style="font-size:9px;">H3</button>
+      <div class="tsep"></div>
+      <button class="tbb">•</button>
+      <button class="tbb">1.</button>
+      <button class="tbb">☐</button>
+      <div class="tsep"></div>
+      <button class="tbb">💬</button>
+      <button class="tbb">&lt;/&gt;</button>
+      <div class="tsep"></div>
+      <button class="slash-btn" onclick="toggleSlash()">/kobin</button>
+      <!-- SLASH POPUP -->
+      <div id="slash-popup" style="display:none;position:absolute;top:42px;left:50%;transform:translateX(-50%);background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:4px;box-shadow:0 8px 32px rgba(0,0,0,.7);z-index:50;min-width:210px;">
+        <div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--fg4);padding:5px 8px 3px;">/kobin commands</div>
+        <div class="slash-item2" onclick="slashAction('ai')"><div style="width:22px;height:22px;border-radius:4px;background:var(--vbg);color:var(--violet);display:flex;align-items:center;justify-content:center;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div><div><div style="font-size:11px;font-weight:500;color:var(--fg);">Write with AI</div><div style="font-size:10px;color:var(--fg3);">Generate or continue text</div></div></div>
+        <div class="slash-item2" onclick="slashAction('task')"><div style="width:22px;height:22px;border-radius:4px;background:var(--bbg);color:var(--blue);display:flex;align-items:center;justify-content:center;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></div><div><div style="font-size:11px;font-weight:500;color:var(--fg);">Create task</div><div style="font-size:10px;color:var(--fg3);">Add to project task list</div></div></div>
+        <div class="slash-item2" onclick="slashAction('appr')"><div style="width:22px;height:22px;border-radius:4px;background:var(--ebg);color:var(--emerald);display:flex;align-items:center;justify-content:center;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><div><div style="font-size:11px;font-weight:500;color:var(--fg);">Request approval</div><div style="font-size:10px;color:var(--fg3);">Send to client for sign-off</div></div></div>
+      </div>
+    </div>
+    <div class="ed-body" id="ed-body" style="position:relative;">
+      <div id="ai-insert-bar" style="display:none;margin-bottom:12px;" class="fadeIn">
+        <div class="ai-sug"><div class="ai-sug-dot"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div><div class="ai-sug-txt"><strong>Kobin AI suggestion</strong> — Based on your linked tasks, here's an expanded timeline for Phase 1 (Apr 14–20): TipTap editor integration, file viewers for PDF and images, Llama 4 Scout vision analysis for uploads. 3 tasks unassigned.<div class="ai-sug-actions"><button class="ai-act p" onclick="insertAI()">Insert into doc</button><button class="ai-act">Regenerate</button><button class="ai-act" onclick="dismissAI()">Discard</button></div></div></div>
+      </div>
+      <div class="ed-h1">Project Kickoff Notes — Kobin v2</div>
+      <div class="ed-meta2"><span>Arham Mirkar</span><span>·</span><span>Apr 3, 2025</span><span>·</span><span>Kobin / Notes</span></div>
+      <div class="ed-h2">Goals</div>
+      <div class="ed-p">Deliver the AI Vault as a complete replacement for Notion. The Vault should be the agency's second brain — every deliverable, note, SOP indexed and queryable via AI.</div>
+      <div class="todo-row"><div class="tcb chk"></div><span class="todo-txt done">Define full Vault feature scope</span></div>
+      <div class="todo-row"><div class="tcb chk"></div><span class="todo-txt done">Design system audit before build</span></div>
+      <div class="todo-row"><div class="tcb" id="todo3"></div><span class="todo-txt" id="todo3-txt">Launch AI Vault by Apr 20</span></div>
+      <div class="todo-row"><div class="tcb" id="todo4"></div><span class="todo-txt" id="todo4-txt">Set up pgvector in Supabase</span></div>
+      <div class="ed-h2">Timeline</div>
+      <div class="ed-p">Phase 1 (Apr 14–20): Core Vault UI, TipTap editor, file viewers. Phase 2 (Apr 21–28): pgvector embeddings + semantic search. Phase 3 (May+): Client approval flow + AI writer.</div>
+      <div class="ed-h3">Open questions</div>
+      <div class="callout"><span class="callout-icon">💡</span><span class="callout-text">Use Supabase pgvector or Pinecone? Leaning pgvector to keep infra simple. Need to confirm embedding model — text-embedding-3-small vs nomic-embed-text.</span></div>
+      <div class="bq">"The vault should know more about the agency than the founder does." — core design principle</div>
+      <div class="ed-h3">Tech stack</div>
+      <pre class="code-block"><code><span class="kw">const</span> embed = <span class="kw">await</span> openai.embeddings.<span class="fn">create</span>({
+  <span class="fn">model</span>: <span class="str">"text-embedding-3-small"</span>,
+  <span class="fn">input</span>: document.content,
+});
+<span class="kw">await</span> supabase.<span class="fn">from</span>(<span class="str">"vault_embeddings"</span>).<span class="fn">insert</span>({
+  vault_item_id: item.id,
+  embedding: embed.data[<span class="num2">0</span>].embedding,
+});</span></code></pre>
+    </div>
+    <div class="ed-hint">Type <kbd>/kobin</kbd> for AI commands · <kbd>⌘S</kbd> to save · Click todos to toggle</div>
+  </div>
+
+  <!-- IMG PANEL -->
+  <div class="panel" id="panel-img">
+    <div class="img-panel">
+      <div class="img-grid-area">
+        <div class="img-grid" id="img-grid"></div>
+        <div class="img-sel-preview fadeIn" id="img-preview" style="display:none;">
+          <div class="img-sel-thumb" id="img-prev-thumb"></div>
+          <div class="img-sel-info">
+            <div class="img-sel-title" id="img-prev-title">Product Photo 1</div>
+            <div class="img-sel-sub">High-res · Studio · 3200×3200px</div>
+            <div class="img-tags"><span class="itag">campaign-ready</span><span class="itag">white bg</span><span class="itag">product</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="img-ai-panel">
+        <div class="iap-h"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>Vision AI</div>
+        <div class="emb-strip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg><span class="emb-pulse"><strong>Analysed</strong> via Llama 4 Scout</span></div>
+        <div class="iap-sec">Auto-description</div>
+        <div class="iap-result">15 professional product photos. Clean studio backgrounds. Tech/SaaS brand aesthetic. Dominant: white, navy, violet. High resolution, campaign-ready.</div>
+        <div class="iap-sec">Detected tags</div>
+        <div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:4px;"><span class="itag">product photography</span><span class="itag">studio</span><span class="itag">white bg</span><span class="itag">tech brand</span><span class="itag">high-res</span></div>
+        <div class="iap-sec">Ask AI</div>
+        <div class="iap-input-row"><input class="iap-input" id="img-ai-inp" placeholder="Which suits frame 3?"/><button class="iap-send" onclick="sendImgAI()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button></div>
+        <div class="ai-resp-box" id="img-ai-resp"><div class="ai-typing"><div class="ai-dot"></div><div class="ai-dot"></div><div class="ai-dot"></div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PDF PANEL -->
+  <div class="panel" id="panel-pdf">
+    <div class="pdf-panel">
+      <div class="pdf-main">
+        <div class="pdf-toolbar">
+          <button class="ptb-btn" onclick="changePDFPage(-1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>Prev</button>
+          <button class="ptb-btn" onclick="changePDFPage(1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>Next</button>
+          <span class="pdf-pg-info" id="pdf-pg">Page 1 of 3</span>
+          <button class="ptb-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>Zoom</button>
+        </div>
+        <div class="pdf-pages" id="pdf-pages"></div>
+      </div>
+      <div class="pdf-ai">
+        <div class="iap-h"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>AI Highlights</div>
+        <div class="emb-strip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg><span class="emb-pulse"><strong>Vectorised</strong> · pgvector</span></div>
+        <div class="iap-sec">Key insights</div>
+        <div class="iap-result">• Reach +142% YoY — top campaign<br/>• Instagram: 64% of total reach<br/>• LinkedIn +87% QoQ on B2B<br/>• AI Layer = 38% of impressions</div>
+        <div class="ctx-item"><div class="ctx-item-ic" style="background:var(--vbg);color:var(--violet);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div><div class="ctx-item-info"><div class="ctx-item-title">Arham Mirkar</div><div class="ctx-item-sub">Last seen Apr 9</div></div><span class="ctx-badge" style="background:var(--abg);color:var(--amber);">Negotiating</span></div>
+        <div class="iap-sec">Ask AI</div>
+        <div class="iap-input-row"><input class="iap-input" id="pdf-ai-inp" placeholder="Summarise page 2…"/><button class="iap-send" onclick="sendPDFAI()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button></div>
+        <div class="ai-resp-box" id="pdf-ai-resp"><div class="ai-typing"><div class="ai-dot"></div><div class="ai-dot"></div><div class="ai-dot"></div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CODE PANEL -->
+  <div class="panel" id="panel-code">
+    <div class="code-panel">
+      <div class="code-toolbar">
+        <select class="ce-lang"><option>TypeScript</option><option>JavaScript</option><option>Python</option><option>SQL</option></select>
+        <button class="ce-run" id="run-btn" onclick="runCode()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>Run</button>
+        <div style="flex:1;"></div>
+        <button class="vbtn vbtn-v" style="font-size:10px;padding:4px 8px;" onclick="toggleAIBar()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="width:10px;height:10px;"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>Ask AI</button>
+      </div>
+      <div class="ce-body">
+        <div class="ce-nums" id="ce-nums"></div>
+        <div class="ce-code" id="ce-code"></div>
+      </div>
+      <div class="ce-out">
+        <div class="ce-out-hd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>Output</div>
+        <div class="ce-out-body" id="ce-output"><span style="color:var(--fg3);">Click Run to execute…</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- APPROVAL PANEL -->
+  <div class="panel" id="panel-appr">
+    <div style="padding:16px;overflow-y:auto;flex:1;">
+      <div class="emb-strip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg><span class="emb-pulse"><strong>Vectorised</strong> · pgvector · 2 min ago</span></div>
+      <div class="appr-section">
+        <div style="font-size:11px;font-weight:600;color:var(--fg);margin-bottom:8px;display:flex;align-items:center;gap:6px;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Deliverable approval</div>
+        <div class="appr-status-bar" id="appr-status-bar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span>Sent to <strong>Arham Mirkar</strong> · Apr 9 · <strong>Pending</strong></span></div>
+        <div class="appr-btns" id="appr-btns">
+          <button class="appr-ok" onclick="doApprove()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>Mark approved</button>
+          <button class="appr-rej" onclick="doReject()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Request changes</button>
+        </div>
+        <textarea class="appr-ta" rows="2" placeholder="Add a note for the client (optional)…"></textarea>
+      </div>
+      <div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--fg4);margin-bottom:6px;">Related from AI memory</div>
+      <div class="ctx-item"><div class="ctx-item-ic" style="background:var(--abg);color:var(--amber);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div><div class="ctx-item-info"><div class="ctx-item-title">Q4 Campaign — Content Brief</div><div class="ctx-item-sub">0.91 similarity · same client, same style</div></div></div>
+      <div class="ctx-item" style="margin-top:4px;"><div class="ctx-item-ic" style="background:var(--vbg);color:var(--violet);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div><div class="ctx-item-info"><div class="ctx-item-title">Apr 3 Meeting Notes</div><div class="ctx-item-sub">0.87 similarity · mentions this campaign</div></div></div>
+      <div class="ctx-item" style="margin-top:4px;"><div class="ctx-item-ic" style="background:var(--bbg);color:var(--blue);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></div><div class="ctx-item-info"><div class="ctx-item-title">Email: "re: campaign final?"</div><div class="ctx-item-sub">0.84 similarity · arham@kobin.ai · Apr 8</div></div></div>
+      <div style="margin-top:10px;font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--fg4);margin-bottom:6px;">AI quick actions</div>
+      <button onclick="quickAction(this,'Draft follow-up email to client')" style="display:flex;align-items:center;gap:7px;padding:7px 9px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:11px;color:var(--fg2);font-family:inherit;text-align:left;width:100%;margin-bottom:4px;transition:all .15s;">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>Draft follow-up email to client</button>
+      <button onclick="quickAction(this,'Find similar deliverables across projects')" style="display:flex;align-items:center;gap:7px;padding:7px 9px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:11px;color:var(--fg2);font-family:inherit;text-align:left;width:100%;transition:all .15s;">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>Find similar across all projects</button>
+    </div>
+  </div>
+
+  <!-- CONTEXT PANEL (tab) -->
+  <div class="panel" id="panel-ctx">
+    <div style="padding:14px;overflow-y:auto;flex:1;">
+      <div class="emb-strip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg><span class="emb-pulse"><strong>Vectorised</strong> · indexed by pgvector · 2 min ago</span></div>
+      <div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--fg4);margin-bottom:6px;">Client</div>
+      <div class="ctx-item" style="margin-bottom:10px;"><div class="ctx-item-ic" style="background:var(--vbg);color:var(--violet);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div><div class="ctx-item-info"><div class="ctx-item-title">Arham Mirkar — Kobin</div><div class="ctx-item-sub">Last contact: Apr 9 · 4 open tasks</div></div><span class="ctx-badge" style="background:var(--abg);color:var(--amber);">Negotiating</span></div>
+      <div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--fg4);margin-bottom:6px;">Linked tasks</div>
+      <div class="ctx-item"><div class="ctx-item-ic" style="background:var(--ebg);color:var(--emerald);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></div><div class="ctx-item-info"><div class="ctx-item-title">Design all 8 carousel frames</div><div class="ctx-item-sub">Due Apr 12</div></div><span class="ctx-badge" style="background:var(--ebg);color:var(--emerald);">Done</span></div>
+      <div class="ctx-item" style="margin-top:4px;margin-bottom:10px;"><div class="ctx-item-ic" style="background:var(--bbg);color:var(--blue);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></div><div class="ctx-item-info"><div class="ctx-item-title">Client approval on carousel pack</div><div class="ctx-item-sub">Due Apr 14</div></div><span class="ctx-badge" style="background:var(--vbg);color:var(--violet);">Doing</span></div>
+      <div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--fg4);margin-bottom:6px;">AI memory — related</div>
+      <div class="ctx-item"><div class="ctx-item-ic" style="background:var(--abg);color:var(--amber);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div><div class="ctx-item-info"><div class="ctx-item-title">Q4 Campaign — Content Brief</div><div class="ctx-item-sub">0.91 similarity · same client</div></div></div>
+      <div class="ctx-item" style="margin-top:4px;"><div class="ctx-item-ic" style="background:var(--vbg);color:var(--violet);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div><div class="ctx-item-info"><div class="ctx-item-title">Apr 3 Meeting Notes</div><div class="ctx-item-sub">0.87 similarity</div></div></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<style>
+.slash-item2{display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:5px;cursor:pointer;transition:all .15s;}
+.slash-item2:hover{background:var(--bg3);}
+</style>
+
+<script>
+const imgColors=[
+  ['#EC4899','#F43F5E'],['#5B4FE8','#7C3AED'],['#3DD68C','#14B8A6'],
+  ['#F5A623','#F97316'],['#54B8F5','#3B82F6'],['#C792EA','#EC4899'],
+  ['#FFCB6B','#F5A623'],['#82AAFF','#5B4FE8']
+];
+const imgNames=['Product Hero Shot','Logo on White','Lifestyle Scene','Accent Colors','Team Photo','App Screenshot','Brand Texture','Detail Close-up'];
+
+function initImages(){
+  const g=document.getElementById('img-grid');
+  g.innerHTML='';
+  for(let i=0;i<imgColors.length;i++){
+    const d=document.createElement('div');
+    d.className='img-cell';
+    if(i===0)d.classList.add('sel');
+    d.style.background=`linear-gradient(135deg,${imgColors[i][0]},${imgColors[i][1]})`;
+    d.textContent=`Photo ${i+1}`;
+    d.onclick=()=>selectImg(i,d);
+    g.appendChild(d);
+  }
+  showImgPreview(0);
+}
+function selectImg(i,el){
+  document.querySelectorAll('.img-cell').forEach(c=>c.classList.remove('sel'));
+  el.classList.add('sel');
+  showImgPreview(i);
+}
+function showImgPreview(i){
+  const p=document.getElementById('img-preview');
+  const t=document.getElementById('img-prev-thumb');
+  const ti=document.getElementById('img-prev-title');
+  p.style.display='flex';
+  t.style.background=`linear-gradient(135deg,${imgColors[i][0]},${imgColors[i][1]})`;
+  ti.textContent=imgNames[i]||`Product Photo ${i+1}`;
+}
+
+const pdfPages=[
+  {title:'Q1 2025 Performance Report',content:`<p style="color:#888;font-size:11px;">Kobin Agency · Jan–Mar 2025 · For Arham Mirkar</p><h2>Executive Summary</h2><p>Q1 delivered <span class="hl">strong growth across all channels</span> with total reach increasing 142% YoY. Engagement rate held at 4.2% vs industry average of 1.8%. The <span class="hl">AI Layer campaign</span> contributed 38% of total impressions.</p><h2>Key Metrics</h2><p><span class="metric">Reach: 2.4M</span><span class="metric">Engagement: 4.2%</span><span class="metric">Content: 48 pieces</span><span class="metric">CPM: ₹180</span></p>`},
+  {title:'Platform Breakdown',content:`<h2>Instagram</h2><p>Dominant channel with <span class="hl">64% of total reach</span>. Reels performed 3× better than static posts. Carousel format drove 82% of saves.</p><h2>LinkedIn</h2><p>Significant uptick in B2B engagement, <span class="hl">growing 87% QoQ</span> driven by the founder-led content strategy introduced in February.</p><h2>YouTube</h2><p>First long-form content published in Q1. 3 videos averaging 12k views each. Watch time improving month over month.</p>`},
+  {title:'Recommendations',content:`<h2>Q2 Focus Areas</h2><p>1. Double down on Instagram Reels — highest ROI format<br/>2. Expand LinkedIn to 4× weekly posts<br/>3. Launch TikTok channel before Q3 (<span class="hl">AI Layer audience skews 22–30</span>)</p><h2>Budget Reallocation</h2><p>Recommend shifting 20% of paid budget from Meta to YouTube pre-roll. Projected CPV: ₹0.40 vs current ₹1.20 on Meta.</p>`}
+];
+let curPage=0;
+function renderPDF(){
+  const el=document.getElementById('pdf-pages');
+  const p=pdfPages[curPage];
+  el.innerHTML=`<div class="pdf-page fadeIn"><h1>${p.title}</h1>${p.content}</div>`;
+  document.getElementById('pdf-pg').textContent=`Page ${curPage+1} of ${pdfPages.length}`;
+}
+function changePDFPage(d){
+  curPage=Math.max(0,Math.min(pdfPages.length-1,curPage+d));
+  renderPDF();
+}
+
+const codeLines=[
+  '<span class="cm3">// Kobin AI — Gmail Pub/Sub Webhook</span>',
+  '',
+  '<span class="kw">import</span> { <span class="fn">NextResponse</span> } <span class="kw">from</span> <span class="str">"next/server"</span>',
+  '<span class="kw">import</span> { <span class="fn">supabaseAdmin</span> } <span class="kw">from</span> <span class="str">"@/lib/supabase/admin"</span>',
+  '',
+  '<span class="kw">export async function</span> <span class="fn">POST</span>(req: Request) {',
+  '  <span class="kw">const</span> body = <span class="kw">await</span> req.<span class="fn">json</span>()',
+  '  <span class="kw">const</span> { message } = body',
+  '',
+  '  <span class="cm3">// Decode base64 Pub/Sub message</span>',
+  '  <span class="kw">const</span> data = Buffer.<span class="fn">from</span>(message.data, <span class="str">\'base64\'</span>).<span class="fn">toString</span>()',
+  '  <span class="kw">const</span> parsed = JSON.<span class="fn">parse</span>(data)',
+  '',
+  '  <span class="cm3">// Find founder via historyId</span>',
+  '  <span class="kw">const</span> { data: integration } = <span class="kw">await</span> supabaseAdmin',
+  '    .<span class="fn">from</span>(<span class="str">\'google_integrations\'</span>).<span class="fn">select</span>(<span class="str">\'*\'</span>)',
+  '  <span class="kw">return</span> NextResponse.<span class="fn">json</span>({ ok: <span class="kw">true</span> })',
+  '}',
+];
+function initCode(){
+  const nums=document.getElementById('ce-nums');
+  const code=document.getElementById('ce-code');
+  nums.innerHTML=codeLines.map((_,i)=>`<div class="ce-num">${i+1}</div>`).join('');
+  code.innerHTML=codeLines.map(l=>`<div>${l||'&nbsp;'}</div>`).join('');
+}
+function runCode(){
+  const btn=document.getElementById('run-btn');
+  const out=document.getElementById('ce-output');
+  btn.classList.add('run-anim');
+  out.innerHTML='<span style="color:var(--violet);">▶ Compiling TypeScript…</span>';
+  setTimeout(()=>{out.innerHTML='<span style="color:var(--emerald);">✓ Compiled in 0.42s</span><br/><span style="color:var(--fg3);">✓ Webhook handler ready on POST /api/gmail/webhook</span><br/><span style="color:var(--fg3);">✓ Supabase connection: OK</span>';},800);
+}
+
+let aiBarOpen=false;
+function toggleAIBar(){
+  const bar=document.getElementById('ai-bar');
+  aiBarOpen=!aiBarOpen;
+  bar.style.display=aiBarOpen?'block':'none';
+  if(aiBarOpen)setTimeout(()=>document.getElementById('ai-input').focus(),50);
+}
+function sendAI(){
+  const inp=document.getElementById('ai-input');
+  const resp=document.getElementById('ai-response');
+  if(!inp.value.trim())return;
+  const q=inp.value;
+  inp.value='';
+  resp.style.display='block';
+  resp.innerHTML='<div class="ai-typing"><div class="ai-dot"></div><div class="ai-dot"></div><div class="ai-dot"></div></div>';
+  const answers={
+    'default':'Based on the context in this file and AI memory, I found 3 related items across your vault. The kickoff notes mention the pgvector milestone is linked to the Apr 20 deadline. 2 tasks are currently in progress.',
+  };
+  setTimeout(()=>{resp.innerHTML=answers['default'];},1200);
+}
+
+function switchVTab(el,name){
+  document.querySelectorAll('.vtab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  const cur=document.getElementById('current-file')||'doc';
+  const panels=['doc','img','pdf','code','appr','ctx'];
+  if(name==='ctx'){
+    panels.filter(p=>p!=='ctx').forEach(p=>{const el2=document.getElementById('panel-'+p);if(el2)el2.style.display='none';});
+    document.getElementById('panel-ctx').style.display='flex';
+  } else {
+    document.getElementById('panel-ctx').style.display='none';
+    const f=window._curFile||'doc';
+    panels.filter(p=>p!=='ctx').forEach(p=>{const el2=document.getElementById('panel-'+p);if(el2)el2.style.display='none';});
+    const mp=document.getElementById('panel-'+f);
+    if(mp){mp.style.display='flex';if(f==='code')mp.querySelector('.code-panel').style.display='flex';}
+  }
+}
+
+const fileConfigs={
+  doc:{title:'Project Kickoff Notes — Kobin v2',meta:'Kobin / Notes · Edited 2 min ago · Auto-saved',primaryBtn:'Send for Approval',primaryClass:'vbtn-p'},
+  img:{title:'Brand Assets — Product Photos',meta:'15 images · Analysed by Llama 4 Scout Vision · Apr 8',primaryBtn:'Download all',primaryClass:'vbtn-g'},
+  pdf:{title:'Q1 Performance Report',meta:'3 pages shown · Vectorised · Highlights extracted by AI',primaryBtn:'Download PDF',primaryClass:'vbtn-g'},
+  code:{title:'API Integration — Webhook Handler',meta:'webhook-handler.ts · TypeScript · 18 lines shown',primaryBtn:'Save to Vault',primaryClass:'vbtn-p'},
+  appr:{title:'AI Layer Launch — Insta Post Pack',meta:'File · 8 frames · Awaiting client approval since Apr 9',primaryBtn:'Resend approval request',primaryClass:'vbtn-p'},
+};
+window._curFile='doc';
+function openFile(type,el){
+  document.querySelectorAll('.pitem').forEach(p=>p.classList.remove('active'));
+  el.classList.add('active');
+  window._curFile=type;
+  const c=fileConfigs[type];
+  document.getElementById('vhd-title').textContent=c.title;
+  document.getElementById('vhd-meta').textContent=c.meta;
+  const pb=document.getElementById('primary-btn');
+  pb.textContent=c.primaryBtn;
+  pb.className='vbtn '+c.primaryClass;
+  const panels=['doc','img','pdf','code','appr','ctx'];
+  panels.forEach(p=>{const e=document.getElementById('panel-'+p);if(e){e.style.display='none';e.classList.remove('show');}});
+  const target=document.getElementById('panel-'+type);
+  if(target){target.style.display='flex';target.classList.add('show');}
+  document.querySelectorAll('.vtab').forEach((t,i)=>{t.classList.remove('active');if(i===0)t.classList.add('active');});
+  if(type==='img')initImages();
+  if(type==='pdf')renderPDF();
+  if(type==='code')initCode();
+}
+
+let slashOpen=false;
+function toggleSlash(){
+  const p=document.getElementById('slash-popup');
+  slashOpen=!slashOpen;
+  p.style.display=slashOpen?'block':'none';
+}
+function slashAction(type){
+  document.getElementById('slash-popup').style.display='none';
+  slashOpen=false;
+  if(type==='ai'){document.getElementById('ai-insert-bar').style.display='block';}
+}
+function insertAI(){
+  document.getElementById('ai-insert-bar').style.display='none';
+  const body=document.getElementById('ed-body');
+  const p=document.createElement('div');
+  p.className='callout fadeIn';
+  p.innerHTML='<span class="callout-icon">✨</span><span class="callout-text"><strong style="color:var(--violet);">AI inserted:</strong> Phase 1 (Apr 14–20): TipTap editor integration (Bilal M.), File viewers for PDF + images (Apr 16), Llama 4 Scout vision analysis (Apr 18). 2 tasks unassigned.</span>';
+  body.insertBefore(p,body.firstChild);
+}
+function dismissAI(){document.getElementById('ai-insert-bar').style.display='none';}
+
+document.querySelectorAll('.tcb').forEach(cb=>{
+  cb.addEventListener('click',()=>{
+    const id=cb.id;const tid=id.replace('todo','todo')+'-txt';
+    const txt=document.getElementById(tid);
+    if(cb.classList.contains('chk')){cb.classList.remove('chk');if(txt)txt.classList.remove('done');}
+    else{cb.classList.add('chk');if(txt)txt.classList.add('done');}
+  });
+});
+
+function sendImgAI(){
+  const inp=document.getElementById('img-ai-inp');
+  const resp=document.getElementById('img-ai-resp');
+  if(!inp.value.trim())return;
+  inp.value='';
+  resp.className='ai-resp-box show';
+  resp.innerHTML='<div class="ai-typing"><div class="ai-dot"></div><div class="ai-dot"></div><div class="ai-dot"></div></div>';
+  setTimeout(()=>{resp.innerHTML='Photo 1 (gradient pink-red) would work best for frame 3 — it matches the bold, high-contrast style you used in the Q4 campaign that the client approved.';},1300);
+}
+function sendPDFAI(){
+  const inp=document.getElementById('pdf-ai-inp');
+  const resp=document.getElementById('pdf-ai-resp');
+  if(!inp.value.trim())return;
+  inp.value='';
+  resp.className='ai-resp-box show';
+  resp.innerHTML='<div class="ai-typing"><div class="ai-dot"></div><div class="ai-dot"></div><div class="ai-dot"></div></div>';
+  setTimeout(()=>{resp.innerHTML='Page 2 covers platform breakdown: Instagram leads at 64% reach, LinkedIn grew 87% QoQ from the founder-led content strategy, YouTube launched with 3 videos averaging 12k views.';},1300);
+}
+
+let approved=false,rejected=false;
+function doApprove(){
+  if(approved)return;
+  approved=true;
+  const bar=document.getElementById('appr-status-bar');
+  bar.style.background='var(--ebg)';bar.style.borderColor='rgba(61,214,140,.2)';
+  bar.innerHTML='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--emerald)" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg><span>Marked as <strong style="color:var(--emerald);">Approved</strong> by you · Just now</span>';
+  const btns=document.getElementById('appr-btns');
+  btns.innerHTML='<div style="font-size:11px;color:var(--fg3);padding:4px 0;">✓ Approval recorded. Client will be notified.</div>';
+}
+function doReject(){
+  if(rejected)return;rejected=true;
+  const bar=document.getElementById('appr-status-bar');
+  bar.style.background='var(--rbg)';bar.style.borderColor='rgba(229,83,75,.2)';
+  bar.innerHTML='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span>Changes requested · Add note below and re-send</span>';
+}
+function quickAction(btn,label){
+  btn.style.background='var(--vbg)';btn.style.color='var(--violet)';btn.style.borderColor='var(--vbdr)';
+  setTimeout(()=>{btn.style.background='';btn.style.color='';btn.style.borderColor='';},1500);
+}
+document.addEventListener('click',e=>{
+  const sp=document.getElementById('slash-popup');
+  if(sp&&slashOpen&&!sp.contains(e.target)&&!e.target.closest('[onclick*="toggleSlash"]')){sp.style.display='none';slashOpen=false;}
+});
+initImages();renderPDF();initCode();
+</script>
