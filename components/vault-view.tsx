@@ -1021,7 +1021,7 @@ export function VaultView() {
 
   return (
     <>
-      <div className="flex h-[calc(100vh-4rem)] overflow-hidden rounded-2xl border border-border/50 bg-[#161614]">
+      <div className="flex h-[calc(100vh-4rem)] overflow-hidden bg-[#161614]">
 
         {/* ── Sidebar: Projects ── */}
         {projectsSidebarOpen && (
