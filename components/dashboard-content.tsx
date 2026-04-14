@@ -380,10 +380,17 @@ export function DashboardSidebar({
 
 
 export function DashboardContent({ activeTab, userType }: { activeTab: string; userType: string }) {
+  const isFullBleed = ["Inbox", "Vault", "Relationships", "LinkedIn"].includes(activeTab)
+
   return (
-    <main className="flex-1 overflow-y-auto">
+    <main className="flex-1 min-h-0 flex flex-col">
       {activeTab !== "Inbox" && <Header />}
-      <div className={activeTab === "Inbox" ? "flex flex-col h-screen" : "p-6 max-w-[1400px] mx-auto"}>
+      <div 
+        className={cn(
+          "flex-1 min-h-0 w-full",
+          isFullBleed ? "flex flex-col" : "p-6 max-w-[1400px] mx-auto"
+        )}
+      >
         {activeTab === "Home" && <TodayView />}
         {activeTab === "Calendar" && <CalendarView />}
         {activeTab === "Tasks" && <TaskView userType={userType} />}
