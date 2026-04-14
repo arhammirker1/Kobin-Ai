@@ -34,6 +34,10 @@ const NODES = [
   { id: "api-extract", label: "api/ai/extract-task", group: "api-ai", desc: "Message intelligence task extraction" },
   { id: "api-proactive", label: "api/ai/proactive", group: "api-ai", desc: "Morning brief / EOD summary dispatcher" },
   { id: "api-warm", label: "api/ai/warm", group: "api-ai", desc: "Cache pre-warmer for AI context" },
+  { id: "api-vault-ai-write", label: "api/vault/ai-write", group: "api-ai", desc: "RAG-powered AI writer for vault documents" },
+  { id: "api-vault-ai-label", label: "api/vault/ai-label", group: "api-ai", desc: "AI document labeling and metadata extraction" },
+  { id: "api-vault-search", label: "api/vault/search", group: "api-ai", desc: "Vector similarity search across vault content" },
+  { id: "api-vault-activity", label: "api/vault/activity", group: "api-ai", desc: "Track views, edits and AI actions on vault items" },
 
   // Gmail API Routes
   { id: "api-gmail-threads", label: "api/gmail/threads", group: "api-gmail", desc: "Fetch inbox threads with CRM filter" },
@@ -49,16 +53,26 @@ const NODES = [
   { id: "cron-revenue", label: "cron/revenue-intelligence", group: "cron", desc: "Closing deals + high-prob pipeline alerts" },
   { id: "cron-risk", label: "cron/risk-detection", group: "cron", desc: "Overdue + blocked task risk alerts" },
   { id: "cron-weekly", label: "cron/weekly-review", group: "cron", desc: "Weekly performance summary" },
+  { id: "api-crm-import-leads", label: "api/crm/import-leads", group: "api-gmail", desc: "Bulk CRM lead ingestion from CSV/JSON" },
+  { id: "api-inbox-delete-room", label: "api/inbox/delete-room", group: "api-gmail", desc: "Archive project or team chat spaces" },
 
   // Meeting Bot
   { id: "api-meeting-upload", label: "api/meeting-bot/upload", group: "api-meeting", desc: "Electron transcript upload endpoint" },
   { id: "api-meeting-process", label: "api/meeting-bot/process", group: "api-meeting", desc: "AI transcript processor — tasks + CRM" },
   { id: "api-meeting-transcribe", label: "api/meeting-bot/transcribe", group: "api-meeting", desc: "Groq Whisper proxy" },
+  { id: "api-meeting-lookup", label: "api/meeting-bot/lookup-event", group: "api-meeting", desc: "Map transcription start/end to calendar events" },
 
   // Auth & Google
+  { id: "api-push-send", label: "api/push/send", group: "api-auth", desc: "Broadcast push notifications to all founders" },
+  { id: "api-push-subscribe", label: "api/push/subscribe", group: "api-auth", desc: "Register VAPID service worker subscription" },
   { id: "api-auth-google", label: "api/auth/google", group: "api-auth", desc: "OAuth redirect to Google consent" },
   { id: "api-auth-callback", label: "api/auth/callback", group: "api-auth", desc: "Supabase email confirmation handler" },
   { id: "api-google-meet", label: "api/google/create-meet", group: "api-auth", desc: "Create Google Calendar + Meet link" },
+  { id: "api-vault-connect", label: "api/vault/connect", group: "api-auth", desc: "Initialize founder vault root in Google Drive" },
+  { id: "api-vault-create-project", label: "api/vault/create-project-folders", group: "api-auth", desc: "Project-scoped folder structure automation" },
+  { id: "api-vault-signed-url", label: "api/vault/signed-url", group: "api-auth", desc: "GCS signed URL for secure drive file viewing" },
+  { id: "api-vault-upload", label: "api/vault/upload-file", group: "api-auth", desc: "Upload logic with auto-embedding trigger" },
+  { id: "api-vault-upload-internal", label: "api/vault/upload-internal", group: "api-auth", desc: "Server-side PDF processing and storage logic" },
 
   // Lib — AI
   { id: "lib-groq", label: "lib/ai/groq", group: "lib-ai", desc: "Three-tier model config: FAST / STD / STRONG" },
@@ -69,6 +83,11 @@ const NODES = [
   { id: "lib-mcp", label: "lib/ai/mcp-read-tools", group: "lib-ai", desc: "10 read tools: tasks, CRM, calendar, vault…" },
   { id: "lib-executor", label: "lib/ai/action-executor", group: "lib-ai", desc: "Fuzzy name resolution + task/project mutations" },
   { id: "lib-proactive", label: "lib/ai/proactive", group: "lib-ai", desc: "AI inbox messaging + morning/EOD brief gen" },
+  { id: "lib-vault-chunking", label: "lib/ai/chunking", group: "lib-ai", desc: "Recursive text splitting for RAG indexing" },
+  { id: "lib-vault-embeddings", label: "lib/ai/embeddings", group: "lib-ai", desc: "Vector generation via HuggingFace BGE" },
+  { id: "lib-vault-rag", label: "lib/ai/vault-rag", group: "lib-ai", desc: "Semantic retrieval, MMR, and entity grounding" },
+  { id: "lib-model-router", label: "lib/ai/model-router", group: "lib-ai", desc: "Intelligent request steering by token/cost" },
+  { id: "lib-modes", label: "lib/ai/modes", group: "lib-ai", desc: "User AI persona config: Balanced/Strict/Deep" },
 
   // Lib — Infrastructure
   { id: "lib-supabase-admin", label: "lib/supabase/admin", group: "lib-infra", desc: "Service-role Supabase client" },
@@ -80,6 +99,11 @@ const NODES = [
   { id: "lib-gmail-watch", label: "lib/google/gmail-watch", group: "lib-infra", desc: "Register/renew Gmail Pub/Sub watches" },
   { id: "lib-push", label: "lib/web-push/send", group: "lib-infra", desc: "VAPID push notification sender" },
   { id: "lib-inbox-dm", label: "lib/ai/inbox-dm", group: "lib-infra", desc: "AI room DM + founder broadcast helpers" },
+  { id: "lib-vault-extraction", label: "lib/vault/extraction", group: "lib-infra", desc: "Browser-side text extraction (PDF/Docx/XLSX)" },
+  { id: "lib-meeting-process", label: "lib/meeting-bot/process-meeting", group: "lib-infra", desc: "Core transcript processor logic" },
+  { id: "lib-meeting-recorder", label: "lib/meeting-bot/audio-recorder", group: "lib-infra", desc: "Client-side PCM audio capture" },
+  { id: "lib-app-cache", label: "lib/cache/app-cache", group: "lib-infra", desc: "Multi-layered local/Redis cache manager" },
+  { id: "lib-push-to-user", label: "lib/web-push/push-to-user", group: "lib-infra", desc: "Targeted notification dispatcher" },
 
   // Database Tables — Core & Profiles
   { id: "db-profiles", label: "profiles", group: "db-core", desc: "User profiles — auth ID, email, roles, ai_mode, settings" },
@@ -122,6 +146,10 @@ const NODES = [
   { id: "db-vault-folders", label: "vault_folders", group: "db-vault", desc: "Drive folders synchronized in-app" },
   { id: "db-vault-items", label: "vault_items", group: "db-vault", desc: "Files, Google Docs, URL Links" },
   { id: "db-vault-notes", label: "vault_notes", group: "db-vault", desc: "Actionable internal notes" },
+  { id: "db-vault-chunks", label: "vault_chunks", group: "db-vault", desc: "Text segments for similarity indexing" },
+  { id: "db-vault-embeddings", label: "vault_embeddings", group: "db-vault", desc: "Vector data for vault semantic search" },
+  { id: "db-vault-activity", label: "vault_activity_logs", group: "db-vault", desc: "User/AI audit trail for vault items" },
+  { id: "db-vault-comments", label: "vault_comments", group: "db-vault", desc: "Collaboration threads on vault documents" },
 
   // Database Tables — AI Subsystem
   { id: "db-ai-chats", label: "ai_command_chats", group: "db-ai", desc: "Command bar memory for chat sessions" },
@@ -140,7 +168,8 @@ const EDGES = [
   ["comp-gmail", "api-gmail-reply"], ["comp-gmail", "api-analyze-email"], ["comp-gmail", "api-draft"],
   ["comp-crm", "api-gmail-sync"], ["comp-crm", "comp-pipeline"], ["comp-crm", "comp-gmail"],
   ["comp-today", "comp-meeting"],
-  ["comp-vault", "lib-google-drive"],
+  ["comp-vault", "lib-google-drive"], ["comp-vault", "api-vault-search"], ["comp-vault", "api-vault-upload"],
+  ["comp-vault", "api-vault-ai-write"], ["comp-vault", "api-vault-activity"],
   ["comp-meeting", "api-google-meet"],
 
   // AI API → Lib AI
@@ -150,7 +179,9 @@ const EDGES = [
   ["api-analyze", "lib-intelligence"],
   ["api-analyze-email", "lib-gmail-analyze"],
   ["api-proactive", "lib-proactive"], ["api-proactive", "lib-intelligence"],
-  ["api-warm", "lib-mini-ctx"], ["api-warm", "lib-intelligence"],
+  ["api-warm", "lib-mini-ctx"], ["api-warm", "lib-intelligence"], ["api-warm", "lib-app-cache"],
+  ["api-vault-search", "lib-vault-rag"], ["api-vault-ai-write", "lib-vault-rag"],
+  ["api-vault-ai-label", "lib-groq"], ["api-vault-activity", "db-vault-activity"],
 
   // AI Lib internal
   ["lib-tools", "lib-mcp"],
@@ -159,13 +190,16 @@ const EDGES = [
   ["lib-mini-ctx", "lib-supabase-admin"], ["lib-mini-ctx", "lib-redis"],
   ["lib-intelligence", "lib-supabase-admin"], ["lib-intelligence", "lib-redis"],
   ["lib-proactive", "lib-intelligence"], ["lib-proactive", "lib-inbox-dm"],
-  ["lib-memory", "lib-supabase-admin"], ["lib-memory", "lib-redis"],
+  ["lib-vault-embeddings", "lib-vault-chunking"], ["lib-vault-rag", "lib-vault-embeddings"],
+  ["lib-mini-ctx", "lib-app-cache"], ["lib-executor", "lib-push-to-user"],
+  ["lib-push-to-user", "lib-push"],
 
   // Gmail
   ["api-gmail-sync", "lib-gmail-analyze"],
   ["api-gmail-webhook", "lib-gmail-analyze"], ["api-gmail-webhook", "lib-gmail-watch"],
   ["lib-gmail-analyze", "lib-supabase-admin"], ["lib-gmail-analyze", "lib-groq"],
   ["lib-gmail-analyze", "lib-google-token"], ["lib-gmail-analyze", "lib-inbox-dm"],
+  ["api-crm-import-leads", "db-crm-import"], ["api-inbox-delete-room", "db-chat-rooms"],
 
   // Cron
   ["cron-digest", "lib-groq"], ["cron-digest", "lib-inbox-dm"],
@@ -176,13 +210,17 @@ const EDGES = [
 
   // Meeting bot
   ["api-meeting-upload", "api-meeting-process"],
-  ["api-meeting-process", "lib-groq"], ["api-meeting-process", "lib-inbox-dm"],
-  ["api-meeting-transcribe", "lib-groq"],
+  ["api-meeting-process", "lib-groq"], ["api-meeting-process", "lib-inbox-dm"], ["api-meeting-process", "lib-meeting-process"],
+  ["api-meeting-transcribe", "lib-groq"], ["api-meeting-lookup", "db-events"],
+  ["api-meeting-upload", "lib-meeting-recorder"],
 
   // Auth
-  ["api-auth-google", "lib-google-token"],
+  ["api-auth-google", "lib-google-token"], ["api-push-send", "lib-push"],
+  ["api-push-subscribe", "db-push-subs"],
   ["api-google-meet", "lib-google-token"],
-  ["lib-google-drive", "lib-google-token"],
+  ["lib-google-drive", "lib-google-token"], ["api-vault-connect", "lib-google-drive"],
+  ["api-vault-create-project", "lib-google-drive"], ["api-vault-upload", "lib-vault-extraction"],
+  ["api-vault-upload", "lib-vault-embeddings"], ["api-vault-upload-internal", "db-vault-items"],
   ["lib-gmail-watch", "lib-google-token"],
 
   // --- DATABASE FK RELATIONS ---
@@ -323,6 +361,9 @@ const EDGES = [
   ["api-extract", "lib-groq"], 
   ["api-extract", "db-tasks"], 
   ["api-extract", "db-chat-messages"],
+  ["lib-vault-embeddings", "db-vault-embeddings"], ["lib-vault-embeddings", "db-vault-chunks"],
+  ["db-vault-items", "db-vault-comments"], ["db-vault-items", "db-vault-activity"],
+  ["lib-app-cache", "lib-redis"],
 ]
 
 const GROUP_META = {
@@ -370,7 +411,7 @@ export default function KobinKnowledgeGraph() {
       if (filter === "all") {
         matchFilter = true
       } else if (filter === "ai-related") {
-        matchFilter = ["api-ai", "lib-ai", "db-ai", "api-meeting", "db-meeting"].includes(n.group) || ["comp-command", "comp-gmail"].includes(n.id)
+        matchFilter = ["api-ai", "lib-ai", "db-ai", "api-meeting", "db-meeting", "db-vault"].includes(n.group) || ["comp-command", "comp-gmail", "comp-vault"].includes(n.id)
       } else {
         matchFilter = n.group === filter || n.group.startsWith(filter + "-")
       }
