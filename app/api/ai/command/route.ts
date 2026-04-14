@@ -142,6 +142,64 @@ function createToolMemoizer() {
   }
 }
 
+// ── Safe final text generator ────────────────────────────────────────────────
+// Root cause: Groq throws "Tool choice is none, but model called a tool" during
+// streaming when tool history exists in the message array. Fix strategy:
+//   • No tool history in messages → stream directly, no tools needed (safe)
+//   • Has tool history → non-streaming call (Groq validates history correctly),
+//     yield content as a single chunk so all call sites can `for await` uniformly
+async function* streamFinalText(
+  groq: any,
+  model: string,
+  messages: any[],
+  opts: { max_tokens: number; temperature: number }
+): AsyncGenerator<string> {
+  const hasToolHistory = messages.some(
+    (m) =>
+      (m.role === "assistant" && Array.isArray(m.tool_calls) && m.tool_calls.length > 0) ||
+      m.role === "tool"
+  )
+
+  if (!hasToolHistory) {
+    // Clean path — no tool history, stream freely without tools
+    const stream = await groqCall(groq, model, {
+      ...opts,
+      messages,
+      stream: true,
+    })
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta?.content
+      if (delta) yield delta
+    }
+    return
+  }
+
+  // Tool history present — Groq requires tools in payload for message validation.
+  // Use non-streaming to avoid the streaming "tool_choice:none + model calls tool" crash.
+  let resp: any
+  try {
+    resp = await groqCall(groq, model, {
+      ...opts,
+      messages,
+      tools: ALL_TOOLS,
+      tool_choice: "none",
+    })
+  } catch (err: any) {
+    // Final fallback: strip tool history and regenerate from system + last user msg
+    console.warn("[CMD/streamFinalText] tool_choice:none rejected — retrying with stripped history:", err?.message)
+    const systemMsg = messages.find((m) => m.role === "system")
+    const userMessages = messages.filter((m) => m.role === "user")
+    const lastUser = userMessages[userMessages.length - 1]
+    resp = await groqCall(groq, model, {
+      ...opts,
+      messages: [systemMsg, lastUser].filter(Boolean),
+    })
+  }
+
+  const content: string = resp?.choices?.[0]?.message?.content ?? ""
+  if (content) yield content
+}
+
 // ── Confirmed delete handler ─────────────────────────────────────────────────
 
 export async function DELETE(request: Request) {
@@ -200,6 +258,14 @@ export async function POST(request: Request) {
 
 ${miniContext}
 ${memoryContext ? `\n${memoryContext}` : ""}
+
+## VAULT = YOUR PRIMARY KNOWLEDGE BASE (NotebookLM behavior)
+The Vault contains the founder's uploaded documents — SOPs, reports, proposals, contracts, metrics, and any other files. Rules that are NON-NEGOTIABLE:
+- User asks about a metric, rate, figure, or any business data → call vault_semantic_search IMMEDIATELY before answering
+- User asks about a document, report, proposal, contract, or SOP → vault_semantic_search first
+- User asks "what does X say", "find Y", "what's our Z" → vault_semantic_search first  
+- NEVER answer a knowledge question with "I don't have that information" without searching the vault first
+- After searching, answer directly from the retrieved document content and cite the source title
 
 ## TOOL USAGE RULES
 
@@ -301,24 +367,10 @@ Never send nested objects for scalar fields.`
               enqueue({ type: "action_executed", ...ev })
             }
 
-            // Final text pass: pass tools + tool_choice=none so Groq doesn't reject
-            // when message history already contains tool call entries from prior steps
-            console.log(`[CMD] step=${step} → final text stream (tool_choice=none)`)
-            const streamResponse = await groqCall(groq, selected.model, {
-              messages,
-              stream: true,
-              max_tokens: 1024,
-              temperature: 0.2,
-              tools: ALL_TOOLS as any,
-              tool_choice: "none",
-            })
-
-            for await (const chunk of streamResponse) {
-              const delta = chunk.choices[0]?.delta?.content
-              if (delta) {
-                enqueue({ type: "delta", content: delta })
-              }
-            }
+console.log(`[CMD] step=${step} → final text stream`)
+          for await (const delta of streamFinalText(groq, selected.model, messages, { max_tokens: 1024, temperature: 0.2 })) {
+            enqueue({ type: "delta", content: delta })
+          }
 
             enqueue({ type: "done" })
             ctrl.close()
@@ -478,18 +530,9 @@ Never send nested objects for scalar fields.`
               enqueue({ type: "action_executed", ...ev })
             }
 
-            // Stream the confirmation sentence — no tools, just prose
-            const confirmStream = await groqCall(groq, selected.model, {
-              messages,
-              stream: true,
-              max_tokens: 256,
-              temperature: 0.2,
-              tools: ALL_TOOLS as any,
-              tool_choice: "none",
-            })
-            for await (const chunk of confirmStream) {
-              const delta = chunk.choices[0]?.delta?.content
-              if (delta) enqueue({ type: "delta", content: delta })
+            // Stream the confirmation sentence
+            for await (const delta of streamFinalText(groq, selected.model, messages, { max_tokens: 256, temperature: 0.2 })) {
+              enqueue({ type: "delta", content: delta })
             }
 
             enqueue({ type: "done" })
@@ -504,18 +547,9 @@ Never send nested objects for scalar fields.`
           enqueue({ type: "action_executed", ...ev })
         }
 
-        console.log(`[CMD] max steps exhausted → final stream (tool_choice=none)`)
-        const finalStream = await groqCall(groq, selected.model, {
-          messages,
-          stream: true,
-          max_tokens: 1024,
-          temperature: 0.5,
-          tools: ALL_TOOLS as any,
-          tool_choice: "none",
-        })
-        for await (const chunk of finalStream) {
-          const delta = chunk.choices[0]?.delta?.content
-          if (delta) enqueue({ type: "delta", content: delta })
+        console.log(`[CMD] max steps exhausted → final stream`)
+        for await (const delta of streamFinalText(groq, selected.model, messages, { max_tokens: 1024, temperature: 0.5 })) {
+          enqueue({ type: "delta", content: delta })
         }
 
         enqueue({ type: "done" })

@@ -219,16 +219,7 @@ function getViewerType(item: VaultItem): ViewerType {
   // ── Word docs ─────────────────────────────────────────────────────────────
   if (ext === "docx") { console.log(`[Vault/Viewer] → docx`); return "docx" }
 
-  // ── Images ────────────────────────────────────────────────────────────────
-  if (["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "avif"].includes(ext) || dt === "Design Asset") {
-    console.log(`[Vault/Viewer] → image`)
-    return "image"
-  }
-
-  // ── PDF ───────────────────────────────────────────────────────────────────
-  if (ext === "pdf") { console.log(`[Vault/Viewer] → pdf`); return "pdf" }
-
-  // ── Plain text / markdown → TipTap ───────────────────────────────────────
+  // ── Plain text / markdown → TipTap (must be before document_type-based checks) ──
   if (["txt", "md", "mdx"].includes(ext)) {
     console.log(`[Vault/Viewer] → doc (.${ext})`)
     return "doc"
@@ -246,6 +237,15 @@ function getViewerType(item: VaultItem): ViewerType {
     return "code"
   }
 
+  // ── Images ────────────────────────────────────────────────────────────────
+  if (["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "avif"].includes(ext) || dt === "Design Asset") {
+    console.log(`[Vault/Viewer] → image`)
+    return "image"
+  }
+
+  // ── PDF ───────────────────────────────────────────────────────────────────
+  if (ext === "pdf") { console.log(`[Vault/Viewer] → pdf`); return "pdf" }
+
   // ── Text doc_type + content → TipTap ─────────────────────────────────────
   const hasTextContent = !!(item.note_content || item.extracted_text)
   if (TEXT_DOC_TYPES.has(dt) && hasTextContent) {
@@ -259,6 +259,60 @@ function getViewerType(item: VaultItem): ViewerType {
 
   console.log(`[Vault/Viewer] → file (generic fallback)`)
   return "file"
+}
+
+// ── Markdown → TipTap HTML converter ─────────────────────────────────────────
+
+function mdToHtml(text: string): string {
+  let html = text.trim()
+
+  // Tables → formatted code block (TipTap requires extension for native tables)
+  html = html.replace(/((?:\|[^\n]+\|[ \t]*\n?){2,})/gm, (match) => {
+    const rows = match.trim().split('\n').filter(r => r.trim() && !/^\s*\|[\s:|–\-]+\|\s*$/.test(r))
+    if (rows.length === 0) return match
+    const formatted = rows.map(r =>
+      r.split('|').map(c => c.trim()).filter((_, i, a) => i > 0 && i < a.length - 1).join(' │ ')
+    ).join('\n')
+    return `<pre><code>${formatted}</code></pre>\n`
+  })
+
+  // Fenced code blocks
+  html = html.replace(/```[\w]*\n?([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+
+  // Headings
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>')
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>')
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>')
+
+  // Bold + italic
+  html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>')
+
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>')
+
+  // Unordered lists
+  html = html.replace(/((?:^[ \t]*[-*+] .+$\n?)+)/gm, (match) => {
+    const items = match.trim().split('\n').map(l => `<li>${l.replace(/^[ \t]*[-*+] /, '')}</li>`).join('')
+    return `<ul>${items}</ul>`
+  })
+
+  // Ordered lists
+  html = html.replace(/((?:^[ \t]*\d+\. .+$\n?)+)/gm, (match) => {
+    const items = match.trim().split('\n').map(l => `<li>${l.replace(/^[ \t]*\d+\. /, '')}</li>`).join('')
+    return `<ol>${items}</ol>`
+  })
+
+  // Wrap remaining blocks in <p> tags
+  html = html.split(/\n{2,}/).map(block => {
+    block = block.trim()
+    if (!block) return ''
+    if (/^<(h[1-6]|ul|ol|pre|blockquote)/i.test(block)) return block
+    return `<p>${block.replace(/\n/g, ' ')}</p>`
+  }).filter(Boolean).join('\n')
+
+  return html
 }
 
 // ── Date helper ───────────────────────────────────────────────────────────────
@@ -559,9 +613,13 @@ export function VaultView() {
     // ── FIX 2: Use extracted_text as content fallback for doc viewer ──────
     if (viewer === "doc") {
       setDocTitle(item.title)
-      const content = item.note_content || item.extracted_text || ""
+      const rawContent = item.note_content || item.extracted_text || ""
+      // Convert raw markdown to HTML for proper TipTap rendering
+      const storedExt = (item.storage_path || "").split(".").pop()?.toLowerCase() || ""
+      const needsConversion = ["md", "mdx", "txt"].includes(storedExt) && rawContent.trim() && !rawContent.trim().startsWith("<")
+      const content = needsConversion ? mdToHtml(rawContent) : rawContent
       setDocContent(content)
-      console.log(`[Vault/Viewer] Doc content source: ${item.note_content ? "note_content" : item.extracted_text ? "extracted_text" : "empty"}`)
+      console.log(`[Vault/Viewer] Doc content source: ${item.note_content ? "note_content" : item.extracted_text ? "extracted_text" : "empty"} | md_converted=${needsConversion}`)
     }
 
     // Fetch file URL for storage-backed files
@@ -886,6 +944,7 @@ export function VaultView() {
     if (!aiWriterPrompt.trim()) return
     console.log(`[Vault/AIWriter] Running prompt: "${aiWriterPrompt.slice(0, 60)}"`)
     setAiWriterLoading(true)
+    setAiWriterPrompt("") // Clear input immediately on send
     setAiWriterResponse("")
     try {
       const res = await fetch("/api/vault/ai-write", {
@@ -933,8 +992,11 @@ export function VaultView() {
   const insertAIResponse = () => {
     if (!aiWriterResponse) return
 
+    // Convert markdown (tables, headings, lists) to TipTap-compatible HTML
+    const htmlContent = mdToHtml(aiWriterResponse)
+
     if (noteEditorInsertRef.current) {
-      noteEditorInsertRef.current("\n\n" + aiWriterResponse)
+      noteEditorInsertRef.current(htmlContent)
     } else {
       setDocContent((prev) => prev + "\n\n" + aiWriterResponse)
     }

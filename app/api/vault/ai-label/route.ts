@@ -141,6 +141,20 @@ Rules:
       tags: Array.isArray(parsed.tags) ? parsed.tags.filter((t: any) => typeof t === "string").slice(0, 6) : [],
     }
 
+    // Override document_type based on file extension — AI can misclassify text/code files
+    const extOverrides: Record<string, string> = {
+      md: "Note", mdx: "Note", txt: "Note",
+      js: "Code", ts: "Code", tsx: "Code", jsx: "Code",
+      py: "Code", rb: "Code", go: "Code", rs: "Code",
+      java: "Code", cpp: "Code", c: "Code", h: "Code",
+      css: "Code", scss: "Code", sql: "Code", sh: "Code", bash: "Code",
+      xlsx: "Spreadsheet", xls: "Spreadsheet", csv: "Spreadsheet",
+    }
+    const detectedExt = (filename || "").toLowerCase().split(".").pop() || ""
+    if (extOverrides[detectedExt]) {
+      result.document_type = extOverrides[detectedExt]
+    }
+
     console.log(`${LOG} ✓ Successfully labeled: "${result.title}" | type="${result.document_type}" | tags=[${result.tags.join(", ")}]`)
 
     return NextResponse.json(result)
