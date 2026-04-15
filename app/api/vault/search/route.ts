@@ -50,6 +50,14 @@ export async function POST(request: Request) {
 
     let results: any[]
 
+    // ── Plan enforcement — semantic search requires Pro+ ────────────────────
+    const { mode: searchMode = "hybrid" } = { mode }
+    if (searchMode !== "keyword") {
+      const { requireFeature } = await import("@/lib/plan-guard")
+      const guard = await requireFeature(founderId, "vault_semantic_search")
+      if (guard) return guard
+    }
+
     if (mode === "semantic") {
       results = await vaultSemanticSearch(founderId, query, {
         limit,

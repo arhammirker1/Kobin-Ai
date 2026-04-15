@@ -12,6 +12,8 @@ import { selectModelForRequest } from "@/lib/ai/model-router"
 import { bust, CK } from "@/lib/redis"
 import { buildMemoryContext, learnFromAction } from "@/lib/ai/memory"
 import { NextResponse } from "next/server"
+import { resolvePlanContext } from "@/lib/plan-guard"
+import { getPlanLimits } from "@/lib/plans"
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -246,6 +248,28 @@ export async function POST(request: Request) {
     if (tm?.founder_id) founder_id = tm.founder_id
   }
 
+  // ── Plan enforcement ──────────────────────────────────────────────────────
+  const planCtx = await resolvePlanContext(founder_id)
+  if (!planCtx.limits.ai_command_bar) {
+    return NextResponse.json(
+      {
+        error: "plan_limit",
+        feature: "ai_command_bar",
+        required_plan: "pro",
+        message: "The AI Command Bar requires a Pro or Agency plan.",
+      },
+      { status: 403 }
+    )
+  }
+
+  // Filter tools based on plan — agency-only tools are stripped for pro
+  const planFilteredTools = ALL_TOOLS.filter((tool: any) => {
+    const name = tool.function.name
+    if (name === "vault_semantic_search" && !planCtx.limits.ai_command_bar_vault_search) return false
+    if (name === "get_meeting_notes" && !planCtx.limits.ai_command_bar_meeting_notes) return false
+    return true
+  })
+
   // ── Build context (both Redis-cached, run in parallel) ────────────────────
   const [miniContext, memoryContext] = await Promise.all([
     buildMiniContext(founder_id),
@@ -302,6 +326,11 @@ Never send nested objects for scalar fields.`
     historyCount: cappedHistory.length,
   })
 
+  // Cap model tier — non-agency plans can't use the strong model
+  const effectiveModel = !planCtx.limits.ai_command_bar_strong_model && selected.tier === "strong"
+    ? GROQ_MODEL_STD
+    : selected.model
+
   const messages: any[] = [
     { role: "system", content: systemPrompt },
     ...cappedHistory,
@@ -310,7 +339,7 @@ Never send nested objects for scalar fields.`
 
   const groq = getGroqClient()
 
-  console.log(`[CMD] model=${selected.model} tier=${selected.tier} history=${cappedHistory.length}`)
+  console.log(`[CMD] model=${effectiveModel} tier=${selected.tier} plan=${planCtx.plan} history=${cappedHistory.length}`)
 
   // ── Everything from here runs INSIDE the stream ──────────────────────────
   const enc = new TextEncoder()
@@ -338,9 +367,9 @@ Never send nested objects for scalar fields.`
           // ── Non-streaming call to get tool decisions ───────────────────
           let response: any
           try {
-            response = await groqCall(groq, selected.model, {
+            response = await groqCall(groq, effectiveModel, {
               messages,
-              tools: ALL_TOOLS as any,
+              tools: planFilteredTools as any,
               tool_choice: "auto",
               max_tokens: 1024,
               temperature: 0.2,
@@ -349,7 +378,7 @@ Never send nested objects for scalar fields.`
             const msg = apiErr?.message || ""
             if (apiErr?.status === 400 && msg.includes("tool_use_failed")) {
               console.warn(`[CMD] step=${step} schema error — retrying no-tools`)
-              response = await groqCall(groq, selected.model, { messages, max_tokens: 800, temperature: 0 })
+              response = await groqCall(groq, effectiveModel, { messages, max_tokens: 800, temperature: 0 })
             } else {
               throw apiErr
             }
@@ -368,7 +397,7 @@ Never send nested objects for scalar fields.`
             }
 
 console.log(`[CMD] step=${step} → final text stream`)
-          for await (const delta of streamFinalText(groq, selected.model, messages, { max_tokens: 1024, temperature: 0.2 })) {
+          for await (const delta of streamFinalText(groq, effectiveModel, messages, { max_tokens: 1024, temperature: 0.2 })) {
             enqueue({ type: "delta", content: delta })
           }
 
@@ -531,7 +560,7 @@ console.log(`[CMD] step=${step} → final text stream`)
             }
 
             // Stream the confirmation sentence
-            for await (const delta of streamFinalText(groq, selected.model, messages, { max_tokens: 256, temperature: 0.2 })) {
+            for await (const delta of streamFinalText(groq, effectiveModel, messages, { max_tokens: 256, temperature: 0.2 })) {
               enqueue({ type: "delta", content: delta })
             }
 
@@ -548,7 +577,7 @@ console.log(`[CMD] step=${step} → final text stream`)
         }
 
         console.log(`[CMD] max steps exhausted → final stream`)
-        for await (const delta of streamFinalText(groq, selected.model, messages, { max_tokens: 1024, temperature: 0.5 })) {
+        for await (const delta of streamFinalText(groq, effectiveModel, messages, { max_tokens: 1024, temperature: 0.5 })) {
           enqueue({ type: "delta", content: delta })
         }
 

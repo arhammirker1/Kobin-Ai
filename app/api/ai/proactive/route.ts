@@ -47,14 +47,30 @@ export async function POST(req: Request) {
 
   for (const fid of founderIds) {
     try {
+      // ── Plan enforcement — check if this founder's plan supports this type ──
+      const { resolvePlanContext } = await import("@/lib/plan-guard")
+      const planCtx = await resolvePlanContext(fid)
+
       switch (type) {
         case "morning_brief":
+          if (!planCtx.limits.ai_proactive_briefings) {
+            results.push({ founder_id: fid, status: "skipped_plan" })
+            continue
+          }
           await sendMorningBrief(fid)
           break
         case "eod_summary":
+          if (!planCtx.limits.ai_proactive_briefings) {
+            results.push({ founder_id: fid, status: "skipped_plan" })
+            continue
+          }
           await sendEODSummary(fid)
           break
         case "risk_alert": {
+          if (!planCtx.limits.ai_proactive_risk_alerts) {
+            results.push({ founder_id: fid, status: "skipped_plan" })
+            continue
+          }
           const intel = await analyzeWorkspace(fid)
           const criticalRisks = intel.risks.filter(r => r.severity === "critical")
           if (criticalRisks.length > 0) {
@@ -92,6 +108,12 @@ export async function GET(req: Request) {
 
   for (const f of founders || []) {
     try {
+      // Check plan before sending proactive messages
+      const { resolvePlanContext } = await import("@/lib/plan-guard")
+      const planCtx = await resolvePlanContext(f.id)
+      if (type === "morning_brief" && !planCtx.limits.ai_proactive_briefings) continue
+      if (type === "eod_summary" && !planCtx.limits.ai_proactive_briefings) continue
+
       if (type === "morning_brief") await sendMorningBrief(f.id)
       else await sendEODSummary(f.id)
     } catch (err) {

@@ -54,6 +54,11 @@ export async function POST(request: Request) {
       if (tm?.founder_id) founderId = tm.founder_id
     }
 
+    // ── Plan enforcement — AI Writer is Agency only ─────────────────────────
+    const { requireFeature } = await import("@/lib/plan-guard")
+    const guard = await requireFeature(founderId, "vault_ai_writer")
+    if (guard) return guard
+
     // Retrieve relevant vault context with source attribution
     const { context: vaultContext, sources } = await buildVaultRAGContext(
       founderId,

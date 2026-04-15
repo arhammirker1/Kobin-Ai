@@ -75,6 +75,12 @@ export async function upsertMemory(
 }
 
 export async function buildMemoryContext(founderId: string): Promise<string> {
+  // AI Memory is Agency-only — return empty for other plans
+  const { resolveFounderPlan } = await import("@/lib/plan-guard")
+  const { getPlanLimits } = await import("@/lib/plans")
+  const plan = await resolveFounderPlan(founderId)
+  if (!getPlanLimits(plan).ai_memory) return ""
+
   const memories = await getMemories(founderId)
   if (memories.length === 0) return ""
 
@@ -106,6 +112,12 @@ export async function learnFromAction(
   action: string,
   data: Record<string, any>
 ): Promise<void> {
+  // AI Memory is Agency-only — don't learn for other plans
+  const { resolveFounderPlan } = await import("@/lib/plan-guard")
+  const { getPlanLimits } = await import("@/lib/plans")
+  const plan = await resolveFounderPlan(founderId)
+  if (!getPlanLimits(plan).ai_memory) return
+
   try {
     if (action === "task_created" && data.assigned_to_name && data.project) {
       await upsertMemory(

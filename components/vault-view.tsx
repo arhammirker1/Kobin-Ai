@@ -33,6 +33,7 @@ import { createClient } from "@/lib/supabase/client"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import dynamic from "next/dynamic"
+import { PlanGate, UpgradeBadge } from "@/components/ui/plan-gate"
 
 // ── Dynamic imports (zero bundle cost when not used) ──────────────────────
 
@@ -1350,6 +1351,7 @@ export function VaultView() {
                 <div className="flex items-center gap-2">
                   {activeViewer === "code" && (
                   <>
+                    <PlanGate feature="vault_ai_writer" requiredPlan="agency" mode="badge">
                     <button
                       onClick={() => setCodeAiWriterOpen((v) => !v)}
                       className={cn(
@@ -1361,6 +1363,7 @@ export function VaultView() {
                     >
                       <Sparkles size={11} />Kobin AI
                     </button>
+                    </PlanGate>
                     <button
                       onClick={() => codeViewerSaveRef.current?.()}
                       className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white text-black hover:bg-white/90 rounded-lg text-[11px] font-semibold transition-all"
@@ -1373,6 +1376,7 @@ export function VaultView() {
                 {activeViewer === "docx" && (
                   <>
                     {docxEditMode && (
+                      <PlanGate feature="vault_ai_writer" requiredPlan="agency" mode="badge">
                       <button
                         onClick={() => setDocxAiWriterOpen((v) => !v)}
                         className={cn(
@@ -1384,6 +1388,7 @@ export function VaultView() {
                       >
                         <Sparkles size={11} />Kobin AI
                       </button>
+                      </PlanGate>
                     )}
                     {docxEditMode && (
                       <button
@@ -1409,6 +1414,7 @@ export function VaultView() {
                 )}
                 {activeViewer === "doc" && (
                     <>
+                      <PlanGate feature="vault_ai_writer" requiredPlan="agency" mode="badge">
                       <button
                         onClick={() => setAiWriterOpen((v) => !v)}
                         className={cn(
@@ -1420,6 +1426,7 @@ export function VaultView() {
                       >
                         <Sparkles size={11} />Kobin AI
                       </button>
+                      </PlanGate>
                       <button
                         onClick={saveNote}
                         className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white text-black hover:bg-white/90 rounded-lg text-[11px] font-semibold transition-all"

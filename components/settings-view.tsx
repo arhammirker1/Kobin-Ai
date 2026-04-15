@@ -13,6 +13,7 @@ import {
   ExternalLink, AlertCircle, CheckCircle2, HardDrive, Cloud,
 } from "lucide-react"
 import { useTheme } from "next-themes"
+import { PlanGate } from "@/components/ui/plan-gate"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 
@@ -529,9 +530,17 @@ export function SettingsView({ isClient }: { isClient?: boolean } = {}) {
 
         {!isClient && <CRMIntelligenceCard />}
 
-        {!isClient && <MeetingRecorderCard />}
+        {!isClient && (
+          <PlanGate feature="meeting_recorder" requiredPlan="agency" mode="disable" upgradeMessage="Meeting Recorder requires Agency plan">
+            <MeetingRecorderCard />
+          </PlanGate>
+        )}
 
-        {!isClient && <AIModeCard />}
+        {!isClient && (
+          <PlanGate feature="ai_proactive_briefings" requiredPlan="agency" mode="disable" upgradeMessage="Proactive AI requires Agency plan">
+            <AIModeCard />
+          </PlanGate>
+        )}
       </div>
     </div>
   )

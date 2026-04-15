@@ -9,6 +9,11 @@ export async function GET(request: Request) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
+    // ── Plan enforcement — Gmail requires Pro+ ──────────────────────────────
+    const { requireFeature } = await import("@/lib/plan-guard")
+    const guard = await requireFeature(user.id, "gmail_integration")
+    if (guard) return guard
+
     const { data: integration } = await supabaseAdmin
       .from("google_integrations")
       .select("*")

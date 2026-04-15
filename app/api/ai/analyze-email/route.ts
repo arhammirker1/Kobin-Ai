@@ -21,6 +21,11 @@ export async function POST(request: Request) {
 
     console.log(`[analyze-email] User: ${user.id}`)
 
+    // ── Plan enforcement — email analysis requires Pro+ ─────────────────────
+    const { requireFeature } = await import("@/lib/plan-guard")
+    const guard = await requireFeature(user.id, "gmail_integration")
+    if (guard) return guard
+
     let body: any
     try {
       body = await request.json()

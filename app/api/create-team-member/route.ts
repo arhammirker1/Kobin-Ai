@@ -43,6 +43,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "User not allowed" }, { status: 403 })
     }
 
+    // ── Plan enforcement — check team seat limit ────────────────────────────
+    const { count: seatCount } = await supabaseAdmin
+      .from("team_members")
+      .select("id", { count: "exact", head: true })
+      .eq("founder_id", user.id)
+      .eq("is_active", true)
+    const { requireWithinLimit } = await import("@/lib/plan-guard")
+    const limitGuard = await requireWithinLimit(user.id, "max_team_seats", seatCount ?? 0)
+    if (limitGuard) return limitGuard
+
     const { data: createdUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,

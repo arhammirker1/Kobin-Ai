@@ -25,6 +25,20 @@ export async function POST(req: NextRequest) {
 
     console.log(`[meeting-bot/process] Starting AI processing for: ${recording_id}`)
 
+    // ── Plan enforcement — meeting recorder is Agency only ──────────────────
+    // Resolve the user_id from the recording to check their plan
+    const { supabaseAdmin } = await import("@/lib/supabase/admin")
+    const { data: rec } = await supabaseAdmin
+      .from("meeting_recordings_raw")
+      .select("user_id")
+      .eq("id", recording_id)
+      .single()
+    if (rec?.user_id) {
+      const { requireFeature } = await import("@/lib/plan-guard")
+      const guard = await requireFeature(rec.user_id, "meeting_recorder")
+      if (guard) return guard
+    }
+
     const result = await processMeetingTranscript(recording_id)
 
     if (!result.success) {
