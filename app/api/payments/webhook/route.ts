@@ -3,8 +3,7 @@
 // Configure this URL in Safepay dashboard: https://www.kobin.team/api/payments/webhook
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getAdminDB } from '@/lib/admin-db'
-import { track } from '@/lib/mixpanel'  // server-safe? only import if needed
+import { supabaseAdmin } from '@/lib/supabase/admin'
 
 // Safepay sends webhook with payment event data
 // We verify by checking tracker status from their API
@@ -21,7 +20,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid payload' }, { status: 400 })
     }
 
-    const db = getAdminDB()
+    const db = supabaseAdmin
 
     // Extract order metadata from order_id: kobin_{plan}_{user_id}_{timestamp}
     const orderParts = (data.order_id || '').split('_')
