@@ -73,6 +73,7 @@ function SidebarInner({
   userInitials,
   inboxUnread,
   teamCount,
+  plan,
 }: {
   activeTab: string
   setActiveTab: (tab: string) => void
@@ -81,6 +82,7 @@ function SidebarInner({
   userInitials: string
   inboxUnread: number
   teamCount: number
+  plan: string
 }) {
   const { state, toggleSidebar } = useSidebar()
   const collapsed = state === "collapsed"
@@ -396,6 +398,7 @@ export function DashboardSidebar({
       userInitials={userInitials}
       inboxUnread={inboxUnread}
       teamCount={teamCount}
+      plan={plan}
     />
   )
 }
