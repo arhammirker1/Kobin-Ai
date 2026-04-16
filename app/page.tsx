@@ -7,6 +7,7 @@ import { SidebarProvider } from "@/components/ui/sidebar"
 import { DashboardSidebar, DashboardContent } from "@/components/dashboard-content"
 import { CommandBar } from "@/components/command-bar"
 import { PlanGate } from "@/components/ui/plan-gate"
+import { UpgradeModal } from "@/components/ui/upgrade-modal"
 import { usePlan } from "@/hooks/use-plan"
 
 const AUTH_TIMEOUT_MS = 8000
@@ -18,6 +19,7 @@ export default function Page() {
   const [authError, setAuthError] = useState<string | null>(null)
   const [userType, setUserType] = useState<string | null>(null)
   const [commandBarOpen, setCommandBarOpen] = useState(false)
+  const [upgradeModalOpen, setUpgradeModalOpen] = useState(false)
   const { has: planHas } = usePlan()
 
   useEffect(() => {
@@ -132,26 +134,51 @@ export default function Page() {
         <main className="flex-1 overflow-y-auto">
           <DashboardContent activeTab={activeTab} userType={userType || "founder"} />
         </main>
-        {/* Floating AI command button — plan-gated */}
-        <PlanGate feature="ai_command_bar" requiredPlan="pro" mode="badge">
-          <button
-            onClick={() => setCommandBarOpen(true)}
-            className="fixed bottom-6 right-6 z-40 flex items-center gap-2.5 pl-3.5 pr-4 py-3 rounded-2xl border border-border bg-card shadow-2xl transition-all hover:scale-105 active:scale-95"
-            title="AI Command Bar (⌘K)"
+        {/* Floating AI command button */}
+        <UpgradeModal
+          open={upgradeModalOpen}
+          onClose={() => setUpgradeModalOpen(false)}
+          featureName="AI Command Bar"
+          requiredPlan="pro"
+        />
+        <button
+          onClick={() =>
+            planHas("ai_command_bar")
+              ? setCommandBarOpen(true)
+              : setUpgradeModalOpen(true)
+          }
+          className="fixed bottom-6 right-6 z-40 flex items-center gap-2.5 pl-3.5 pr-4 py-3 rounded-2xl border border-border bg-card shadow-2xl transition-all hover:scale-105 active:scale-95"
+          title={
+            planHas("ai_command_bar")
+              ? "AI Command Bar (⌘K)"
+              : "Upgrade to Pro to use AI Command Bar"
+          }
+        >
+          <div
+            className="w-5 h-5 rounded-md flex items-center justify-center shrink-0"
+            style={{ background: "linear-gradient(135deg, #5B4FE8 0%, #7C3AED 100%)" }}
           >
-            <div
-              className="w-5 h-5 rounded-md flex items-center justify-center shrink-0"
-              style={{ background: "linear-gradient(135deg, #5B4FE8 0%, #7C3AED 100%)" }}
-            >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
-                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
-                  stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </div>
-            <span className="text-xs font-medium text-muted-foreground">Ask AI</span>
-            <kbd className="text-[10px] text-muted-foreground/60 border border-border rounded px-1.5 py-0.5 bg-muted/50">⌘K</kbd>
-          </button>
-        </PlanGate>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+                stroke="white"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
+          <span className="text-xs font-medium text-muted-foreground">Ask AI</span>
+          {planHas("ai_command_bar") ? (
+            <kbd className="text-[10px] text-muted-foreground/60 border border-border rounded px-1.5 py-0.5 bg-muted/50">
+              ⌘K
+            </kbd>
+          ) : (
+            <span className="text-[9px] font-bold uppercase tracking-wider text-violet-400 bg-violet-500/10 border border-violet-500/20 rounded px-1.5 py-0.5">
+              Pro
+            </span>
+          )}
+        </button>
         <CommandBar open={commandBarOpen} onClose={() => setCommandBarOpen(false)} />
       </div>
     </SidebarProvider>
