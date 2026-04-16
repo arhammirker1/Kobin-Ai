@@ -8,8 +8,6 @@
 import { useEffect, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import Nav from '../../../components/Nav'
-import { track } from '../../../lib/mixpanel'
 
 const KernMark = ({ size = 16 }) => (
   <svg viewBox="0 0 512 512" fill="none" width={size} height={size}>
@@ -39,7 +37,7 @@ function SuccessContent() {
       return
     }
 
-    track('Payment Success Page Loaded', { plan, tracker, order_id })
+    // track('Payment Success Page Loaded', { plan, tracker, order_id })
     verifyPayment()
   }, [])
 
@@ -47,7 +45,7 @@ function SuccessContent() {
   async function verifyPayment(attempt = 0) {
     if (attempt > 4) {
       setStatus('error')
-      track('Payment Verification Failed', { plan, tracker, order_id, attempts: attempt })
+      // track('Payment Verification Failed', { plan, tracker, order_id, attempts: attempt })
       return
     }
 
@@ -61,7 +59,7 @@ function SuccessContent() {
 
       if (data.paid) {
         setStatus('success')
-        track('Payment Verified', { plan, order_id, amount: data.amount, currency: data.currency })
+        // track('Payment Verified', { plan, order_id, amount: data.amount, currency: data.currency })
         return
       }
 
@@ -77,7 +75,6 @@ function SuccessContent() {
 
   return (
     <>
-      <Nav />
       <div style={{
         paddingTop:  '56px',
         background:  '#F6F4EF',
@@ -200,7 +197,7 @@ function SuccessContent() {
                   marginBottom:   '12px',
                   transition:     'background 0.15s',
                 }}
-                onClick={() => track('Open App Clicked', { plan, source: 'success_page' })}
+                // onClick={() => track('Open App Clicked', { plan, source: 'success_page' })}
               >
                 Open Kobin AI →
               </a>

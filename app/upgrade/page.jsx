@@ -8,9 +8,7 @@
 import { useEffect, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import Nav from '../../components/Nav'
 import SafepayCheckout from '../../components/SafepayCheckout'
-import { track } from '../../lib/mixpanel'
 
 // ── Kobin mark SVG ────────────────────────────────────────────────────────────
 const KernMark = ({ size = 16 }) => (
@@ -90,17 +88,17 @@ function UpgradeContent() {
 
   // ── Track page view ──────────────────────────────────────────────────────
   useEffect(() => {
-    track('Upgrade Page Viewed', {
+    /* track('Upgrade Page Viewed', {
       preselected_plan: preselect,
       cancelled:        !!cancelled,
       feature_wall_hit: featureHit ?? null,
-    })
+    }) */
   }, [])
 
   // ── Track plan toggle ────────────────────────────────────────────────────
   function selectPlan(plan) {
     setSelected(plan)
-    track('Plan Toggled', { plan, source: 'upgrade_page' })
+    // track('Plan Toggled', { plan, source: 'upgrade_page' })
   }
 
   const features = selected === 'agency' ? AGENCY_FEATURES : PRO_FEATURES
@@ -112,7 +110,6 @@ function UpgradeContent() {
 
   return (
     <>
-      <Nav />
       <div style={{
         paddingTop:   '56px',
         background:   '#F6F4EF',
