@@ -8,6 +8,8 @@
 import { useEffect, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
+import { invalidatePlanCache } from '../../../hooks/use-plan'
+import { Rocket } from 'lucide-react'
 
 const KernMark = ({ size = 16 }) => (
   <svg viewBox="0 0 512 512" fill="none" width={size} height={size}>
@@ -59,6 +61,7 @@ function SuccessContent() {
 
       if (data.paid) {
         setStatus('success')
+        invalidatePlanCache() // Refresh the UI state
         // track('Payment Verified', { plan, order_id, amount: data.amount, currency: data.currency })
         return
       }

@@ -13,6 +13,7 @@ import {
   Inbox,
   Sun,
   Moon,
+  Rocket,
 } from "lucide-react"
 import {
   Sidebar,
@@ -32,6 +33,8 @@ import { useEffect, useState, useMemo } from "react"
 import { useTheme } from "next-themes"
 import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
+import { usePlan } from "@/hooks/use-plan"
+import Link from "next/link"
 import { TodayView } from "@/components/today-view"
 import { CalendarView } from "@/components/calendar-view"
 import { TaskView } from "@/components/task-view"
@@ -256,6 +259,25 @@ function SidebarInner({
           )
         )}
 
+        {/* Upgrade CTA */}
+        {plan === "free" && !collapsed && (
+          <Link href="/upgrade" className="mb-3 block px-1">
+            <div className="group relative overflow-hidden rounded-xl bg-[#5B4FE8] p-3 transition-all hover:bg-[#4D43CC] active:scale-[0.98]">
+              <div className="relative z-10 flex items-center gap-2.5 text-white">
+                <div className="flex size-7 items-center justify-center rounded-lg bg-white/20 backdrop-blur-sm">
+                  <Rocket className="size-4" />
+                </div>
+                <div className="flex flex-col min-w-0">
+                  <span className="text-[13px] font-semibold leading-none mb-1">Upgrade to Pro</span>
+                  <span className="text-[10px] text-white/70 truncate">Unlock AI Power</span>
+                </div>
+              </div>
+              {/* Subtle shine effect */}
+              <div className="absolute inset-0 z-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
+            </div>
+          </Link>
+        )}
+
         {/* User profile */}
         <button
           className={cn(
@@ -287,6 +309,7 @@ export function DashboardSidebar({
   activeTab: string
   setActiveTab: (tab: string) => void
 }) {
+  const { plan } = usePlan()
   const [userName, setUserName] = useState<string>("User")
   const [userEmail, setUserEmail] = useState<string>("")
   const [userInitials, setUserInitials] = useState<string>("U")
