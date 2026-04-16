@@ -164,19 +164,6 @@ export default function DocxViewer({
       <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-card flex-shrink-0 gap-3">
         <span className="text-[11px] text-muted-foreground font-mono truncate flex-1">{filename}</span>
         <div className="flex items-center gap-1.5 shrink-0">
-          {onAIWriterToggle && editMode && (
-            <button
-              onClick={onAIWriterToggle}
-              className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-all",
-                aiWriterOpen
-                  ? "bg-violet-500/15 border-violet-500/30 text-violet-600 dark:text-violet-400"
-                  : "border-border bg-muted/30 text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Sparkles size={10} />Kobin AI
-            </button>
-          )}
           {fileUrl && (
             <>
               <a href={fileUrl} download className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent rounded-lg transition-all">

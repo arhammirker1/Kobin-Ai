@@ -247,18 +247,6 @@ function TipTapEditorInner({
                         </button>
                     )
                 )}
-                {onAIWrite && (
-                    <>
-                        <div className="w-px h-3.5 bg-border mx-1.5" />
-                        <button
-                            onClick={onAIWrite}
-                            className="flex items-center gap-1.5 px-2.5 h-7 rounded-md text-[11px] font-semibold text-[var(--brand-violet)] bg-[var(--brand-violet)]/10 border border-[var(--brand-violet)]/20 hover:bg-[var(--brand-violet)]/20 transition-all"
-                        >
-                            <Sparkles size={10} />
-                            Kobin AI
-                        </button>
-                    </>
-                )}
             </div>
 
             {/* Editor area */}

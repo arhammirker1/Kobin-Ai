@@ -488,20 +488,6 @@ function CodeToolbar({
       </div>
 
       <div className="flex items-center gap-1">
-        {/* AI Writer */}
-        {onAIWriterToggle && (
-          <button
-            onClick={onAIWriterToggle}
-            className={cn(
-              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all border",
-              aiWriterOpen
-                ? "bg-violet-500/15 border-violet-500/30 text-violet-600 dark:text-violet-400"
-                : "border-border bg-muted/30 text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <Sparkles size={10} />Kobin AI
-          </button>
-        )}
 
         {/* Copy */}
         <button
