@@ -67,9 +67,9 @@ export async function vaultSemanticSearch(
     "vault_chunk_search",
     {
       p_founder_id: founderId,
-      p_embedding:  vectorLiteral,
-      p_limit:      limit * 10,    // larger buffer ensures diverse item coverage
-      p_threshold:  threshold,
+      p_embedding: vectorLiteral,
+      p_limit: limit * 10,    // larger buffer ensures diverse item coverage
+      p_threshold: threshold,
     }
   )
 
@@ -125,7 +125,7 @@ export async function vaultSemanticSearch(
     .eq("founder_id", founderId)
 
   if (projectId) q = q.eq("project_id", projectId)
-  if (itemType)  q = q.eq("item_type", itemType)
+  if (itemType) q = q.eq("item_type", itemType)
 
   const { data: items } = await q
   if (!items) return []
@@ -195,9 +195,9 @@ export async function getRelatedContext(
     "vault_related_items",
     {
       p_vault_item_id: vaultItemId,
-      p_founder_id:    founderId,
-      p_limit:         limit,
-      p_threshold:     0.25,
+      p_founder_id: founderId,
+      p_limit: limit,
+      p_threshold: 0.25,
     }
   )
 
@@ -288,16 +288,16 @@ export async function buildVaultRAGContext(
 
     const groundedResults = queryEntities.length > 0
       ? results.filter((item) => {
-          const haystack = [
-            item.title, item.description, item.note_content,
-            item.best_chunk_text,
-          ].filter(Boolean).join(" ").toLowerCase()
+        const haystack = [
+          item.title, item.description, item.note_content,
+          item.best_chunk_text,
+        ].filter(Boolean).join(" ").toLowerCase()
 
-          // Include item if ANY query entity appears in its content
-          // OR if similarity is very high (≥0.75 → trust the vector)
-          return queryEntities.some(e => haystack.includes(e.toLowerCase())) ||
-            item.similarity >= 0.75
-        })
+        // Include item if ANY query entity appears in its content
+        // OR if similarity is very high (≥0.75 → trust the vector)
+        return queryEntities.some(e => haystack.includes(e.toLowerCase())) ||
+          item.similarity >= 0.75
+      })
       : results
 
     // If grounding filtered everything out, fall back to top-2 raw results with a caveat

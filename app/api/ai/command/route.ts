@@ -38,8 +38,8 @@ function packHistory(
 function repairArgs(toolName: string, args: Record<string, any>): Record<string, any> {
   const r = { ...args }
   if (toolName === "create_task" || toolName === "update_task") {
-    if (!r.title && r.task_name)       r.title = r.task_name
-    if (!r.notes && r.description)     r.notes = r.description
+    if (!r.title && r.task_name) r.title = r.task_name
+    if (!r.notes && r.description) r.notes = r.description
     if (!r.assigned_to_name && r.assignee) r.assigned_to_name = r.assignee
     if (r.vault_file_names && !Array.isArray(r.vault_file_names))
       r.vault_file_names = typeof r.vault_file_names === "string" ? [r.vault_file_names] : []
@@ -78,30 +78,30 @@ function sseChunk(data: Record<string, any>) {
 // ── Human-readable tool status labels ───────────────────────────────────────
 
 const READ_TOOL_LABELS: Record<string, string> = {
-  get_workspace_overview:    "Scanning your workspace…",
-  get_tasks:                 "Reading your tasks…",
-  get_projects:              "Loading projects…",
-  get_team_workload:         "Checking team workload…",
-  get_crm_pipeline:          "Reviewing CRM pipeline…",
-  get_calendar:              "Checking your calendar…",
-  get_vault_files:           "Browsing vault files…",
+  get_workspace_overview: "Scanning your workspace…",
+  get_tasks: "Reading your tasks…",
+  get_projects: "Loading projects…",
+  get_team_workload: "Checking team workload…",
+  get_crm_pipeline: "Reviewing CRM pipeline…",
+  get_calendar: "Checking your calendar…",
+  get_vault_files: "Browsing vault files…",
   get_task_creation_context: "Gathering context…",
-  search_contacts:           "Looking up contact…",
-  get_meeting_notes:         "Fetching meeting notes…",
-  analyze_workspace:         "Analyzing workspace…",
-  vault_semantic_search:     "Searching vault semantically…",
+  search_contacts: "Looking up contact…",
+  get_meeting_notes: "Fetching meeting notes…",
+  analyze_workspace: "Analyzing workspace…",
+  vault_semantic_search: "Searching vault semantically…",
 }
 
 const ACTION_TOOL_LABELS: Record<string, string> = {
-  create_task:          "Creating task…",
-  update_task:          "Updating task…",
-  delete_task:          "Finding task to delete…",
-  create_project:       "Creating project…",
-  update_project:       "Updating project…",
-  search_messages:      "Searching messages…",
-  update_deal_stage:    "Updating deal stage…",
+  create_task: "Creating task…",
+  update_task: "Updating task…",
+  delete_task: "Finding task to delete…",
+  create_project: "Creating project…",
+  update_project: "Updating project…",
+  search_messages: "Searching messages…",
+  update_deal_stage: "Updating deal stage…",
   send_message_to_room: "Preparing message…",
-  analyze_workspace:    "Running workspace analysis…",
+  analyze_workspace: "Running workspace analysis…",
 }
 
 async function groqCall(groq: any, model: string, payload: Record<string, any>) {
@@ -150,64 +150,132 @@ function createToolMemoizer() {
 //   • No tool history in messages → stream directly, no tools needed (safe)
 //   • Has tool history → non-streaming call (Groq validates history correctly),
 //     yield content as a single chunk so all call sites can `for await` uniformly
+/**
+ * Synthesizes a final text answer after tool calls have completed.
+ *
+ * Strategy:
+ *  1. Build a clean "synthesis" message array:
+ *     - Keep the system prompt
+ *     - Keep the original user question
+ *     - Inject tool results as a single compressed assistant context block
+ *     → This eliminates ALL tool-call message history, which is what causes
+ *       Groq to throw "tool_choice:none but model called a tool"
+ *  2. Stream the response with NO tools in the payload — model cannot call tools
+ *     because there are no tools to call. Zero chance of the 400 error.
+ *  3. Fallback: if stream fails (e.g. rate limit), yield graceful error string.
+ *
+ * Why not tool_choice:"none"? Groq validates message history against the tool
+ * schema even when choice is "none". If any assistant message in history
+ * contains tool_calls, Groq demands tools be present, then crashes when the
+ * model tries to use them. Stripping history is cleaner and more reliable.
+ */
 async function* streamFinalText(
   groq: any,
   model: string,
   messages: any[],
   opts: { max_tokens: number; temperature: number }
 ): AsyncGenerator<string> {
-  const hasToolHistory = messages.some(
-    (m) =>
-      (m.role === "assistant" && Array.isArray(m.tool_calls) && m.tool_calls.length > 0) ||
-      m.role === "tool"
+  // ── Build clean synthesis context ──────────────────────────────────────────
+  // Extract the original system prompt and user question
+  const systemMsg = messages.find((m) => m.role === "system")
+  const userMessages = messages.filter((m) => m.role === "user")
+  const lastUserMsg = userMessages[userMessages.length - 1]
+
+  // Collect all tool results from the message history and compress them
+  // into a single context block. This preserves the information without
+  // carrying the tool-call structure that breaks Groq's validation.
+  const toolResultBlocks = messages.filter((m) => m.role === "tool")
+  const assistantToolCalls = messages.filter(
+    (m) => m.role === "assistant" && Array.isArray(m.tool_calls) && m.tool_calls.length > 0
   )
 
+  const hasToolHistory = toolResultBlocks.length > 0
+
   if (!hasToolHistory) {
-    // Clean path — no tool history, stream freely without tools
+    // Clean path — no tool history, stream directly with no tools
+    try {
+      const stream = await groqCall(groq, model, {
+        ...opts,
+        messages: [systemMsg, lastUserMsg].filter(Boolean),
+        stream: true,
+      })
+      for await (const chunk of stream) {
+        const delta = chunk.choices[0]?.delta?.content
+        if (delta) yield delta
+      }
+    } catch (err: any) {
+      console.error("[CMD/streamFinalText] clean stream failed:", err?.message)
+      yield "I ran into a temporary issue. Please retry in a moment."
+    }
+    return
+  }
+
+  // ── Compress tool results into a readable context block ────────────────────
+  // Maps tool call IDs back to their function names for readable labels
+  const toolCallIndex = new Map<string, string>()
+  for (const m of assistantToolCalls) {
+    for (const tc of m.tool_calls) {
+      toolCallIndex.set(tc.id, tc.function?.name ?? "tool")
+    }
+  }
+
+  const contextParts: string[] = []
+  for (const toolMsg of toolResultBlocks) {
+    const toolName = toolCallIndex.get(toolMsg.tool_call_id) ?? "tool_result"
+    const content = typeof toolMsg.content === "string"
+      ? toolMsg.content
+      : JSON.stringify(toolMsg.content)
+    // Truncate individual tool results to avoid token bloat
+    contextParts.push(`[${toolName}]\n${content.slice(0, 4000)}`)
+  }
+
+  const compressedContext = contextParts.join("\n\n---\n\n")
+
+  // Inject as a user-turn context block so the model synthesizes from it.
+  // No tool schema, no tool_calls in history → Groq cannot trigger tool_use_failed.
+  const synthesisMessages = [
+    systemMsg,
+    {
+      role: "user" as const,
+      content: lastUserMsg?.content ?? "",
+    },
+    {
+      role: "assistant" as const,
+      content: `I retrieved the following data from the workspace:\n\n${compressedContext}`,
+    },
+    {
+      role: "user" as const,
+      content: "Based on the data above, please answer my question directly and completely.",
+    },
+  ].filter(Boolean)
+
+  // ── Stream synthesis — NO tools in payload ─────────────────────────────────
+  try {
     const stream = await groqCall(groq, model, {
       ...opts,
-      messages,
+      messages: synthesisMessages,
       stream: true,
+      // Explicitly no tools — model has no mechanism to call them
     })
     for await (const chunk of stream) {
       const delta = chunk.choices[0]?.delta?.content
       if (delta) yield delta
     }
-    return
-  }
-
-  // Tool history present — Groq requires tools in payload for message validation.
-  // Use non-streaming to avoid the streaming "tool_choice:none + model calls tool" crash.
-  let resp: any
-  try {
-    resp = await groqCall(groq, model, {
-      ...opts,
-      messages,
-      tools: ALL_TOOLS,
-      tool_choice: "none",
-    })
-  } catch (err: any) {
-    // tool_choice:none rejected (model tries to call a tool anyway) — strip history and retry
-    console.warn("[CMD/streamFinalText] tool_choice:none rejected — retrying with stripped history:", err?.message)
-    const systemMsg = messages.find((m) => m.role === "system")
-    const userMessages = messages.filter((m) => m.role === "user")
-    const lastUser = userMessages[userMessages.length - 1]
+  } catch (streamErr: any) {
+    console.error("[CMD/streamFinalText] synthesis stream failed:", streamErr?.message)
+    // Last-resort: non-streaming call, same clean messages
     try {
-      resp = await groqCall(groq, model, {
+      const resp = await groqCall(groq, model, {
         ...opts,
-        messages: [systemMsg, lastUser].filter(Boolean),
+        messages: synthesisMessages,
       })
+      const content: string = resp?.choices?.[0]?.message?.content ?? ""
+      if (content) yield content
     } catch (fallbackErr: any) {
-      // Second attempt also failed (e.g. rate limit). Yield a graceful message
-      // instead of letting the error propagate and kill the stream.
-      console.error("[CMD/streamFinalText] fallback also failed:", fallbackErr?.message)
+      console.error("[CMD/streamFinalText] all fallbacks failed:", fallbackErr?.message)
       yield "I ran into a temporary issue. Please retry in a moment."
-      return
     }
   }
-
-  const content: string = resp?.choices?.[0]?.message?.content ?? ""
-  if (content) yield content
 }
 
 // ── Confirmed delete handler ─────────────────────────────────────────────────
@@ -363,14 +431,19 @@ Never send nested objects for scalar fields.`
       }
 
       const actionEvents: Array<Record<string, any>> = []
-        const createActionsExecuted = new Set<string>()
-        let lastActionMessage = ""
-        // Shared across all steps — deduplicates repeated read tool calls with identical args
-        const toolMemo = createToolMemoizer()
+      const createActionsExecuted = new Set<string>()
+      let lastActionMessage = ""
+      // Shared across all steps — deduplicates repeated read tool calls with identical args
+      const toolMemo = createToolMemoizer()
+      // Per-request search budget: vault + message searches are expensive.
+      // Allow up to 4 unique searches per request before forcing synthesis.
+      const searchBudget = new Map<string, number>() // toolName → call count
+      const SEARCH_BUDGET_LIMIT = 4
+      const SEARCH_TOOLS = new Set(["vault_semantic_search", "search_messages"])
 
-        try {
-          // ── Agentic loop (max 4 steps) ───────────────────────────────────
-          for (let step = 0; step < 4; step++) {
+      try {
+        // ── Agentic loop (max 4 steps) ───────────────────────────────────
+        for (let step = 0; step < 6; step++) {
 
           // ── Non-streaming call to get tool decisions ───────────────────
           let response: any
@@ -404,10 +477,10 @@ Never send nested objects for scalar fields.`
               enqueue({ type: "action_executed", ...ev })
             }
 
-console.log(`[CMD] step=${step} → final text stream`)
-          for await (const delta of streamFinalText(groq, effectiveModel, messages, { max_tokens: 1024, temperature: 0.2 })) {
-            enqueue({ type: "delta", content: delta })
-          }
+            console.log(`[CMD] step=${step} → final text stream`)
+            for await (const delta of streamFinalText(groq, effectiveModel, messages, { max_tokens: 1024, temperature: 0.2 })) {
+              enqueue({ type: "delta", content: delta })
+            }
 
             enqueue({ type: "done" })
             ctrl.close()
@@ -417,11 +490,11 @@ console.log(`[CMD] step=${step} → final text stream`)
           // ── Has tool calls ─────────────────────────────────────────────
           console.log(`[CMD] step=${step} tools=${toolCalls.map((tc: any) => tc.function.name).join(",")}`)
 
-          const hasRead   = toolCalls.some((tc: any) => READ_TOOL_NAMES.has(tc.function.name))
+          const hasRead = toolCalls.some((tc: any) => READ_TOOL_NAMES.has(tc.function.name))
           const hasAction = toolCalls.some((tc: any) => !READ_TOOL_NAMES.has(tc.function.name))
-          const isMixed   = hasRead && hasAction
+          const isMixed = hasRead && hasAction
 
-          const readCalls   = toolCalls.filter((tc: any) =>  READ_TOOL_NAMES.has(tc.function.name))
+          const readCalls = toolCalls.filter((tc: any) => READ_TOOL_NAMES.has(tc.function.name))
           const actionCalls = toolCalls.filter((tc: any) => !READ_TOOL_NAMES.has(tc.function.name))
 
           const toolResults: Array<{ tool_call_id: string; role: "tool"; content: string }> = []
@@ -444,15 +517,34 @@ console.log(`[CMD] step=${step} → final text stream`)
             const readPromises = readCalls.map(async (tc: any) => {
               const toolName = tc.function.name
               let toolArgs: Record<string, any> = {}
-              try { toolArgs = JSON.parse(tc.function.arguments) } catch {}
+              try { toolArgs = JSON.parse(tc.function.arguments) } catch { }
               toolArgs = repairArgs(toolName, toolArgs)
+
+              // ── Search budget enforcement ──────────────────────────────
+              // Prevent runaway search loops while still allowing the model
+              // to refine queries up to SEARCH_BUDGET_LIMIT times per request.
+              if (SEARCH_TOOLS.has(toolName)) {
+                const currentCount = searchBudget.get(toolName) ?? 0
+                if (currentCount >= SEARCH_BUDGET_LIMIT) {
+                  console.warn(`[CMD] Search budget exhausted for ${toolName} (${currentCount}/${SEARCH_BUDGET_LIMIT}) — returning cached signal`)
+                  return {
+                    tool_call_id: tc.id,
+                    role: "tool" as const,
+                    content: JSON.stringify({
+                      budget_exhausted: true,
+                      message: `Search budget reached for ${toolName}. Synthesize from results already retrieved.`,
+                    }),
+                  }
+                }
+                searchBudget.set(toolName, currentCount + 1)
+              }
 
               const key = memoKey(toolName, toolArgs)
               const result = await toolMemo.getOrExecute(key, () =>
                 executeReadTool(toolName as ReadToolName, toolArgs, founder_id)
               )
 
-              if (result.teamData)    actionContext.team     = result.teamData
+              if (result.teamData) actionContext.team = result.teamData
               if (result.projectData) actionContext.projects = result.projectData
 
               // Signal this specific tool is done
@@ -475,7 +567,7 @@ console.log(`[CMD] step=${step} → final text stream`)
           for (const tc of actionCalls) {
             const toolName = tc.function.name
             let toolArgs: Record<string, any> = {}
-            try { toolArgs = JSON.parse(tc.function.arguments) } catch {}
+            try { toolArgs = JSON.parse(tc.function.arguments) } catch { }
             toolArgs = repairArgs(toolName, toolArgs)
 
             if (isMixed) {

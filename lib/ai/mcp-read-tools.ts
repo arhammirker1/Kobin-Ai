@@ -1346,16 +1346,31 @@ async function execMeetingNotes(
   return { content: lines.join("\n") }
 }
 
+/**
+ * execVaultSemanticSearch
+ *
+ * Delegates to vaultSemanticSearch() from vault-rag.ts which already does:
+ *   - Chunk-level vector search (vault_chunk_search RPC) with item-level fallback
+ *   - Groups all matching chunks per document so multi-section docs surface fully
+ *   - MMR deduplication (balances relevance vs diversity)
+ *
+ * Then fetches ALL top chunks per matched document (not just the best one),
+ * so the model can compile a complete answer from a long document in one shot.
+ * This is the primary fix for "model searches 3 times because first result
+ * was incomplete" — it gets enough content the first time.
+ */
 export async function execVaultSemanticSearch(
   args: Record<string, any>,
   founderId: string
 ): Promise<ReadToolResult> {
   const { query, project_name, limit = 5 } = args
+  // Default 5 items, cap at 10 — each item surfaces up to 3 chunks so
+  // 5 items × 3 chunks × ~400 chars = ~6k chars, well within context budget
   const cap = Math.min(limit, 10)
 
   if (!query?.trim()) return { content: "No search query provided." }
 
-  // Resolve project filter
+  // Resolve optional project filter
   let projectId: string | null = null
   if (project_name) {
     const { data } = await supabaseAdmin
@@ -1365,94 +1380,101 @@ export async function execVaultSemanticSearch(
       .ilike("name", `%${project_name}%`)
       .limit(1)
     if (data?.[0]) projectId = data[0].id
+    else return { content: `No project found matching "${project_name}".` }
   }
 
   try {
-    // Generate embedding via OpenAI
-// REPLACE with:
-    const embedRes = await fetch(
-      "https://router.huggingface.co/hf-inference/models/BAAI/bge-small-en-v1.5",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${process.env.HUGGINGFACE_API_KEY!}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ inputs: query.slice(0, 2000) }),
-      }
-    )
+    // ── Primary: chunk-aware search via vault-rag (MMR + dedup) ───────────────
+    const { vaultSemanticSearch } = await import("@/lib/ai/vault-rag")
+    const results = await vaultSemanticSearch(founderId, query, {
+      limit: cap,
+      threshold: 0.15,
+      projectId: projectId ?? undefined,
+    })
 
-    if (!embedRes.ok) {
+    console.log(`[VaultSearch/MCP] ${results.length} items via chunk-aware search for "${query}"`)
+
+    if (results.length === 0) {
+      // Keyword fallback — zero vector candidates
       return execVaultKeyword(args, founderId)
     }
 
-    const embedData = await embedRes.json()
-    const embedding = Array.isArray(embedData[0]) ? embedData[0] : embedData
-    const vector = `[${embedding.join(",")}]`
+    // ── Fetch top-3 chunks per matched document ───────────────────────────────
+    // The vault-rag layer already identified the BEST chunk per item.
+    // Here we pull up to 3 additional ranked chunks from each document so the
+    // model can compile a complete picture of long documents without needing
+    // a second search call.
+    const itemIds = results.map((r) => r.id)
 
-    // RPC similarity search
-    const { data: similarities } = await supabaseAdmin.rpc("vault_semantic_search", {
-      p_founder_id: founderId,
-      p_embedding: vector,
-      p_limit: cap * 2,
-      p_threshold: 0.15,
-    })
+    const { data: topChunks } = await supabaseAdmin
+      .from("vault_chunks")
+      .select("vault_item_id, chunk_text, chunk_index")
+      .in("vault_item_id", itemIds)
+      .order("chunk_index", { ascending: true })
 
-    if (!similarities || similarities.length === 0) {
-      return execVaultKeyword(args, founderId) // fallback
+    // Group chunks by item — max 3 per item to bound token usage
+    const chunksByItem: Record<string, string[]> = {}
+    for (const chunk of topChunks || []) {
+      if (!chunksByItem[chunk.vault_item_id]) chunksByItem[chunk.vault_item_id] = []
+      if (chunksByItem[chunk.vault_item_id].length < 3) {
+        chunksByItem[chunk.vault_item_id].push(chunk.chunk_text)
+      }
     }
 
-    const itemIds = similarities.map((s: any) => s.vault_item_id)
-    console.log(`[VaultSearch/MCP] ${itemIds.length} candidates via vector for "${query}"`)
-
-    // Include note_content + extracted_text so AI can actually summarize documents
-    let q = supabaseAdmin
-      .from("vault_items")
-      .select("id, title, description, item_type, document_type, project_id, note_content, extracted_text")
-      .in("id", itemIds)
-      .eq("founder_id", founderId)
-
-    if (projectId) q = q.eq("project_id", projectId)
-
-    const { data: items } = await q
-    if (!items || items.length === 0) return { content: "No vault items found matching that query." }
-
-    // Resolve project names
-    const pIds = [...new Set(items.map((i) => i.project_id).filter(Boolean))] as string[]
+    // Resolve project names for display
+    const pIds = [...new Set(results.map((r) => r.project_id).filter(Boolean))] as string[]
     let pMap: Record<string, string> = {}
     if (pIds.length > 0) {
       const { data } = await supabaseAdmin.from("projects").select("id, name").in("id", pIds)
       if (data) pMap = Object.fromEntries(data.map((p) => [p.id, p.name]))
     }
 
-    const simMap = Object.fromEntries(similarities.map((s: any) => [s.vault_item_id, s.similarity]))
+    const lines: string[] = [
+      `Vault semantic search — "${query}" (${results.length} documents):`,
+      `NOTE: Attribute all facts to their source document title when answering.`,
+    ]
 
-    const ranked = items
-      .map((item) => ({ ...item, similarity: simMap[item.id] || 0 }))
-      .sort((a, b) => b.similarity - a.similarity)
-      .slice(0, cap)
-
-    console.log(`[VaultSearch/MCP] Returning top-${ranked.length} results for "${query}"`)
-
-    const lines = [`Vault semantic search — "${query}" (${ranked.length} results):`,
-      `NOTE: These documents may belong to clients or projects. Always attribute data to its source title.`]
-    for (const item of ranked) {
+    for (const item of results) {
       const sim = (item.similarity * 100).toFixed(0)
-      const proj = item.project_id ? pMap[item.project_id] || "Unknown" : "No project"
+      const proj = item.project_id ? (pMap[item.project_id] || "Unknown project") : "No project"
+      const matchedChunks = item.matched_chunks ?? 1
+
       lines.push(`\n### [${sim}% match] "${item.title}" | ${item.document_type} | ${item.item_type} | ${proj}`)
       if (item.description) lines.push(`Description: ${item.description.slice(0, 120)}`)
-      // Include actual content so AI can summarize — capped to avoid context overflow
-      const content = (item.note_content || item.extracted_text || "").trim()
-      if (content) {
-        lines.push(`Content (first 800 chars):`)
-        lines.push(content.slice(0, 800))
-        if (content.length > 800) lines.push(`… [${content.length} chars total — use vault_semantic_search with higher limit for more]`)
+      if (matchedChunks > 1) lines.push(`(${matchedChunks} sections of this document matched your query)`)
+
+      // ── Content assembly: prefer chunks, fall back to full-text fields ────────
+      const chunks = chunksByItem[item.id]
+
+      if (chunks && chunks.length > 0) {
+        // Chunks exist — stitch them with clear section separators
+        lines.push(`Document content (${chunks.length} section${chunks.length > 1 ? "s" : ""}):`)
+        for (let i = 0; i < chunks.length; i++) {
+          lines.push(chunks[i].slice(0, 600))
+          if (chunks[i].length > 600) lines.push(`… [section continues]`)
+          if (i < chunks.length - 1) lines.push(`---`)
+        }
+      } else {
+        // No chunks stored yet — fall back to note_content or extracted_text
+        // These come from vaultSemanticSearch results directly
+        const fallbackContent = (item.note_content || item.best_chunk_text || "").trim()
+        if (fallbackContent) {
+          lines.push(`Content:`)
+          lines.push(fallbackContent.slice(0, 1200))
+          if (fallbackContent.length > 1200) {
+            lines.push(`… [document has ${fallbackContent.length} total chars — re-search with higher limit for more sections]`)
+          }
+        } else if (item.description) {
+          lines.push(`Summary: ${item.description}`)
+        }
       }
     }
 
     return { content: lines.join("\n") }
+
   } catch (err: any) {
-    console.error("[vault semantic search]", err)
+    console.error("[VaultSearch/MCP] Error:", err)
+    // Graceful degradation — keyword search still returns something useful
     return execVaultKeyword(args, founderId)
   }
 }
