@@ -17,6 +17,17 @@ interface Message {
   timestamp: number
   actionEvents?: ActionEvent[]
   toolActivity?: ToolActivity[]
+  vaultSources?: VaultSource[]
+  isVaultQuery?: boolean
+}
+
+interface VaultSource {
+  id: string
+  title: string
+  document_type: string
+  similarity: number
+  project_name?: string
+  chunk_preview?: string
 }
 
 interface ActionEvent {
@@ -321,6 +332,8 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
   const [liveActivities, setLiveActivities] = useState<ToolActivity[]>([])
   // True during the gap between all tools finishing and first delta arriving
   const [thinkingAfterTools, setThinkingAfterTools] = useState(false)
+  // Vault slash-command mode
+  const [vaultMode, setVaultMode] = useState(false)
 
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -364,6 +377,7 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
       setView("list")
       setLiveActivities([])
       setThinkingAfterTools(false)
+      setVaultMode(false)
       setTimeout(() => inputRef.current?.focus(), 100)
     }
   }, [open])
@@ -472,21 +486,32 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
   // ── Send message ───────────────────────────────────────────────────────────
 
   const sendMessage = useCallback(async (text?: string) => {
-    const question = (text || input).trim()
-    if (!question || isStreaming) return
+    const raw = (text || input).trim()
+    if (!raw || isStreaming) return
+
+    // ── Detect /vault prefix ───────────────────────────────────────────────
+    const isVault = raw.startsWith("/vault ") || raw === "/vault"
+    const question = isVault ? raw.slice(7).trim() : raw
+
+    if (isVault && !question) return // typed /vault but nothing after it
 
     setInput("")
+    setVaultMode(false)
     setView("chat")
     setPendingConfirmation(null)
     setLiveActivities([])
     setThinkingAfterTools(false)
 
-    const userMsg: Message = { role: "user", content: question, timestamp: Date.now() }
+    const userMsg: Message = {
+      role: "user",
+      content: question,
+      timestamp: Date.now(),
+      isVaultQuery: isVault,
+    }
     const nextMessages = [...messages, userMsg]
     setMessages(nextMessages)
     setIsStreaming(true)
 
-    // Placeholder assistant message
     const assistantMsg: Message = {
       role: "assistant",
       content: "",
@@ -495,6 +520,114 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
     }
     setMessages(prev => [...prev, assistantMsg])
 
+    // ── Vault fast-path: call AI Writer directly ───────────────────────────
+    if (isVault) {
+      try {
+        enqueueActivity({
+          tool: "vault_semantic_search",
+          actionType: "read",
+          label: "Searching vault…",
+          status: "running",
+        })
+
+        const res = await fetch("/api/vault/ai-write", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt: question, mode: "doc" }),
+        })
+
+        if (!res.ok || !res.body) throw new Error("Vault request failed")
+
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let accumulated = ""
+        let collectedSources: VaultSource[] = []
+        let buf = ""
+        let currentActivities: ToolActivity[] = [{
+          tool: "vault_semantic_search",
+          actionType: "read",
+          label: "Searching vault…",
+          status: "running",
+        }]
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buf += decoder.decode(value)
+          const lines = buf.split("\n")
+          buf = lines.pop() || ""
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue
+            try {
+              const parsed = JSON.parse(line.slice(6))
+
+              if (parsed.type === "sources") {
+                // Mark vault search done, sources arrived
+                currentActivities = currentActivities.map(a =>
+                  a.tool === "vault_semantic_search" ? { ...a, status: "done" as const } : a
+                )
+                setLiveActivities([...currentActivities])
+                collectedSources = parsed.sources || []
+              } else if (parsed.type === "delta") {
+                accumulated += parsed.content
+                setThinkingAfterTools(false)
+                setMessages(prev => {
+                  const updated = [...prev]
+                  updated[updated.length - 1] = {
+                    role: "assistant",
+                    content: accumulated,
+                    timestamp: Date.now(),
+                    toolActivity: currentActivities,
+                    vaultSources: collectedSources.length > 0 ? collectedSources : undefined,
+                  }
+                  return updated
+                })
+              } else if (parsed.type === "done") {
+                setLiveActivities([])
+              }
+            } catch { /* malformed line */ }
+          }
+        }
+
+        const finalMsgs = [
+          ...nextMessages,
+          {
+            role: "assistant" as const,
+            content: accumulated,
+            timestamp: Date.now(),
+            toolActivity: currentActivities,
+            vaultSources: collectedSources.length > 0 ? collectedSources : undefined,
+          },
+        ]
+
+        const title = question.slice(0, 50) + (question.length > 50 ? "…" : "")
+        const sessionId = await saveSession(activeSession?.id || null, finalMsgs, title)
+        if (sessionId && !activeSession) {
+          setActiveSession({ id: sessionId, title, messages: finalMsgs, updated_at: new Date().toISOString() })
+        }
+        loadSessions()
+
+      } catch (err: any) {
+        console.error("[CommandBar/vault]", err)
+        setMessages(prev => {
+          const updated = [...prev]
+          updated[updated.length - 1] = {
+            role: "assistant",
+            content: "Couldn't search the vault right now. Please retry.",
+            timestamp: Date.now(),
+          }
+          return updated
+        })
+      } finally {
+        setIsStreaming(false)
+        setLiveActivities([])
+        setThinkingAfterTools(false)
+      }
+      return
+    }
+
+    // ── Standard agentic path ──────────────────────────────────────────────
     try {
       const res = await fetch("/api/ai/command", {
         method: "POST",
@@ -511,7 +644,6 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
       const decoder = new TextDecoder()
       let accumulated = ""
       const collectedActions: ActionEvent[] = []
-      // Track live activities locally so we can update them
       let currentActivities: ToolActivity[] = []
 
       const updateLastMessage = (
@@ -537,7 +669,6 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
         if (done) break
 
         const raw = decoder.decode(value)
-        // Extract only "data: ..." lines — the padding comment lines are ignored
         const dataLines = raw.split("\n").filter(l => l.startsWith("data: "))
 
         for (const line of dataLines) {
@@ -545,19 +676,12 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
             const parsed = JSON.parse(line.slice(6))
 
             switch (parsed.type) {
-
-              // ── Typewriter text ──────────────────────────────────────
               case "delta": {
                 accumulated += parsed.content
-                // First delta means model is now typing — clear the thinking indicator.
-                // Keep tool pills (liveActivities) visible so checkmarks stay
-                // alongside the growing text; they fade via allDone opacity.
                 setThinkingAfterTools(false)
                 updateLastMessage(accumulated, collectedActions, currentActivities)
                 break
               }
-
-              // ── Tool started ─────────────────────────────────────────
               case "tool_started": {
                 const newAct: ToolActivity = {
                   tool: parsed.tool,
@@ -570,11 +694,7 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
                 updateLastMessage(accumulated, collectedActions, currentActivities)
                 break
               }
-
-              // ── Tool done ────────────────────────────────────────────
               case "tool_done": {
-                // Mark the first still-running instance of this tool done.
-                // Handles edge case of same tool running in two separate steps.
                 let marked = false
                 currentActivities = currentActivities.map(a => {
                   if (!marked && a.tool === parsed.tool && a.status === "running") {
@@ -585,27 +705,15 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
                 })
                 setLiveActivities([...currentActivities])
                 updateLastMessage(accumulated, collectedActions, currentActivities)
-                // If every tool is now done and we have no text yet,
-                // show the "composing answer" thinking indicator
                 const allNowDone = currentActivities.every(a => a.status === "done")
-                if (allNowDone && !accumulated) {
-                  setThinkingAfterTools(true)
-                }
+                if (allNowDone && !accumulated) setThinkingAfterTools(true)
                 break
               }
-
-              // ── Action executed (task created, etc.) ─────────────────
               case "action_executed": {
                 const { type: _t, ...actionData } = parsed
                 collectedActions.push(actionData as ActionEvent)
-
-                if (actionData.tool?.includes("task")) {
-                  window.dispatchEvent(new Event("tasks-updated"))
-                }
-                if (actionData.tool?.includes("project")) {
-                  window.dispatchEvent(new Event("projects-updated"))
-                }
-
+                if (actionData.tool?.includes("task")) window.dispatchEvent(new Event("tasks-updated"))
+                if (actionData.tool?.includes("project")) window.dispatchEvent(new Event("projects-updated"))
                 if (actionData.needs_confirmation && actionData.confirmation_action) {
                   setPendingConfirmation({
                     description: actionData.confirmation_action.description,
@@ -615,31 +723,24 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
                     loading: false,
                   })
                 }
-
                 updateLastMessage(accumulated, collectedActions, currentActivities)
                 break
               }
-
               case "done": {
-                // Stream finished — clear live overlay and thinking indicator
                 setLiveActivities([])
                 setThinkingAfterTools(false)
                 break
               }
-
               case "error": {
                 accumulated = accumulated || parsed.message || "Something went wrong."
                 updateLastMessage(accumulated, collectedActions, currentActivities)
                 break
               }
             }
-          } catch {
-            // malformed SSE line, skip
-          }
+          } catch { /* malformed SSE line */ }
         }
       }
 
-      // Freeze final state
       setLiveActivities([])
       const finalMsgs = [
         ...nextMessages,
@@ -652,7 +753,6 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
         },
       ]
 
-      // Save to DB
       const title = question.slice(0, 50) + (question.length > 50 ? "…" : "")
       const sessionId = await saveSession(activeSession?.id || null, finalMsgs, title)
       if (sessionId && !activeSession) {
@@ -677,6 +777,22 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
       setThinkingAfterTools(false)
     }
   }, [input, messages, isStreaming, activeSession, saveSession, loadSessions])
+
+  // Helper to fire a live activity update — used by vault path
+  function enqueueActivity(act: ToolActivity) {
+    setLiveActivities(prev => [...prev, act])
+    setMessages(prev => {
+      const updated = [...prev]
+      const last = updated[updated.length - 1]
+      if (last?.role === "assistant") {
+        updated[updated.length - 1] = {
+          ...last,
+          toolActivity: [...(last.toolActivity || []), act],
+        }
+      }
+      return updated
+    })
+  }
 
   // ── Open existing session ──────────────────────────────────────────────────
 
@@ -776,8 +892,15 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
 
                 <div className={cn("max-w-[80%]", msg.role === "user" && "items-end flex flex-col")}>
                   {msg.role === "user" ? (
-                    <div className="px-3.5 py-2.5 rounded-2xl rounded-tr-sm text-sm text-foreground dark:text-[#F0EFEC] bg-accent dark:bg-[#2A2A28] border border-border dark:border-[#3A3A38] shadow-sm">
-                      {msg.content}
+                    <div className="flex flex-col items-end gap-1">
+                      {msg.isVaultQuery && (
+                        <span className="flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-500/15 border border-violet-500/25 text-violet-400">
+                          <FolderOpen size={8} />Vault
+                        </span>
+                      )}
+                      <div className="px-3.5 py-2.5 rounded-2xl rounded-tr-sm text-sm text-foreground dark:text-[#F0EFEC] bg-accent dark:bg-[#2A2A28] border border-border dark:border-[#3A3A38] shadow-sm">
+                        {msg.content}
+                      </div>
                     </div>
                   ) : (
                     <div>
@@ -821,6 +944,22 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
                       {/* ── Frozen tool activity (historical messages) ── */}
                       {msg.toolActivity && msg.toolActivity.length > 0 && msg.content && (
                         <ToolActivityBar activities={msg.toolActivity} />
+                      )}
+
+                      {/* ── Vault sources attribution ── */}
+                      {msg.vaultSources && msg.vaultSources.length > 0 && msg.content && (
+                        <div className="flex flex-wrap gap-1.5 mb-3">
+                          {msg.vaultSources.map((src) => (
+                            <div
+                              key={src.id}
+                              className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-violet-500/20 bg-violet-500/5 text-[10px]"
+                            >
+                              <FolderOpen size={9} className="text-violet-400 shrink-0" />
+                              <span className="text-violet-300 font-medium truncate max-w-[140px]">{src.title}</span>
+                              <span className="text-muted-foreground/40 shrink-0">{(src.similarity * 100).toFixed(0)}%</span>
+                            </div>
+                          ))}
+                        </div>
                       )}
 
                       {/* ── Live tool activity overlay (streaming now) ── */}
@@ -1010,13 +1149,18 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
           <textarea
             ref={inputRef}
             value={input}
-            onChange={e => setInput(e.target.value)}
+            onChange={e => {
+              const val = e.target.value
+              setInput(val)
+              setVaultMode(val.startsWith("/vault"))
+            }}
             onKeyDown={e => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault()
                 sendMessage()
               }
               if (e.key === "Escape") {
+                if (vaultMode) { setInput(""); setVaultMode(false); return }
                 if (sidebarOpen) { setSidebarOpen(false); return }
                 if (view === "chat") { setView("list"); return }
                 onClose()
@@ -1057,7 +1201,16 @@ export function CommandBar({ open, onClose }: CommandBarProps) {
         </div>
 
         <div className="flex items-center justify-between mt-1.5 px-2">
-          <span className="text-[10px] text-muted-foreground/50">✦ Llama 3.3 70B</span>
+          <div className="flex items-center gap-2">
+            {vaultMode ? (
+              <span className="flex items-center gap-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-500/15 border border-violet-500/30 text-violet-400">
+                <FolderOpen size={9} />
+                Vault mode — searching your documents
+              </span>
+            ) : (
+              <span className="text-[10px] text-muted-foreground/50">✦ Llama 3.3 70B · type <kbd className="border border-border/50 rounded px-0.5 font-mono">/vault</kbd> to search docs</span>
+            )}
+          </div>
           <div className="flex items-center gap-3 text-[10px] text-muted-foreground/50">
             <span>↵ send</span>
             <span>⇧↵ newline</span>
