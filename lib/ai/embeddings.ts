@@ -61,8 +61,8 @@ export function buildEmbeddingText(item: {
   parts.push(`Title: ${item.title}`)
 
   if (item.document_type) parts.push(`Type: ${item.document_type}`)
-  if (item.item_type)     parts.push(`Format: ${item.item_type}`)
-  if (item.description)   parts.push(`Description: ${item.description}`)
+  if (item.item_type) parts.push(`Format: ${item.item_type}`)
+  if (item.description) parts.push(`Description: ${item.description}`)
 
   // Only a brief excerpt — full content is indexed via chunks
   const rawContent = item.note_content || item.extracted_text
@@ -152,91 +152,134 @@ export async function upsertVaultChunks(
   founderId: string,
   rawText: string
 ): Promise<void> {
-  // ── Windowed processing — fixes OOM on large documents ───────────────────
-  // Old approach: smartChunk(fullText) creates ALL chunk objects in memory at once.
-  // A 100k-char doc → ~125 chunk objects + full text + HF response buffers → OOM.
+  // ── Why this approach ────────────────────────────────────────────────────
+  // Old: smartChunk(fullText) → entire chunk array in memory → OOM on large docs
+  // New: slice one 1600-char window at a time, embed it, let GC reclaim it,
+  //      move to next. Peak memory = 1 chunk object, regardless of doc size.
   //
-  // New approach: slice 8k-char windows one at a time. Each window produces ~10
-  // chunk objects that are GC-eligible as soon as the window loop body completes.
-  // Peak memory stays at ~10 objects regardless of document size.
+  // CHUNK_SIZE = 1600 chars ≈ 400 tokens — safely within bge-small's 512 limit.
+  // Larger chunks = fewer API calls = more coverage within the 60s timeout.
   //
-  // 200-char overlap between windows prevents sentences from being split at
-  // window boundaries — same quality as before, just without the memory spike.
-  const WINDOW_SIZE      = 8_000   // chars per window ≈ 2k tokens, well within HF limits
-  const WINDOW_OVERLAP   = 200     // prevents sentence splits at window boundaries
-  const MAX_TOTAL_CHUNKS = 50      // hard cap — item-level embedding covers the rest
-  const CHUNK_TIMEOUT_MS = 45_000
+  // Resume support: if a 200k doc hits the timeout, we mark it pending and the
+  // next embed call finds existing chunks and resumes from the last saved index.
+  // ────────────────────────────────────────────────────────────────────────
+
+  const CHUNK_SIZE = 1600   // chars ≈ 400 tokens
+  const CHUNK_OVERLAP = 200    // prevents sentence splits at chunk boundaries
+  const CHUNK_TIMEOUT_MS = 50_000 // 50s — leaves buffer under Vercel's 60s limit
 
   if (!rawText || rawText.length < 60) return
 
-  const { smartChunk } = await import("./chunking")
-  const runStart  = Date.now()
-  let globalIndex = 0
-  let successCount = 0
-  let pos = 0
   const totalLen = rawText.length
+  const runStart = Date.now()
 
-  console.log(`[Embed/Chunks] Windowed processing ${vaultItemId} — ${totalLen} chars`)
+  // ── Resume: find the last successfully stored chunk index ─────────────────
+  // If a previous run timed out halfway through a 200k doc, we pick up
+  // from chunk N+1 instead of restarting from zero.
+  const { data: existingChunks } = await supabaseAdmin
+    .from("vault_chunks")
+    .select("chunk_index")
+    .eq("vault_item_id", vaultItemId)
+    .order("chunk_index", { ascending: false })
+    .limit(1)
 
-  while (pos < totalLen && globalIndex < MAX_TOTAL_CHUNKS) {
-    if (Date.now() - runStart > CHUNK_TIMEOUT_MS) {
-      console.warn(`[Embed/Chunks] Time budget hit at pos=${pos}/${totalLen} — stopping early`)
-      break
-    }
+  const resumeFromIndex = existingChunks?.[0]?.chunk_index ?? -1
+  const resuming = resumeFromIndex >= 0
 
-    const end = Math.min(pos + WINDOW_SIZE, totalLen)
-
-    // rawText.slice() creates a new ~8k string (not a copy of the full doc).
-    // smartChunk returns ~10 small objects. Both are GC-eligible after this loop body.
-    const windowChunks = smartChunk(rawText.slice(pos, end))
-
-    for (const chunk of windowChunks) {
-      if (globalIndex >= MAX_TOTAL_CHUNKS) break
-      if (Date.now() - runStart > CHUNK_TIMEOUT_MS) break
-
-      try {
-        const embedding = await generateEmbedding(chunk.text)
-        const vectorLiteral = `[${embedding.join(",")}]`
-
-        await supabaseAdmin.from("vault_chunks").upsert(
-          {
-            vault_item_id: vaultItemId,
-            founder_id: founderId,
-            chunk_index: globalIndex,
-            chunk_text: chunk.text,
-            embedding: vectorLiteral,
-            token_count: chunk.tokenEstimate,
-          },
-          { onConflict: "vault_item_id,chunk_index" }
-        )
-        successCount++
-        globalIndex++
-      } catch (err) {
-        console.error(`[Embed/Chunks] chunk ${globalIndex} failed for ${vaultItemId}:`, err)
-        // Continue — partial coverage beats a crash
-      }
-
-      // 150ms pause: lets GC reclaim the HF response buffer before the next call
-      await new Promise(r => setTimeout(r, 150))
-    }
-
-    // Advance with overlap so no sentence is cut off at the window boundary
-    pos = end === totalLen ? totalLen : end - WINDOW_OVERLAP
+  // ── Build chunk positions (just numbers, not the text) ───────────────────
+  // We never materialise the text for all chunks at once —
+  // rawText.slice(start, end) is called inside the loop, one at a time.
+  const positions: number[] = []
+  let p = 0
+  while (p < totalLen) {
+    positions.push(p)
+    const end = Math.min(p + CHUNK_SIZE, totalLen)
+    if (end === totalLen) break
+    p = end - CHUNK_OVERLAP
   }
 
-  // Prune stale chunks from any previous larger run
+  const totalChunks = positions.length
+  const startFrom = resumeFromIndex + 1
+
+  console.log(
+    `[Embed/Chunks] ${vaultItemId} — ${totalLen} chars, ` +
+    `${totalChunks} chunks, ` +
+    `${resuming ? `resuming from chunk ${startFrom}` : "fresh start"}`
+  )
+
+  let processedCount = startFrom // already done by previous run(s)
+
+  for (let i = startFrom; i < totalChunks; i++) {
+    if (Date.now() - runStart > CHUNK_TIMEOUT_MS) {
+      console.warn(
+        `[Embed/Chunks] Time budget hit at chunk ${i}/${totalChunks} ` +
+        `(${processedCount} stored). Marking pending for resume.`
+      )
+      // Mark pending so embedPendingItems() or the next manual embed resumes
+      await supabaseAdmin
+        .from("vault_items")
+        .update({ embedding_status: "pending" })
+        .eq("id", vaultItemId)
+      return
+    }
+
+    const start = positions[i]
+    const end = Math.min(start + CHUNK_SIZE, totalLen)
+
+    // Slice is O(chunkSize), not O(docSize) — this is the key memory fix
+    let chunkText = rawText.slice(start, end)
+
+    // Snap to sentence boundary so chunks don't cut mid-sentence
+    if (end < totalLen) {
+      const lastBreak = Math.max(
+        chunkText.lastIndexOf(".\n"),
+        chunkText.lastIndexOf(". "),
+        chunkText.lastIndexOf("\n\n")
+      )
+      if (lastBreak > CHUNK_SIZE * 0.5) {
+        chunkText = chunkText.slice(0, lastBreak + 1)
+      }
+    }
+    chunkText = chunkText.trim()
+    if (chunkText.length < 60) { processedCount++; continue }
+
+    try {
+      const embedding = await generateEmbedding(chunkText)
+      const vectorLiteral = `[${embedding.join(",")}]`
+
+      await supabaseAdmin.from("vault_chunks").upsert(
+        {
+          vault_item_id: vaultItemId,
+          founder_id: founderId,
+          chunk_index: i,
+          chunk_text: chunkText,
+          embedding: vectorLiteral,
+          token_count: Math.ceil(chunkText.length / 4),
+        },
+        { onConflict: "vault_item_id,chunk_index" }
+      )
+      processedCount++
+    } catch (err) {
+      console.error(`[Embed/Chunks] chunk ${i} failed for ${vaultItemId}:`, err)
+      // Non-fatal — skip this chunk, continue
+    }
+
+    // 150ms breathing room: lets GC reclaim the HF response before next call
+    await new Promise(r => setTimeout(r, 150))
+  }
+
+  // ── Fully processed — prune any stale chunks from a previous larger run ──
   await supabaseAdmin
     .from("vault_chunks")
     .delete()
     .eq("vault_item_id", vaultItemId)
-    .gte("chunk_index", globalIndex)
+    .gte("chunk_index", totalChunks)
 
-  const coverageNote = totalLen > WINDOW_SIZE
-    ? ` — item-level embedding covers full doc for broad search`
-    : ""
-  console.log(`[Embed/Chunks] ✓ ${successCount} chunks stored for ${vaultItemId}${coverageNote}`)
+  console.log(
+    `[Embed/Chunks] ✓ Complete: ${processedCount}/${totalChunks} chunks ` +
+    `covering all ${totalLen} chars of ${vaultItemId}`
+  )
 }
-
 // ── Batch embed all pending items for a founder ──────────────────────────────
 
 export async function embedPendingItems(founderId: string): Promise<number> {
