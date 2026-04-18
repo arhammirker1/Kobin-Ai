@@ -267,14 +267,31 @@ function getViewerType(item: VaultItem): ViewerType {
 function mdToHtml(text: string): string {
   let html = text.trim()
 
-  // Tables → formatted code block (TipTap requires extension for native tables)
+  // Tables → proper HTML table (TipTap table extension is loaded in note-editor)
   html = html.replace(/((?:\|[^\n]+\|[ \t]*\n?){2,})/gm, (match) => {
-    const rows = match.trim().split('\n').filter(r => r.trim() && !/^\s*\|[\s:|–\-]+\|\s*$/.test(r))
-    if (rows.length === 0) return match
-    const formatted = rows.map(r =>
-      r.split('|').map(c => c.trim()).filter((_, i, a) => i > 0 && i < a.length - 1).join(' │ ')
-    ).join('\n')
-    return `<pre><code>${formatted}</code></pre>\n`
+    const lines = match.trim().split('\n').filter(l => l.trim())
+    if (lines.length < 2) return match
+
+    const isSeparator = (l: string) => /^\s*\|[\s:|–\-]+\|\s*$/.test(l)
+    const parseRow = (l: string) =>
+      l.split('|').map(c => c.trim()).filter((_, i, a) => i > 0 && i < a.length - 1)
+
+    const dataLines = lines.filter(l => !isSeparator(l))
+    if (dataLines.length === 0) return match
+
+    const headers = parseRow(dataLines[0])
+    const bodyRows = dataLines.slice(1)
+
+    let tableHtml = '<table><thead><tr>'
+    headers.forEach(h => { tableHtml += `<th>${h}</th>` })
+    tableHtml += '</tr></thead><tbody>'
+    bodyRows.forEach(row => {
+      tableHtml += '<tr>'
+      parseRow(row).forEach(cell => { tableHtml += `<td>${cell}</td>` })
+      tableHtml += '</tr>'
+    })
+    tableHtml += '</tbody></table>'
+    return tableHtml + '\n'
   })
 
   // Fenced code blocks

@@ -29,7 +29,7 @@ let EditorContent: any = null
 let TipTapExtensions: any = null
 
 async function loadTipTap() {
-    const [core, starter, placeholder, underline, strike, code, tasks, taskItem] = await Promise.all([
+    const [core, starter, placeholder, underline, strike, code, tasks, taskItem, table, tableRow, tableCell, tableHeader] = await Promise.all([
         import("@tiptap/react"),
         import("@tiptap/starter-kit"),
         import("@tiptap/extension-placeholder"),
@@ -38,6 +38,10 @@ async function loadTipTap() {
         import("@tiptap/extension-code-block-lowlight"),
         import("@tiptap/extension-task-list"),
         import("@tiptap/extension-task-item"),
+        import("@tiptap/extension-table"),
+        import("@tiptap/extension-table-row"),
+        import("@tiptap/extension-table-cell"),
+        import("@tiptap/extension-table-header"),
     ])
 
     useEditor = core.useEditor
@@ -49,7 +53,7 @@ async function loadTipTap() {
             bulletList: { keepMarks: true },
             orderedList: { keepMarks: true },
             // code: true (default) — do NOT disable, toggleCode() needs it
-            codeBlock: false,
+            // codeBlock re-enabled: required for fenced code blocks in .md files
         }),
         placeholder.default.configure({
             placeholder: ({ node }: any) => {
@@ -60,6 +64,11 @@ async function loadTipTap() {
         underline.default,
         tasks.default,
         taskItem.default.configure({ nested: true }),
+        // Table support — required for markdown table rendering
+        table.default.configure({ resizable: false }),
+        tableRow.default,
+        tableHeader.default,
+        tableCell.default,
     ]
 
     return true

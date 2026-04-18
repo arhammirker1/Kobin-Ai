@@ -187,15 +187,23 @@ async function* streamFinalText(
       tool_choice: "none",
     })
   } catch (err: any) {
-    // Final fallback: strip tool history and regenerate from system + last user msg
+    // tool_choice:none rejected (model tries to call a tool anyway) — strip history and retry
     console.warn("[CMD/streamFinalText] tool_choice:none rejected — retrying with stripped history:", err?.message)
     const systemMsg = messages.find((m) => m.role === "system")
     const userMessages = messages.filter((m) => m.role === "user")
     const lastUser = userMessages[userMessages.length - 1]
-    resp = await groqCall(groq, model, {
-      ...opts,
-      messages: [systemMsg, lastUser].filter(Boolean),
-    })
+    try {
+      resp = await groqCall(groq, model, {
+        ...opts,
+        messages: [systemMsg, lastUser].filter(Boolean),
+      })
+    } catch (fallbackErr: any) {
+      // Second attempt also failed (e.g. rate limit). Yield a graceful message
+      // instead of letting the error propagate and kill the stream.
+      console.error("[CMD/streamFinalText] fallback also failed:", fallbackErr?.message)
+      yield "I ran into a temporary issue. Please retry in a moment."
+      return
+    }
   }
 
   const content: string = resp?.choices?.[0]?.message?.content ?? ""

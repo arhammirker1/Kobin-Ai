@@ -12,5 +12,18 @@
       "path": "/api/cron/renew-gmail-watch",
       "schedule": "0 6 * * *"
     }
-  ]
+  ],
+  "functions": {
+    "app/api/vault/embed/route.ts": {
+      "memory": 3008,
+      "maxDuration": 60
+    },
+    "app/api/vault/upload-internal/route.ts": {
+      "memory": 1024,
+      "maxDuration": 30
+    },
+    "app/api/ai/command/route.ts": {
+      "maxDuration": 60
+    }
+  }
 }

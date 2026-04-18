@@ -53,6 +53,9 @@ export function buildEmbeddingText(item: {
   item_type?: string | null
   extracted_text?: string | null
 }): string {
+  // Item-level embedding: intentionally lightweight (title + description + brief excerpt).
+  // Full content precision is handled by chunk-level embeddings in upsertVaultChunks.
+  // This prevents OOM on large files while keeping the item instantly searchable.
   const parts: string[] = []
 
   parts.push(`Title: ${item.title}`)
@@ -60,12 +63,12 @@ export function buildEmbeddingText(item: {
   if (item.document_type) parts.push(`Type: ${item.document_type}`)
   if (item.item_type)     parts.push(`Format: ${item.item_type}`)
   if (item.description)   parts.push(`Description: ${item.description}`)
-  if (item.note_content)  parts.push(`Content: ${item.note_content?.slice(0, 12000)}`)
-  if (item.link_url)      parts.push(`URL: ${item.link_url}`)
-  // Full document content — makes semantic search NotebookLM-level
-  if (item.extracted_text) {
-    parts.push(`\nDocument Content:\n${item.extracted_text.slice(0, 20000)}`)
-  }
+
+  // Only a brief excerpt — full content is indexed via chunks
+  const rawContent = item.note_content || item.extracted_text
+  if (rawContent) parts.push(`Content excerpt: ${rawContent.slice(0, 500)}`)
+
+  if (item.link_url) parts.push(`URL: ${item.link_url}`)
 
   return parts.join("\n")
 }
@@ -154,57 +157,75 @@ export async function upsertVaultChunks(
 
   if (chunks.length === 0) return
 
-  console.log(`[Embed/Chunks] Embedding ${chunks.length} chunks for ${vaultItemId}`)
+  // Hard caps — prevents OOM and Vercel timeout on arbitrarily large files.
+  // The item-level embedding already makes the document searchable.
+  // Chunks add sentence-level precision; first MAX_CHUNKS_PER_RUN are highest priority.
+  const MAX_CHUNKS_PER_RUN = 50
+  const CHUNK_TIMEOUT_MS = 45_000 // 45s — leaves headroom under Vercel's 60s default
 
-  // ── ATOMIC CHUNKING: upsert first, then prune excess ───────────────────
-  // Never delete before re-embedding; this prevents "half-indexed" states on
-  // timeout / rate-limit failures.
-  const BATCH = 5
-  let successCount = 0
+  const chunksToProcess = chunks.slice(0, MAX_CHUNKS_PER_RUN)
+  const skipped = chunks.length - chunksToProcess.length
 
-  for (let i = 0; i < chunks.length; i += BATCH) {
-    const batch = chunks.slice(i, i + BATCH)
-
-    await Promise.all(
-      batch.map(async (chunk) => {
-        try {
-          const embedding = await generateEmbedding(chunk.text)
-          const vectorLiteral = `[${embedding.join(",")}]`
-
-          await supabaseAdmin.from("vault_chunks").upsert(
-            {
-              vault_item_id: vaultItemId,
-              founder_id: founderId,
-              chunk_index: chunk.index,
-              chunk_text: chunk.text,
-              embedding: vectorLiteral,
-              token_count: chunk.tokenEstimate,
-            },
-            { onConflict: "vault_item_id,chunk_index" }
-          )
-          successCount++
-        } catch (err) {
-          console.error(`[Embed/Chunks] Failed chunk ${chunk.index} for ${vaultItemId}:`, err)
-        }
-      })
+  if (skipped > 0) {
+    console.log(
+      `[Embed/Chunks] Large doc: ${chunks.length} chunks total, processing first ${MAX_CHUNKS_PER_RUN}. ` +
+      `Item-level embedding covers the remaining ${skipped} chunks for broad search.`
     )
-
-    if (i + BATCH < chunks.length) {
-      await new Promise((r) => setTimeout(r, 200))
-    }
+  } else {
+    console.log(`[Embed/Chunks] Embedding ${chunksToProcess.length} chunks for ${vaultItemId}`)
   }
 
-  // Only after all new chunks are safely written, prune any stale excess
-  // (e.g. old version had 80 chunks, new version has 40)
-  if (successCount === chunks.length) {
+  const runStart = Date.now()
+  let successCount = 0
+
+  // STRICTLY SEQUENTIAL (batch=1) — one HF call + one Supabase upsert at a time.
+  // This keeps memory flat regardless of file size. GC runs between iterations.
+  for (const chunk of chunksToProcess) {
+    // Hard time budget — aborts gracefully before Vercel kills the function
+    if (Date.now() - runStart > CHUNK_TIMEOUT_MS) {
+      console.warn(
+        `[Embed/Chunks] Time budget hit at chunk ${chunk.index}/${chunksToProcess.length} — stopping early. ` +
+        `Processed ${successCount} chunks successfully.`
+      )
+      break
+    }
+
+    try {
+      const embedding = await generateEmbedding(chunk.text)
+      const vectorLiteral = `[${embedding.join(",")}]`
+
+      await supabaseAdmin.from("vault_chunks").upsert(
+        {
+          vault_item_id: vaultItemId,
+          founder_id: founderId,
+          chunk_index: chunk.index,
+          chunk_text: chunk.text,
+          embedding: vectorLiteral,
+          token_count: chunk.tokenEstimate,
+        },
+        { onConflict: "vault_item_id,chunk_index" }
+      )
+      successCount++
+    } catch (err) {
+      console.error(`[Embed/Chunks] Failed chunk ${chunk.index} for ${vaultItemId}:`, err)
+      // Continue — partial chunk coverage is better than zero coverage
+    }
+
+    // Breathing room between calls: lets GC reclaim the previous response buffer
+    // and avoids HuggingFace rate limits on rapid sequential requests
+    await new Promise(r => setTimeout(r, 150))
+  }
+
+  // Only prune stale excess chunks after a full successful run
+  if (successCount === chunksToProcess.length) {
     await supabaseAdmin
       .from("vault_chunks")
       .delete()
       .eq("vault_item_id", vaultItemId)
-      .gte("chunk_index", chunks.length)
-    console.log(`[Embed/Chunks] ✓ ${chunks.length} chunks stored atomically for ${vaultItemId}`)
+      .gte("chunk_index", chunksToProcess.length)
+    console.log(`[Embed/Chunks] ✓ ${successCount} chunks stored atomically for ${vaultItemId}`)
   } else {
-    console.warn(`[Embed/Chunks] Partial success (${successCount}/${chunks.length}) — old chunks retained`)
+    console.warn(`[Embed/Chunks] Partial success (${successCount}/${chunksToProcess.length}) — stale chunks retained`)
   }
 }
 
