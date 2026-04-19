@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server"
 import { supabaseAdmin } from "@/lib/supabase/admin"
-import { getGroqClient, GROQ_MODEL_STD } from "@/lib/ai/groq"
+import { getGroqClient, GROQ_MODEL_STD, GROQ_MODEL_STRONG } from "@/lib/ai/groq"
 import { buildMiniContext } from "@/lib/ai/mini-context"
 import { ALL_TOOLS, READ_TOOL_NAMES } from "@/lib/ai/tools"
 import { executeReadTool } from "@/lib/ai/mcp-read-tools"
@@ -777,15 +777,15 @@ ${historyWarningBlock}`
               if (result.projectData) actionContext.projects = result.projectData
 
               // Store result for loop/dedup detection
-              toolResultsThisRequest.set(toolName, content.slice(0, 500))
+              toolResultsThisRequest.set(toolName, result.content.slice(0, 500))
 
               // Signal this specific tool is done
               enqueue({ type: "tool_done", tool: toolName, actionType: "read" })
 
               return {
-                tool_call_id: toolCall.id,
+                tool_call_id: tc.id,
                 role: "tool" as const,
-                content,
+                content: result.content,
               }
             })
 
