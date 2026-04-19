@@ -345,6 +345,35 @@ export async function buildVaultRAGContext(
     // If grounding filtered everything out, fall back to top-2 raw results with a caveat
     const finalResults = groundedResults.length > 0 ? groundedResults : results.slice(0, 2)
 
+    // ── Fetch ALL chunks for every matched document in one query ──────────────
+    // Primary document (highest similarity): every chunk — full document content.
+    // Secondary documents: up to 4 chunks each — supporting evidence only.
+    // Chunks are pre-sized at ≈1,500 chars; no truncation needed here.
+    const itemIds = finalResults.map(r => r.id)
+    const primaryDocId = finalResults[0]?.id
+
+    const { data: rawChunks } = await supabaseAdmin
+      .from("vault_chunks")
+      .select("vault_item_id, chunk_index, chunk_text")
+      .in("vault_item_id", itemIds)
+      .order("chunk_index", { ascending: true })
+
+    const chunksByItem: Record<string, string[]> = {}
+    for (const chunk of rawChunks || []) {
+      if (!chunksByItem[chunk.vault_item_id]) chunksByItem[chunk.vault_item_id] = []
+      const isPrimary = chunk.vault_item_id === primaryDocId
+      // Primary: no cap (all chunks). Secondary: 4 chunks max.
+      if (isPrimary || chunksByItem[chunk.vault_item_id].length < 4) {
+        chunksByItem[chunk.vault_item_id].push(chunk.chunk_text)
+      }
+    }
+
+    console.log(
+      `[RAG/Context] Chunks loaded — primary(${primaryDocId?.slice(0, 8)}): ` +
+      `${chunksByItem[primaryDocId ?? ""]?.length ?? 0}, ` +
+      `secondaries: ${finalResults.slice(1).map(r => chunksByItem[r.id]?.length ?? 0).join(",")}`
+    )
+
     const lines: string[] = [
       "## Relevant Knowledge from Your Vault:",
       groundedResults.length === 0
@@ -357,20 +386,25 @@ export async function buildVaultRAGContext(
     for (const item of finalResults) {
       const sim = (item.similarity * 100).toFixed(0)
       const sourceLabel = `[${item.title}]`
+      const chunks = chunksByItem[item.id]
 
       lines.push(`### ${sourceLabel} — ${item.document_type} (${sim}% match)`)
 
-      // Prefer best matched chunk over full content (more precise)
-      if (item.best_chunk_text) {
-        lines.push(item.best_chunk_text.slice(0, 600))
+      if (chunks && chunks.length > 0) {
+        // Full chunk text — no truncation. Chunks are pre-sized at ≈1,500 chars each.
+        for (let i = 0; i < chunks.length; i++) {
+          lines.push(chunks[i])
+          if (i < chunks.length - 1) lines.push("---")
+        }
       } else if (item.note_content) {
-        lines.push(item.note_content.slice(0, 500))
+        // No chunks yet (embedding pending) — fall back to raw note content
+        lines.push(item.note_content.slice(0, 3000))
       } else if (item.description) {
         lines.push(item.description)
       }
 
       if (item.project_name) lines.push(`*Project: ${item.project_name}*`)
-      lines.push("") // spacer
+      lines.push("")
 
       sources.push({
         id: item.id,

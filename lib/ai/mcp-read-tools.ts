@@ -1421,8 +1421,8 @@ export async function execVaultSemanticSearch(
     for (const chunk of topChunks || []) {
       if (!chunksByItem[chunk.vault_item_id]) chunksByItem[chunk.vault_item_id] = []
       const isPrimary = chunk.vault_item_id === primaryDocId
-      const maxChunks = isPrimary ? 6 : 2   // primary doc: up to 6 chunks; secondary: 2
-      if (chunksByItem[chunk.vault_item_id].length < maxChunks) {
+      // Primary: all chunks (complete document). Secondary: 3 chunks (supporting evidence).
+      if (isPrimary || chunksByItem[chunk.vault_item_id].length < 3) {
         chunksByItem[chunk.vault_item_id].push(chunk.chunk_text)
       }
     }
@@ -1456,8 +1456,7 @@ export async function execVaultSemanticSearch(
         // Chunks exist — stitch them with clear section separators
         lines.push(`Document content (${chunks.length} section${chunks.length > 1 ? "s" : ""}):`)
         for (let i = 0; i < chunks.length; i++) {
-          lines.push(chunks[i].slice(0, 600))
-          if (chunks[i].length > 600) lines.push(`… [section continues]`)
+          lines.push(chunks[i])
           if (i < chunks.length - 1) lines.push(`---`)
         }
       } else {
