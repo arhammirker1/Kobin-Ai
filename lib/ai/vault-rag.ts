@@ -58,62 +58,98 @@ export async function vaultSemanticSearch(
 ): Promise<VaultSearchResult[]> {
   const { limit = 10, threshold = 0.18, projectId, itemType } = options
 
-  console.log(`[RAG/Semantic] Searching for: "${query}"`)
+  console.log(`[RAG/Semantic] Two-stage doc-first search for: "${query}"`)
   const queryEmbedding = await generateEmbedding(query)
   const vectorLiteral = `[${queryEmbedding.join(",")}]`
 
-  // ── Try chunk-level search first (higher precision) ───────────────────────
-  const { data: chunkHits, error: chunkError } = await supabaseAdmin.rpc(
+  // ── STAGE 1: Document-level search ─────────────────────────────────────────
+  // Find the most relevant DOCUMENTS first using item-level embeddings.
+  // These become the anchor — chunk retrieval is constrained to these docs only.
+  // This prevents cross-document contamination that causes hallucinations.
+  const { data: docHits, error: docError } = await supabaseAdmin.rpc(
+    "vault_semantic_search",
+    {
+      p_founder_id: founderId,
+      p_embedding: vectorLiteral,
+      p_limit: limit * 3,
+      p_threshold: threshold * 0.8,
+    }
+  )
+
+  if (docError || !docHits || docHits.length === 0) {
+    console.log(`[RAG/Semantic] Stage 1: no document hits`)
+    return []
+  }
+
+  const docSimMap: Record<string, number> = {}
+  for (const d of docHits as Array<{ vault_item_id: string; similarity: number }>) {
+    docSimMap[d.vault_item_id] = d.similarity
+  }
+  const topDocIds = Object.keys(docSimMap)
+
+  console.log(`[RAG/Semantic] Stage 1: ${topDocIds.length} documents anchored`)
+
+  // ── STAGE 2: Chunk search constrained to anchored documents ────────────────
+  // Only chunks that belong to our Stage 1 documents are considered.
+  // This ensures the AI gets coherent, same-document context with no bleed-through.
+  const { data: chunkHits } = await supabaseAdmin.rpc(
     "vault_chunk_search",
     {
       p_founder_id: founderId,
       p_embedding: vectorLiteral,
-      p_limit: limit * 10,    // larger buffer ensures diverse item coverage
-      p_threshold: threshold,
+      p_limit: limit * 30,    // large buffer — we filter client-side to anchored docs
+      p_threshold: threshold * 0.5,  // lower threshold; doc already qualified it
     }
   )
 
-  let itemIdToChunks: Record<string, { bestSim: number; bestText: string; count: number }> = {}
-  let useChunks = false
+  // Filter to chunks from anchored documents ONLY
+  const anchoredChunks = ((chunkHits || []) as Array<{
+    vault_item_id: string
+    chunk_text: string
+    similarity: number
+  }>).filter(c => topDocIds.includes(c.vault_item_id))
 
-  if (!chunkError && chunkHits && chunkHits.length > 0) {
-    useChunks = true
-    console.log(`[RAG/Semantic] Chunk search: ${chunkHits.length} hits → deduplicating`)
+  console.log(
+    `[RAG/Semantic] Stage 2: ${anchoredChunks.length} anchored chunks` +
+    ` (filtered from ${(chunkHits || []).length} total)`
+  )
 
-    // Group by vault_item_id, keep best chunk per item
-    for (const hit of chunkHits as Array<{ vault_item_id: string; chunk_text: string; similarity: number }>) {
-      const existing = itemIdToChunks[hit.vault_item_id]
-      if (!existing || hit.similarity > existing.bestSim) {
-        itemIdToChunks[hit.vault_item_id] = {
-          bestSim: hit.similarity,
-          bestText: hit.chunk_text,
-          count: (existing?.count || 0) + 1,
-        }
-      } else {
-        existing.count++
+  // Group by document — keep best chunk + count
+  const itemChunkMap: Record<string, {
+    bestChunkSim: number
+    bestChunkText: string
+    matchedChunks: number
+  }> = {}
+
+  for (const chunk of anchoredChunks) {
+    const existing = itemChunkMap[chunk.vault_item_id]
+    if (!existing || chunk.similarity > existing.bestChunkSim) {
+      itemChunkMap[chunk.vault_item_id] = {
+        bestChunkSim: chunk.similarity,
+        bestChunkText: chunk.chunk_text,
+        matchedChunks: (existing?.matchedChunks || 0) + 1,
       }
-    }
-  } else {
-    // ── Fall back to item-level search (legacy items without chunks) ──────────
-    console.log(`[RAG/Semantic] Falling back to item-level search`)
-    const { data: similarities, error } = await supabaseAdmin.rpc(
-      "vault_semantic_search",
-      { p_founder_id: founderId, p_embedding: vectorLiteral, p_limit: limit * 2, p_threshold: threshold }
-    )
-    if (error || !similarities?.length) {
-      if (error) console.error("[RAG/Semantic] Item-level RPC error:", error)
-      return []
-    }
-    for (const s of similarities) {
-      itemIdToChunks[s.vault_item_id] = { bestSim: s.similarity, bestText: "", count: 1 }
+    } else {
+      existing.matchedChunks++
     }
   }
 
-  const uniqueItemIds = Object.keys(itemIdToChunks)
-  if (uniqueItemIds.length === 0) return []
-  console.log(`[RAG/Semantic] ${uniqueItemIds.length} unique items after dedup`)
+  // For anchored docs with zero chunk hits (not yet chunked), keep them
+  // using their document-level similarity as a fallback
+  for (const docId of topDocIds) {
+    if (!itemChunkMap[docId]) {
+      itemChunkMap[docId] = {
+        bestChunkSim: docSimMap[docId] * 0.85, // slight penalty — no chunk evidence
+        bestChunkText: "",
+        matchedChunks: 0,
+      }
+    }
+  }
 
-  // ── Fetch full item details ───────────────────────────────────────────────
+  const uniqueItemIds = Object.keys(itemChunkMap)
+  if (uniqueItemIds.length === 0) return []
+
+  // ── Fetch full item details ────────────────────────────────────────────────
   let q = supabaseAdmin
     .from("vault_items")
     .select(`
@@ -142,21 +178,29 @@ export async function vaultSemanticSearch(
   const pMap = Object.fromEntries((projectsRes.data || []).map((p) => [p.id, p.name]))
   const fMap = Object.fromEntries((foldersRes.data || []).map((f) => [f.id, f.name]))
 
+  // ── Final scoring: weighted blend of doc-level + chunk-level similarity ────
+  // Doc similarity anchors relevance; chunk similarity refines it.
+  // Items with strong chunk hits rank higher than pure doc-level matches.
   const rawResults = items.map((item) => {
-    const chunkData = itemIdToChunks[item.id]
+    const docSim = docSimMap[item.id] || 0
+    const chunkData = itemChunkMap[item.id]
+    const hasChunks = (chunkData?.matchedChunks || 0) > 0
+
+    const finalSim = hasChunks
+      ? docSim * 0.4 + chunkData.bestChunkSim * 0.6
+      : docSim * 0.85
+
     return {
       ...item,
-      similarity: chunkData?.bestSim || 0,
-      best_chunk_text: chunkData?.bestText || undefined,
-      matched_chunks: chunkData?.count || 1,
+      similarity: finalSim,
+      best_chunk_text: chunkData?.bestChunkText || undefined,
+      matched_chunks: chunkData?.matchedChunks || 0,
       project_name: item.project_id ? pMap[item.project_id] : undefined,
       folder_name: fMap[item.folder_id],
     }
   }).sort((a, b) => b.similarity - a.similarity)
 
-  // ── Max Marginal Relevance (MMR) ─────────────────────────────────────────
-  // Balances relevance to query vs diversity across selected results.
-  // λ = 0.7 → 70% relevance, 30% diversity.
+  // ── MMR: balance relevance vs diversity ───────────────────────────────────
   const MMR_LAMBDA = 0.7
   const selected: typeof rawResults = []
   const candidates = [...rawResults]
@@ -167,11 +211,8 @@ export async function vaultSemanticSearch(
 
     for (let i = 0; i < candidates.length; i++) {
       const relevance = candidates[i].similarity
-      // Penalise if already selected an item from the same folder (diversity)
       const maxRedundancy = selected.length === 0 ? 0 : Math.max(
-        ...selected.map((s) =>
-          s.folder_id === candidates[i].folder_id ? 0.5 : 0
-        )
+        ...selected.map((s) => s.folder_id === candidates[i].folder_id ? 0.5 : 0)
       )
       const score = MMR_LAMBDA * relevance - (1 - MMR_LAMBDA) * maxRedundancy
       if (score > bestScore) { bestScore = score; bestIdx = i }
@@ -183,6 +224,7 @@ export async function vaultSemanticSearch(
 
   return selected
 }
+
 
 // ── Related context for a specific vault item ────────────────────────────────
 

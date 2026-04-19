@@ -1412,11 +1412,17 @@ export async function execVaultSemanticSearch(
       .in("vault_item_id", itemIds)
       .order("chunk_index", { ascending: true })
 
-    // Group chunks by item — max 3 per item to bound token usage
+    // Doc-first budget: top-ranked document gets more chunks for complete context.
+    // Secondary documents get fewer — they're supporting evidence only.
+    // Rank: results[0] = best doc, results[1..] = secondary
+    const primaryDocId = results[0]?.id
     const chunksByItem: Record<string, string[]> = {}
+
     for (const chunk of topChunks || []) {
       if (!chunksByItem[chunk.vault_item_id]) chunksByItem[chunk.vault_item_id] = []
-      if (chunksByItem[chunk.vault_item_id].length < 3) {
+      const isPrimary = chunk.vault_item_id === primaryDocId
+      const maxChunks = isPrimary ? 6 : 2   // primary doc: up to 6 chunks; secondary: 2
+      if (chunksByItem[chunk.vault_item_id].length < maxChunks) {
         chunksByItem[chunk.vault_item_id].push(chunk.chunk_text)
       }
     }
