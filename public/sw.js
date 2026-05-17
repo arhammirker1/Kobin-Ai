@@ -1,5 +1,5 @@
 // public/sw.js
-// Command Center Service Worker - Push Notification Handler
+// Kobin Ai Service Worker - Push Notification Handler
 
 self.addEventListener("install", (event) => {
   self.skipWaiting()

@@ -143,6 +143,7 @@ async function resolveProject(
   founderId: string
 ): Promise<ProjectContext | null> {
   if (!name) return null
+  const normalizedName = name.replace(/^project\s+/i, "").trim()
 
   // Auto-fetch project data if not pre-loaded by read tools
   if (projects.length === 0) {
@@ -158,7 +159,7 @@ async function resolveProject(
 
   if (projects.length === 0) return null
   const names = projects.map((p) => p.name)
-  const result = fuzzyMatch(name, names)
+  const result = fuzzyMatch(normalizedName || name, names)
   if (result) return projects[result.index]
   return null
 }
@@ -293,6 +294,48 @@ function generateLinkLabel(url: string, providedLabel?: string): string {
   }
 }
 
+function normalizeProjectStatus(status?: string): string | undefined {
+  if (!status) return status
+  const s = status.toLowerCase().trim()
+  if (s === "cancelled") return "archived"
+  return s
+}
+
+function normalizeEnumValue(
+  value: any,
+  allowed: string[],
+  fallback: string
+): string {
+  if (typeof value !== "string") return fallback
+  const v = value.toLowerCase().trim()
+  return allowed.includes(v) ? v : fallback
+}
+
+function parseBooleanLike(value: any, fallback = false): boolean {
+  if (typeof value === "boolean") return value
+  if (typeof value === "string") {
+    const v = value.toLowerCase().trim()
+    if (v === "true") return true
+    if (v === "false") return false
+  }
+  return fallback
+}
+
+function parseIsoDateSafe(value: any): string | null {
+  if (!value || typeof value !== "string") return null
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? null : d.toISOString()
+}
+
+function isValidUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === "http:" || parsed.protocol === "https:"
+  } catch {
+    return false
+  }
+}
+
 // ── Find task by title ──────────────────────────────────────────────────────
 
 async function findTaskByTitle(
@@ -371,6 +414,14 @@ export async function executeAction(
       return executeCreateProject(args, context)
     case "update_project":
       return executeUpdateProject(args, context)
+    case "search_messages":
+      return executeSearchMessages(args, context)
+    case "update_deal_stage":
+      return executeUpdateDealStage(args, context)
+    case "send_message_to_room":
+      return executeSendMessageToRoom(args, context)
+    case "analyze_workspace":
+      return executeAnalyzeWorkspace(args, context)
     default:
       return { success: false, message: `Unknown tool: ${toolName}` }
   }
@@ -404,6 +455,25 @@ async function executeCreateTask(
   if (!title?.trim()) {
     return { success: false, message: "Task title is required." }
   }
+  title = title.trim()
+  if (title.length > 200) {
+    return { success: false, message: "Task title is too long. Keep it under 200 characters." }
+  }
+
+  const normalizedPriority = normalizeEnumValue(priority, ["low", "medium", "high", "urgent"], "medium")
+  const normalizedStatus = normalizeEnumValue(status, ["todo", "in-progress", "blocked", "completed"], "todo")
+  const normalizedBucket = bucket
+    ? normalizeEnumValue(bucket, ["today", "this-week", "delegated", "backlog"], "backlog")
+    : undefined
+  const normalizedDueDate = due_date ? parseIsoDateSafe(due_date) : null
+  if (due_date && !normalizedDueDate) {
+    return { success: false, message: `Invalid due date format. Please provide an ISO date/time.` }
+  }
+  const normalizedDeliverableRequired = parseBooleanLike(deliverable_required, false)
+  // Do NOT silently mutate past due dates — let the user's intent stand.
+  // Past dates are valid for tasks being backfilled. We flag them instead.
+  const effectiveDueDate = normalizedDueDate
+  const dueDateAutoAdjusted = false
 
   // Resolve assignee
   let assignedTo: string | null = null
@@ -440,6 +510,9 @@ async function executeCreateTask(
   // Resolve vault file attachments
   let vaultAttachments: VaultAttachment[] | null = null
   let unmatchedFiles: string[] = []
+  if (vault_file_names && Array.isArray(vault_file_names)) {
+    vault_file_names = [...new Set(vault_file_names.map((f) => String(f).trim()).filter(Boolean))]
+  }
   if (vault_file_names && vault_file_names.length > 0 && projectId) {
     const result = await resolveVaultFiles(vault_file_names, projectId, ctx.founder_id)
     vaultAttachments = result.matched.length > 0 ? result.matched : null
@@ -453,30 +526,43 @@ async function executeCreateTask(
 
   // Process external links with auto-labeling
   let resources: Array<{ url: string; title: string }> | null = null
+  let invalidLinks: string[] = []
   if (external_links && external_links.length > 0) {
-    resources = external_links.map((link: { url: string; label?: string }) => ({
-      url: link.url,
-      title: generateLinkLabel(link.url, link.label),
-    }))
+    resources = []
+    for (const link of external_links as Array<{ url: string; label?: string }>) {
+      if (!link?.url || !isValidUrl(link.url)) {
+        if (link?.url) invalidLinks.push(link.url)
+        continue
+      }
+      resources.push({
+        url: link.url,
+        title: generateLinkLabel(link.url, link.label),
+      })
+    }
+    if (resources.length === 0) resources = null
   }
 
   // Determine bucket
-  const resolvedBucket = bucket || smartBucket(due_date, !!assignedTo)
+  const resolvedBucket = normalizedBucket || smartBucket(effectiveDueDate || undefined, !!assignedTo)
+  const resolvedDeliverableDescription =
+    normalizedDeliverableRequired && !deliverable_description
+      ? "Upload a deliverable describing what changed."
+      : (deliverable_description || null)
 
   const insertData = {
     user_id: ctx.founder_id,
     created_by: ctx.user_id,
-    title: title.trim(),
+    title,
     notes: notes || null,
-    priority: priority || "medium",
-    status: status || "todo",
-    due_date: due_date ? new Date(due_date).toISOString() : null,
+    priority: normalizedPriority,
+    status: normalizedStatus,
+    due_date: effectiveDueDate,
     assigned_to: assignedTo,
     project_id: projectId,
     bucket: resolvedBucket,
-    is_completed: false,
-    deliverable_required: deliverable_required || false,
-    deliverable_description: deliverable_description || null,
+    is_completed: normalizedStatus === "completed",
+    deliverable_required: normalizedDeliverableRequired,
+    deliverable_description: resolvedDeliverableDescription,
     resources: resources,
     linked: null,
     vault_attachments: vaultAttachments,
@@ -497,9 +583,9 @@ async function executeCreateTask(
   const details: string[] = []
   details.push(`**${title}**`)
   if (assigneeName) details.push(`Assigned to: ${assigneeName}`)
-  if (due_date) details.push(`Due: ${new Date(due_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}`)
+  if (effectiveDueDate) details.push(`Due: ${new Date(effectiveDueDate).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}`)
   if (projectNameResolved) details.push(`Project: ${projectNameResolved}`)
-  details.push(`Priority: ${(priority || "medium").charAt(0).toUpperCase() + (priority || "medium").slice(1)}`)
+  details.push(`Priority: ${normalizedPriority.charAt(0).toUpperCase() + normalizedPriority.slice(1)}`)
   details.push(`Bucket: ${resolvedBucket}`)
   if (vaultAttachments && vaultAttachments.length > 0) {
     details.push(`Vault files: ${vaultAttachments.map(v => v.title).join(", ")}`)
@@ -513,6 +599,12 @@ async function executeCreateTask(
   if (unmatchedFiles.length > 0) {
     message += ` Note: Could not find vault files matching: ${unmatchedFiles.map(f => `"${f}"`).join(", ")}.`
   }
+  if (invalidLinks.length > 0) {
+    message += ` Note: Ignored invalid links: ${invalidLinks.map((u) => `"${u}"`).join(", ")}.`
+  }
+  if (dueDateAutoAdjusted) {
+    message += ` Note: Due date was in the past, so it was adjusted to today.`
+  }
 
   return {
     success: true,
@@ -521,13 +613,15 @@ async function executeCreateTask(
       task_id: data.id,
       title: data.title,
       assigned_to: assigneeName,
-      due_date,
+      due_date: effectiveDueDate,
       project: projectNameResolved,
-      priority: priority || "medium",
+      priority: normalizedPriority,
       bucket: resolvedBucket,
       vault_files_attached: vaultAttachments?.length || 0,
       links_attached: resources?.length || 0,
       unmatched_files: unmatchedFiles,
+      invalid_links: invalidLinks,
+      due_date_auto_adjusted: dueDateAutoAdjusted,
       summary: details.join(" | "),
     },
   }
@@ -749,6 +843,7 @@ async function executeCreateProject(
   ctx: ActionContext
 ): Promise<ActionResult> {
   const { name, description, priority, status, start_date, end_date } = args
+  const normalizedStatus = normalizeProjectStatus(status)
 
   if (!name?.trim()) {
     return { success: false, message: "Project name is required." }
@@ -759,7 +854,7 @@ async function executeCreateProject(
     name: name.trim(),
     description: description || null,
     priority: priority || "medium",
-    status: status || "active",
+    status: normalizedStatus || "active",
     start_date: start_date || null,
     end_date: end_date || null,
   }
@@ -782,7 +877,7 @@ async function executeCreateProject(
       project_id: data.id,
       name: data.name,
       priority: priority || "medium",
-      status: status || "active",
+      status: normalizedStatus || "active",
     },
   }
 }
@@ -794,6 +889,7 @@ async function executeUpdateProject(
   ctx: ActionContext
 ): Promise<ActionResult> {
   const { project_name, new_name, description, priority, status, start_date, end_date } = args
+  const normalizedStatus = normalizeProjectStatus(status)
 
   if (!project_name?.trim()) {
     return { success: false, message: "Need a project name to find the project to update." }
@@ -822,9 +918,9 @@ async function executeUpdateProject(
     updateData.priority = priority
     changes.push(`Priority → ${priority}`)
   }
-  if (status) {
-    updateData.status = status
-    changes.push(`Status → ${status}`)
+  if (normalizedStatus) {
+    updateData.status = normalizedStatus
+    changes.push(`Status → ${normalizedStatus}`)
   }
   if (start_date) {
     updateData.start_date = start_date
@@ -857,5 +953,305 @@ async function executeUpdateProject(
       original_name: project.name,
       changes,
     },
+  }
+}
+
+// ── SEARCH MESSAGES ─────────────────────────────────────────────────────────
+
+async function executeSearchMessages(
+  args: Record<string, any>,
+  ctx: ActionContext
+): Promise<ActionResult> {
+  const { query, person_name, project_name } = args
+
+  if (!query?.trim()) {
+    return { success: false, message: "Search query is required." }
+  }
+
+  // Find rooms this founder has access to
+  const { data: rooms } = await supabaseAdmin
+    .from("chat_rooms")
+    .select("id, name, type, project_id")
+    .eq("founder_id", ctx.founder_id)
+
+  if (!rooms || rooms.length === 0) {
+    return { success: false, message: "No chat rooms found." }
+  }
+
+  let roomIds = rooms.map(r => r.id)
+
+  // Filter by project if specified
+  if (project_name) {
+    const { data: proj } = await supabaseAdmin
+      .from("projects")
+      .select("id")
+      .eq("founder_id", ctx.founder_id)
+      .ilike("name", `%${project_name}%`)
+      .limit(1)
+
+    if (proj?.[0]) {
+      const projectRoomIds = rooms
+        .filter(r => r.project_id === proj[0].id)
+        .map(r => r.id)
+      roomIds = projectRoomIds.length > 0 ? projectRoomIds : roomIds
+    }
+  }
+
+  // Search messages
+  const { data: messages } = await supabaseAdmin
+    .from("chat_messages")
+    .select("id, content, sender_id, created_at, room_id")
+    .in("room_id", roomIds)
+    .ilike("content", `%${query}%`)
+    .not("message_type", "in", '("event_invite","task_ref","ai_response")')
+    .order("created_at", { ascending: false })
+    .limit(10)
+
+  if (!messages || messages.length === 0) {
+    return { success: false, message: `No messages found matching "${query}".` }
+  }
+
+  // Resolve sender names
+  const senderIds = [...new Set(messages.map(m => m.sender_id))]
+  const { data: profiles } = await supabaseAdmin
+    .from("profiles")
+    .select("id, full_name")
+    .in("id", senderIds)
+
+  const profileMap = Object.fromEntries((profiles || []).map(p => [p.id, p.full_name]))
+
+  // Filter by person name if specified
+  let filtered = messages
+  if (person_name) {
+    const nameLower = person_name.toLowerCase()
+    filtered = messages.filter(m => {
+      const name = profileMap[m.sender_id] || ""
+      return name.toLowerCase().includes(nameLower)
+    })
+    if (filtered.length === 0) {
+      return { success: false, message: `No messages from "${person_name}" matching "${query}".` }
+    }
+  }
+
+  const roomMap = Object.fromEntries(rooms.map(r => [r.id, r.name || r.type]))
+
+  const results = filtered.slice(0, 5).map(m => {
+    const sender = profileMap[m.sender_id] || "Unknown"
+    const room = roomMap[m.room_id] || "DM"
+    const date = new Date(m.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+    return `[${date}] ${sender} in ${room}: "${m.content?.slice(0, 150)}"`
+  })
+
+  return {
+    success: true,
+    message: `Found ${filtered.length} message${filtered.length > 1 ? "s" : ""} matching "${query}":\n\n${results.join("\n\n")}`,
+    data: { count: filtered.length, results },
+  }
+}
+
+// ── UPDATE DEAL STAGE ───────────────────────────────────────────────────────
+
+async function executeUpdateDealStage(
+  args: Record<string, any>,
+  ctx: ActionContext
+): Promise<ActionResult> {
+  const { contact_name, new_stage } = args
+
+  if (!contact_name || !new_stage) {
+    return { success: false, message: "Contact name and new stage are required." }
+  }
+
+  const { data: contacts } = await supabaseAdmin
+    .from("relationships")
+    .select("id, full_name, pipeline_stage, company")
+    .eq("user_id", ctx.founder_id)
+    .ilike("full_name", `%${contact_name}%`)
+    .limit(1)
+
+  if (!contacts || contacts.length === 0) {
+    return { success: false, message: `No contact found matching "${contact_name}".` }
+  }
+
+  const contact = contacts[0]
+
+  const { error } = await supabaseAdmin
+    .from("relationships")
+    .update({
+      pipeline_stage: new_stage,
+      stage_entered_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", contact.id)
+
+  if (error) return { success: false, message: `Failed: ${error.message}` }
+
+  const stageLabel = new_stage.replace(/_/g, " ")
+  return {
+    success: true,
+    message: `${contact.full_name}${contact.company ? ` (${contact.company})` : ""} moved to **${stageLabel}**.`,
+    data: {
+      contact_id: contact.id,
+      contact_name: contact.full_name,
+      old_stage: contact.pipeline_stage,
+      new_stage,
+    },
+  }
+}
+
+// ── SEND MESSAGE TO ROOM ────────────────────────────────────────────────────
+
+async function executeSendMessageToRoom(
+  args: Record<string, any>,
+  ctx: ActionContext
+): Promise<ActionResult> {
+  const { recipient_name, message } = args
+
+  if (!recipient_name || !message) {
+    return { success: false, message: "Recipient and message are required." }
+  }
+
+  let recipientUserId: string | null = null
+  let resolvedName = recipient_name
+  let roomId: string | null = null
+
+  // 1. Search active team members
+  const { data: teamMembers } = await supabaseAdmin
+    .from("team_members")
+    .select("user_id, profile:profiles!team_members_user_id_profiles_fkey(full_name)")
+    .eq("founder_id", ctx.founder_id)
+    .eq("is_active", true)
+
+  if (teamMembers) {
+    const match = teamMembers.find((m: any) =>
+      (m.profile?.full_name || "").toLowerCase().includes(recipient_name.toLowerCase())
+    )
+    if (match) {
+      recipientUserId = match.user_id
+      resolvedName = (match.profile as any)?.full_name || recipient_name
+    }
+  }
+
+  // 2. Search clients with portal access
+  if (!recipientUserId) {
+    const { data: clients } = await supabaseAdmin
+      .from("clients")
+      .select("portal_user_id, name")
+      .eq("founder_id", ctx.founder_id)
+      .not("portal_user_id", "is", null)
+      .ilike("name", `%${recipient_name}%`)
+      .limit(1)
+
+    if (clients?.[0]?.portal_user_id) {
+      recipientUserId = clients[0].portal_user_id
+      resolvedName = clients[0].name
+    }
+  }
+
+  // 3. Search project channels
+  if (!recipientUserId) {
+    const { data: project } = await supabaseAdmin
+      .from("projects")
+      .select("id, name")
+      .eq("founder_id", ctx.founder_id)
+      .ilike("name", `%${recipient_name}%`)
+      .limit(1)
+      .maybeSingle()
+
+    if (project) {
+      const { data: room } = await supabaseAdmin
+        .from("chat_rooms")
+        .select("id")
+        .eq("project_id", project.id)
+        .eq("type", "project")
+        .maybeSingle()
+
+      if (room) { roomId = room.id; resolvedName = project.name }
+    }
+  }
+
+  // 4. Resolve existing DM room
+  if (recipientUserId && !roomId) {
+    const dmKey = [ctx.founder_id, recipientUserId].sort().join(":")
+    const { data: existingRoom } = await supabaseAdmin
+      .from("chat_rooms")
+      .select("id")
+      .eq("dm_key", dmKey)
+      .maybeSingle()
+    roomId = existingRoom?.id || null
+  }
+
+  if (!recipientUserId && !roomId) {
+    const names = (teamMembers || []).map((m: any) => m.profile?.full_name).filter(Boolean).join(", ")
+    return {
+      success: false,
+      message: `Could not find "${recipient_name}" in team members, clients, or project channels.${names ? ` Available team: ${names}` : ""}`,
+    }
+  }
+
+  return {
+    success: true,
+    needs_confirmation: true,
+    message: `Ready to send to **${resolvedName}**:\n\n"${message}"\n\nConfirm?`,
+    confirmation_action: {
+      tool: "send_message_confirmed",
+      args: {
+        recipient_user_id: recipientUserId,
+        room_id: roomId,
+        message,
+        recipient_name: resolvedName,
+        founder_id: ctx.founder_id,
+      },
+      resolved_id: resolvedName,
+      description: `Send message to ${resolvedName}`,
+    },
+  }
+}
+
+// ── ANALYZE WORKSPACE ───────────────────────────────────────────────────────
+
+async function executeAnalyzeWorkspace(
+  args: Record<string, any>,
+  ctx: ActionContext
+): Promise<ActionResult> {
+  const { focus = "all" } = args
+  const { analyzeWorkspace } = await import("@/lib/ai/intelligence")
+  const intel = await analyzeWorkspace(ctx.founder_id)
+
+  const lines: string[] = []
+
+  if (focus === "all" || focus === "risks") {
+    if (intel.risks.length === 0) {
+      lines.push("✅ No critical risks detected.")
+    } else {
+      lines.push(`⚠️ ${intel.risks.length} risk${intel.risks.length > 1 ? "s" : ""} detected:`)
+      intel.risks.slice(0, 6).forEach(r => {
+        const icon = r.severity === "critical" ? "🔴" : r.severity === "high" ? "🟠" : "🟡"
+        lines.push(`${icon} ${r.title}: ${r.detail}`)
+      })
+    }
+  }
+
+  if (focus === "all" || focus === "team") {
+    lines.push("\n**Team load:**")
+    intel.teamStatus.forEach(m => {
+      const icon = m.load === "HEAVY" ? "🔴" : m.load === "MODERATE" ? "🟠" : m.load === "LIGHT" ? "🟢" : "⚪"
+      lines.push(`${icon} ${m.name}: ${m.load}${m.overdue > 0 ? ` (${m.overdue} overdue)` : ""}`)
+    })
+  }
+
+  if ((focus === "all" || focus === "projects") && intel.bottlenecks.length > 0) {
+    lines.push("\n**Bottlenecks:**")
+    intel.bottlenecks.forEach(b => lines.push(`• ${b}`))
+  }
+
+  if (intel.priorities.length > 0) {
+    lines.push("\n**Top priorities:**")
+    intel.priorities.forEach(p => lines.push(`${p.rank}. ${p.action} — ${p.reason}`))
+  }
+
+  return {
+    success: true,
+    message: lines.join("\n"),
+    data: intel,
   }
 }

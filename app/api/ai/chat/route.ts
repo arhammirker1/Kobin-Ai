@@ -1,15 +1,74 @@
 import { createClient } from "@/lib/supabase/server"
 import { supabaseAdmin } from "@/lib/supabase/admin"
-import { getGroqClient, GROQ_MODEL } from "@/lib/ai/groq"
+import { getGroqClient, GROQ_MODEL_STD, GROQ_MODEL } from "@/lib/ai/groq"
 import { buildMiniContext } from "@/lib/ai/mini-context"
 import { READ_TOOLS, executeReadTool } from "@/lib/ai/mcp-read-tools"
 import type { ReadToolName } from "@/lib/ai/mcp-read-tools"
+import { selectModelForRequest } from "@/lib/ai/model-router"
 import { NextResponse } from "next/server"
 
 // ── Token estimation ────────────────────────────────────────────────────────
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4)
+}
+
+function isModelDecommissionedError(err: any): boolean {
+  const msg = err?.message || err?.error?.message || ""
+  return String(msg).toLowerCase().includes("decommissioned")
+}
+
+async function createCompletionWithModelFallback(
+  groq: any,
+  primaryModel: string,
+  payload: Record<string, any>
+) {
+  try {
+    return await groq.chat.completions.create({
+      ...payload,
+      model: primaryModel,
+    })
+  } catch (err: any) {
+    if (!isModelDecommissionedError(err)) throw err
+    const fallbackModel = GROQ_MODEL_STD
+    if (fallbackModel === primaryModel) throw err
+    console.warn(`[AI-CHAT] Model ${primaryModel} is decommissioned. Falling back to ${fallbackModel}.`)
+    return await groq.chat.completions.create({
+      ...payload,
+      model: fallbackModel,
+    })
+  }
+}
+
+// ── Request-level tool memoization ─────────────────────────────────────────────
+
+type ChatToolMemoKey = string
+type ChatToolMemoValue = string
+
+function chatMemoKey(toolName: string, args: Record<string, any>): ChatToolMemoKey {
+  return `${toolName}:${JSON.stringify(args)}`
+}
+
+function createChatToolMemoizer() {
+  const memo = new Map<ChatToolMemoKey, Promise<ChatToolMemoValue>>()
+
+  return {
+    async getOrExecute(
+      key: ChatToolMemoKey,
+      executor: () => Promise<string>
+    ): Promise<string> {
+      if (memo.has(key)) {
+        console.log(`[MEMO] Cache hit: ${key}`)
+        return memo.get(key)!
+      }
+      const promise = executor()
+      memo.set(key, promise)
+      return promise
+    },
+    clear() {
+      memo.clear()
+    }
+  }
 }
 
 export async function POST(request: Request) {
@@ -66,35 +125,41 @@ export async function POST(request: Request) {
       }
     }
 
-    const systemPrompt = `You are the AI assistant in Command Center — an agency OS. You're embedded in the team inbox.
+    const systemPrompt = `You are the AI assistant in Kobin Ai — an agency OS. You're embedded in the team inbox.
 
 ${miniContext}${roomContext}
 
 ## How You Work
 - Use read tools to look up workspace data when relevant to the conversation
-- Be conversational but precise. No filler.
+- Be conversational but precise.
 - Reference data naturally — don't dump raw tool results
 - If asked about tasks, projects, or CRM — use the appropriate read tool first
 - Today's date is in the context above.
 
-## Output Rules — NEVER BREAK THESE
-- NEVER show your internal reasoning, thinking steps, or planning process (no "Step 1", "Step 2", etc.)
-- NEVER reference tool names in your response (no "get_crm_pipeline", "get_deals", etc.)
-- NEVER fabricate or hallucinate data. If you don't have info, say so honestly and briefly.
-- NEVER narrate what you "would do" — either do it with tools, or give the answer directly.
-- Your response must read like a polished final answer from a sharp executive assistant.`
+## Output Rules
+- Do not expose internal chain-of-thought.
+- Do not expose raw tool names in user-facing responses.
+- Do not fabricate data. If missing, say so and ask one clear follow-up question.
+- Respond like a polished executive assistant.`
 
     const messages: any[] = [
       { role: "system", content: systemPrompt },
       { role: "user", content: message },
     ]
+const selectedModel = selectModelForRequest({
+    intent: "chat",
+    message,
+    historyCount: 1,
+  })
+  // chat defaults to STD tier for tool-calling quality
+  if (selectedModel.tier === "fast") selectedModel.model = GROQ_MODEL_STD
 
     const groq = getGroqClient()
     const toolsCalled: string[] = []
 
     const systemTokens = estimateTokens(systemPrompt)
     const toolSchemaTokens = estimateTokens(JSON.stringify(READ_TOOLS))
-    console.log(`[AI-CHAT] System: ~${systemTokens} tokens | Tools schema: ~${toolSchemaTokens} tokens`)
+    console.log(`[AI-CHAT] System: ~${systemTokens} tokens | Tools schema: ~${toolSchemaTokens} tokens | Model: ${selectedModel.model} (${selectedModel.tier}/${selectedModel.reason})`)
 
     // Save placeholder message to DB
     const { data: savedMessage } = await supabaseAdmin
@@ -104,7 +169,7 @@ ${miniContext}${roomContext}
         sender_id: user.id,
         content: "...",
         is_ai: true,
-        ai_model: GROQ_MODEL,
+        ai_model: selectedModel.model || GROQ_MODEL,
         message_type: "ai_response",
       })
       .select("id")
@@ -117,8 +182,7 @@ ${miniContext}${roomContext}
 
       let response: any
       try {
-        response = await groq.chat.completions.create({
-          model: GROQ_MODEL,
+        response = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
           messages,
           tools: READ_TOOLS as any,
           tool_choice: "auto",
@@ -130,8 +194,7 @@ ${miniContext}${roomContext}
         const errorMessage = apiError?.message || apiError?.error?.message || ""
         if (apiError?.status === 400 && errorMessage.includes("tool_use_failed")) {
           console.log(`[AI-CHAT] Step ${step + 1} | Groq schema error — retrying without tools`)
-          response = await groq.chat.completions.create({
-            model: GROQ_MODEL,
+          response = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
             messages,
             max_tokens: 1024,
             temperature: 0.7,
@@ -183,8 +246,7 @@ ${miniContext}${roomContext}
         }
 
         // First step, no tools — stream directly
-        const directStream = await groq.chat.completions.create({
-          model: GROQ_MODEL,
+        const directStream = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
           messages,
           stream: true,
           max_tokens: 1024,
@@ -231,9 +293,15 @@ ${miniContext}${roomContext}
       // Execute read tools
       console.log(`[AI-CHAT] Step ${step + 1} | Tools: ${toolCalls.map((tc: any) => tc.function.name).join(", ")}`)
 
+      // Initialize memoizer for this step
+      const chatMemo = createChatToolMemoizer()
       const toolResults: Array<{ tool_call_id: string; role: "tool"; content: string }> = []
 
-      for (const toolCall of toolCalls) {
+      // Execute ALL read tools in PARALLEL
+      const startTime = Date.now()
+      console.log(`[AI-CHAT] Executing ${toolCalls.length} read tool(s) in parallel`)
+
+      const readPromises = toolCalls.map(async (toolCall: any) => {
         const toolName = toolCall.function.name as ReadToolName
         toolsCalled.push(toolName)
 
@@ -244,15 +312,25 @@ ${miniContext}${roomContext}
           toolArgs = {}
         }
 
-        const result = await executeReadTool(toolName, toolArgs, founder_id)
-        console.log(`[AI-CHAT] Read tool ${toolName} → ${estimateTokens(result.content)} tokens`)
-
-        toolResults.push({
-          tool_call_id: toolCall.id,
-          role: "tool",
-          content: result.content,
+        const key = chatMemoKey(toolName, toolArgs)
+        const content = await chatMemo.getOrExecute(key, async () => {
+          const result = await executeReadTool(toolName, toolArgs, founder_id)
+          console.log(`[AI-CHAT] Read tool ${toolName} → ${estimateTokens(result.content)} tokens`)
+          return result.content
         })
-      }
+
+        return {
+          tool_call_id: toolCall.id,
+          role: "tool" as const,
+          content,
+        }
+      })
+
+      const readResults = await Promise.all(readPromises)
+      toolResults.push(...readResults)
+
+      const elapsed = Date.now() - startTime
+      console.log(`[AI-CHAT] Read tools completed in ${elapsed}ms`)
 
       messages.push(choice.message)
       messages.push(...toolResults)
@@ -262,8 +340,7 @@ ${miniContext}${roomContext}
     console.log(`[AI-CHAT] Max steps reached, streaming final`)
     console.log(`[AI-CHAT] Tools used: ${toolsCalled.join(", ")}`)
 
-    const finalStream = await groq.chat.completions.create({
-      model: GROQ_MODEL,
+    const finalStream = await createCompletionWithModelFallback(groq, selectedModel.model || GROQ_MODEL, {
       messages,
       stream: true,
       max_tokens: 1024,
@@ -308,6 +385,14 @@ ${miniContext}${roomContext}
   } catch (err) {
     const message = err instanceof Error ? err.message : "Server error"
     console.error("[AI-CHAT] Error:", message)
-    return NextResponse.json({ error: message }, { status: 500 })
+    return NextResponse.json(
+      {
+        error: "AI chat execution failed",
+        detail: message,
+        degraded_mode: true,
+        user_message: "I hit a temporary issue accessing tools. Please retry in a moment.",
+      },
+      { status: 500 }
+    )
   }
 }

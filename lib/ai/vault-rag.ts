@@ -1,0 +1,469 @@
+/**
+ * lib/ai/vault-rag.ts
+ *
+ * Retrieval Augmented Generation for the Vault.
+ * Powers:
+ *   1. Semantic search  — find items by meaning, not keywords
+ *   2. Related context  — show what's connected when you open an item
+ *   3. RAG context      — inject vault knowledge into AI prompts
+ *   4. Auto-clustering  — group items by concept (for insights)
+ */
+
+import { supabaseAdmin } from "@/lib/supabase/admin"
+import { generateEmbedding } from "./embeddings"
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
+export interface VaultSearchResult {
+  id: string
+  title: string
+  description: string
+  item_type: "file" | "link" | "note"
+  document_type: string
+  folder_id: string
+  project_id: string | null
+  drive_file_url: string | null
+  link_url: string | null
+  note_content: string | null
+  added_by_type: "founder" | "team" | "client"
+  created_at: string
+  embedding_status: string
+  similarity: number
+  project_name?: string
+  folder_name?: string
+  // Chunk-level retrieval fields
+  best_chunk_text?: string    // The most relevant chunk from this document
+  matched_chunks?: number     // How many chunks matched
+}
+
+export interface RelatedContext {
+  item: VaultSearchResult
+  reason: string   // "0.91 similarity · same client" etc.
+  similarity: number
+}
+
+// ── Semantic search ──────────────────────────────────────────────────────────
+
+// ── Semantic search (chunk-aware) ────────────────────────────────────────────
+
+export async function vaultSemanticSearch(
+  founderId: string,
+  query: string,
+  options: {
+    limit?: number
+    threshold?: number
+    projectId?: string
+    itemType?: string
+  } = {}
+): Promise<VaultSearchResult[]> {
+  const { limit = 10, threshold = 0.18, projectId, itemType } = options
+
+  console.log(`[RAG/Semantic] Two-stage doc-first search for: "${query}"`)
+  const queryEmbedding = await generateEmbedding(query)
+  const vectorLiteral = `[${queryEmbedding.join(",")}]`
+
+  // ── STAGE 1: Document-level search ─────────────────────────────────────────
+  // Find the most relevant DOCUMENTS first using item-level embeddings.
+  // These become the anchor — chunk retrieval is constrained to these docs only.
+  // This prevents cross-document contamination that causes hallucinations.
+  const { data: docHits, error: docError } = await supabaseAdmin.rpc(
+    "vault_semantic_search",
+    {
+      p_founder_id: founderId,
+      p_embedding: vectorLiteral,
+      p_limit: limit * 3,
+      p_threshold: threshold * 0.8,
+    }
+  )
+
+  if (docError || !docHits || docHits.length === 0) {
+    console.log(`[RAG/Semantic] Stage 1: no document hits`)
+    return []
+  }
+
+  const docSimMap: Record<string, number> = {}
+  for (const d of docHits as Array<{ vault_item_id: string; similarity: number }>) {
+    docSimMap[d.vault_item_id] = d.similarity
+  }
+  const topDocIds = Object.keys(docSimMap)
+
+  console.log(`[RAG/Semantic] Stage 1: ${topDocIds.length} documents anchored`)
+
+  // ── STAGE 2: Chunk search constrained to anchored documents ────────────────
+  // Only chunks that belong to our Stage 1 documents are considered.
+  // This ensures the AI gets coherent, same-document context with no bleed-through.
+  const { data: chunkHits } = await supabaseAdmin.rpc(
+    "vault_chunk_search",
+    {
+      p_founder_id: founderId,
+      p_embedding: vectorLiteral,
+      p_limit: limit * 30,    // large buffer — we filter client-side to anchored docs
+      p_threshold: threshold * 0.5,  // lower threshold; doc already qualified it
+    }
+  )
+
+  // Filter to chunks from anchored documents ONLY
+  const anchoredChunks = ((chunkHits || []) as Array<{
+    vault_item_id: string
+    chunk_text: string
+    similarity: number
+  }>).filter(c => topDocIds.includes(c.vault_item_id))
+
+  console.log(
+    `[RAG/Semantic] Stage 2: ${anchoredChunks.length} anchored chunks` +
+    ` (filtered from ${(chunkHits || []).length} total)`
+  )
+
+  // Group by document — keep best chunk + count
+  const itemChunkMap: Record<string, {
+    bestChunkSim: number
+    bestChunkText: string
+    matchedChunks: number
+  }> = {}
+
+  for (const chunk of anchoredChunks) {
+    const existing = itemChunkMap[chunk.vault_item_id]
+    if (!existing || chunk.similarity > existing.bestChunkSim) {
+      itemChunkMap[chunk.vault_item_id] = {
+        bestChunkSim: chunk.similarity,
+        bestChunkText: chunk.chunk_text,
+        matchedChunks: (existing?.matchedChunks || 0) + 1,
+      }
+    } else {
+      existing.matchedChunks++
+    }
+  }
+
+  // For anchored docs with zero chunk hits (not yet chunked), keep them
+  // using their document-level similarity as a fallback
+  for (const docId of topDocIds) {
+    if (!itemChunkMap[docId]) {
+      itemChunkMap[docId] = {
+        bestChunkSim: docSimMap[docId] * 0.85, // slight penalty — no chunk evidence
+        bestChunkText: "",
+        matchedChunks: 0,
+      }
+    }
+  }
+
+  const uniqueItemIds = Object.keys(itemChunkMap)
+  if (uniqueItemIds.length === 0) return []
+
+  // ── Fetch full item details ────────────────────────────────────────────────
+  let q = supabaseAdmin
+    .from("vault_items")
+    .select(`
+      id, title, description, item_type, document_type,
+      folder_id, project_id, drive_file_url, link_url,
+      note_content, added_by_type, created_at, embedding_status
+    `)
+    .in("id", uniqueItemIds)
+    .eq("founder_id", founderId)
+
+  if (projectId) q = q.eq("project_id", projectId)
+  if (itemType) q = q.eq("item_type", itemType)
+
+  const { data: items } = await q
+  if (!items) return []
+
+  // ── Resolve project + folder names ────────────────────────────────────────
+  const pIds = [...new Set(items.map((i) => i.project_id).filter(Boolean))] as string[]
+  const fIds = [...new Set(items.map((i) => i.folder_id).filter(Boolean))] as string[]
+
+  const [projectsRes, foldersRes] = await Promise.all([
+    pIds.length > 0 ? supabaseAdmin.from("projects").select("id, name").in("id", pIds) : { data: [] },
+    fIds.length > 0 ? supabaseAdmin.from("vault_folders").select("id, name").in("id", fIds) : { data: [] },
+  ])
+
+  const pMap = Object.fromEntries((projectsRes.data || []).map((p) => [p.id, p.name]))
+  const fMap = Object.fromEntries((foldersRes.data || []).map((f) => [f.id, f.name]))
+
+  // ── Final scoring: weighted blend of doc-level + chunk-level similarity ────
+  // Doc similarity anchors relevance; chunk similarity refines it.
+  // Items with strong chunk hits rank higher than pure doc-level matches.
+  const rawResults = items.map((item) => {
+    const docSim = docSimMap[item.id] || 0
+    const chunkData = itemChunkMap[item.id]
+    const hasChunks = (chunkData?.matchedChunks || 0) > 0
+
+    const finalSim = hasChunks
+      ? docSim * 0.4 + chunkData.bestChunkSim * 0.6
+      : docSim * 0.85
+
+    return {
+      ...item,
+      similarity: finalSim,
+      best_chunk_text: chunkData?.bestChunkText || undefined,
+      matched_chunks: chunkData?.matchedChunks || 0,
+      project_name: item.project_id ? pMap[item.project_id] : undefined,
+      folder_name: fMap[item.folder_id],
+    }
+  }).sort((a, b) => b.similarity - a.similarity)
+
+  // ── MMR: balance relevance vs diversity ───────────────────────────────────
+  const MMR_LAMBDA = 0.7
+  const selected: typeof rawResults = []
+  const candidates = [...rawResults]
+
+  while (selected.length < limit && candidates.length > 0) {
+    let bestIdx = 0
+    let bestScore = -Infinity
+
+    for (let i = 0; i < candidates.length; i++) {
+      const relevance = candidates[i].similarity
+      const maxRedundancy = selected.length === 0 ? 0 : Math.max(
+        ...selected.map((s) => s.folder_id === candidates[i].folder_id ? 0.5 : 0)
+      )
+      const score = MMR_LAMBDA * relevance - (1 - MMR_LAMBDA) * maxRedundancy
+      if (score > bestScore) { bestScore = score; bestIdx = i }
+    }
+
+    selected.push(candidates[bestIdx])
+    candidates.splice(bestIdx, 1)
+  }
+
+  return selected
+}
+
+
+// ── Related context for a specific vault item ────────────────────────────────
+
+export async function getRelatedContext(
+  vaultItemId: string,
+  founderId: string,
+  limit = 5
+): Promise<RelatedContext[]> {
+  const { data: similarities, error } = await supabaseAdmin.rpc(
+    "vault_related_items",
+    {
+      p_vault_item_id: vaultItemId,
+      p_founder_id: founderId,
+      p_limit: limit,
+      p_threshold: 0.25,
+    }
+  )
+
+  if (error || !similarities || similarities.length === 0) {
+    if (error) console.error("[RAG/Related] RPC Error:", error)
+    return []
+  }
+  console.log(`[RAG/Related] Found ${similarities.length} items connected to ${vaultItemId}`)
+
+  const itemIds = similarities.map((s: any) => s.vault_item_id)
+  const { data: items } = await supabaseAdmin
+    .from("vault_items")
+    .select(`
+      id, title, description, item_type, document_type,
+      folder_id, project_id, drive_file_url, link_url,
+      note_content, added_by_type, created_at, embedding_status
+    `)
+    .in("id", itemIds)
+    .eq("founder_id", founderId)
+
+  if (!items) return []
+
+  const simMap = Object.fromEntries(
+    similarities.map((s: any) => [s.vault_item_id, s.similarity])
+  )
+
+  return items
+    .map((item) => {
+      const sim = simMap[item.id] || 0
+      let reason = `${(sim * 100).toFixed(0)}% similarity`
+      if (item.item_type === "note") reason += " · related note"
+      if (item.document_type === "Proposal") reason += " · similar proposal"
+      if (item.item_type === "file") reason += " · same document type"
+
+      return {
+        item: { ...item, similarity: sim },
+        reason,
+        similarity: sim,
+      }
+    })
+    .sort((a, b) => b.similarity - a.similarity)
+}
+
+// ── Source attribution type ───────────────────────────────────────────────────
+
+export interface RAGSource {
+  id: string
+  title: string
+  document_type: string
+  similarity: number
+  project_name?: string
+  chunk_preview?: string   // first 120 chars of matched chunk
+}
+
+export interface RAGContext {
+  context: string
+  sources: RAGSource[]
+}
+
+// ── Build RAG context for AI prompts (with source attribution) ────────────────
+
+export async function buildVaultRAGContext(
+  founderId: string,
+  userMessage: string,
+  options: { maxItems?: number; projectId?: string } = {}
+): Promise<RAGContext> {
+  const { maxItems = 6, projectId } = options
+
+  try {
+    console.log(`[RAG/Context] Building context for: "${userMessage.slice(0, 60)}..."`)
+
+    const results = await vaultSemanticSearch(founderId, userMessage, {
+      limit: maxItems,
+      threshold: 0.22,
+      projectId,
+    })
+
+    console.log(`[RAG/Context] ${results.length} items retrieved`)
+
+    if (results.length === 0) return { context: "", sources: [] }
+
+    // ── Entity grounding: extract named entities from query ──────────────────
+    // If the query references a specific named subject, only include items that
+    // contain that name (prevents cross-domain hallucination).
+    const queryEntityPattern = /\b[A-Z][a-zA-Z]+(?:\s[A-Z][a-zA-Z]+)*\b/g
+    const queryEntities = [...new Set(userMessage.match(queryEntityPattern) || [])]
+      .filter(e => e.length > 3) // skip short words like "The"
+
+    const groundedResults = queryEntities.length > 0
+      ? results.filter((item) => {
+        const haystack = [
+          item.title, item.description, item.note_content,
+          item.best_chunk_text,
+        ].filter(Boolean).join(" ").toLowerCase()
+
+        // Include item if ANY query entity appears in its content
+        // OR if similarity is very high (≥0.75 → trust the vector)
+        return queryEntities.some(e => haystack.includes(e.toLowerCase())) ||
+          item.similarity >= 0.75
+      })
+      : results
+
+    // If grounding filtered everything out, fall back to top-2 raw results with a caveat
+    const finalResults = groundedResults.length > 0 ? groundedResults : results.slice(0, 2)
+
+    // ── Fetch ALL chunks for every matched document in one query ──────────────
+    // Primary document (highest similarity): every chunk — full document content.
+    // Secondary documents: up to 4 chunks each — supporting evidence only.
+    // Chunks are pre-sized at ≈1,500 chars; no truncation needed here.
+    const itemIds = finalResults.map(r => r.id)
+    const primaryDocId = finalResults[0]?.id
+
+    const { data: rawChunks } = await supabaseAdmin
+      .from("vault_chunks")
+      .select("vault_item_id, chunk_index, chunk_text")
+      .in("vault_item_id", itemIds)
+      .order("chunk_index", { ascending: true })
+
+    const chunksByItem: Record<string, string[]> = {}
+    for (const chunk of rawChunks || []) {
+      if (!chunksByItem[chunk.vault_item_id]) chunksByItem[chunk.vault_item_id] = []
+      const isPrimary = chunk.vault_item_id === primaryDocId
+      // Primary: no cap (all chunks). Secondary: 4 chunks max.
+      if (isPrimary || chunksByItem[chunk.vault_item_id].length < 4) {
+        chunksByItem[chunk.vault_item_id].push(chunk.chunk_text)
+      }
+    }
+
+    console.log(
+      `[RAG/Context] Chunks loaded — primary(${primaryDocId?.slice(0, 8)}): ` +
+      `${chunksByItem[primaryDocId ?? ""]?.length ?? 0}, ` +
+      `secondaries: ${finalResults.slice(1).map(r => chunksByItem[r.id]?.length ?? 0).join(",")}`
+    )
+
+    const lines: string[] = [
+      "## Relevant Knowledge from Your Vault:",
+      groundedResults.length === 0
+        ? "⚠️ No vault items directly mention the subject — showing closest matches.\n"
+        : "Use the following context to answer. Cite the source title when referencing it.\n",
+    ]
+
+    const sources: RAGSource[] = []
+
+    for (const item of finalResults) {
+      const sim = (item.similarity * 100).toFixed(0)
+      const sourceLabel = `[${item.title}]`
+      const chunks = chunksByItem[item.id]
+
+      lines.push(`### ${sourceLabel} — ${item.document_type} (${sim}% match)`)
+
+      if (chunks && chunks.length > 0) {
+        // Full chunk text — no truncation. Chunks are pre-sized at ≈1,500 chars each.
+        for (let i = 0; i < chunks.length; i++) {
+          lines.push(chunks[i])
+          if (i < chunks.length - 1) lines.push("---")
+        }
+      } else if (item.note_content) {
+        // No chunks yet (embedding pending) — fall back to raw note content
+        lines.push(item.note_content.slice(0, 3000))
+      } else if (item.description) {
+        lines.push(item.description)
+      }
+
+      if (item.project_name) lines.push(`*Project: ${item.project_name}*`)
+      lines.push("")
+
+      sources.push({
+        id: item.id,
+        title: item.title,
+        document_type: item.document_type,
+        similarity: item.similarity,
+        project_name: item.project_name,
+        chunk_preview: item.best_chunk_text?.slice(0, 120) || item.description?.slice(0, 120),
+      })
+    }
+
+    return { context: lines.join("\n"), sources }
+  } catch (err) {
+    console.error("[RAG] buildVaultRAGContext error:", err)
+    return { context: "", sources: [] }
+  }
+}
+
+
+// ── Hybrid search: combine keyword + semantic ────────────────────────────────
+
+export async function vaultHybridSearch(
+  founderId: string,
+  query: string,
+  options: { limit?: number; projectId?: string } = {}
+): Promise<VaultSearchResult[]> {
+  const { limit = 10, projectId } = options
+
+  // Run both in parallel
+  const [semanticResults, keywordItems] = await Promise.all([
+    vaultSemanticSearch(founderId, query, { limit, projectId, threshold: 0.15 }),
+    (async () => {
+      let q = supabaseAdmin
+        .from("vault_items")
+        .select(`
+          id, title, description, item_type, document_type,
+          folder_id, project_id, drive_file_url, link_url,
+          note_content, added_by_type, created_at, embedding_status
+        `)
+        .eq("founder_id", founderId)
+        .or(`title.ilike.%${query}%,description.ilike.%${query}%`)
+        .limit(limit)
+
+      if (projectId) q = q.eq("project_id", projectId)
+      const { data } = await q
+      return (data || []).map((i) => ({ ...i, similarity: 0.5 }))
+    })(),
+  ])
+
+  // Merge, deduplicate, rank (semantic wins on tie)
+  const seen = new Set<string>()
+  const merged: VaultSearchResult[] = []
+
+  for (const item of [...semanticResults, ...keywordItems]) {
+    if (!seen.has(item.id)) {
+      seen.add(item.id)
+      merged.push(item)
+    }
+  }
+
+  return merged.sort((a, b) => b.similarity - a.similarity).slice(0, limit)
+}

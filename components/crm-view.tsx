@@ -7,7 +7,7 @@ import { Input, Textarea } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Search, Plus, Video, CalendarIcon, FileText, Linkedin, LayoutList, Kanban, Upload, ChevronLeft, ChevronRight, History, Mail } from "lucide-react"
+import { Search, Plus, Video, CalendarIcon, FileText, Linkedin, LayoutList, Kanban, Upload, ChevronLeft, ChevronRight, History, Mail, Loader2, Brain } from "lucide-react"
 import { LeadsImportDialog } from "@/components/leads-import-dialog"
 import { useState, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
@@ -15,6 +15,12 @@ import { toast } from "sonner"
 import { format, parseISO } from "date-fns"
 import { cn } from "@/lib/utils"
 import { PipelineView, STAGES, type PipelineContact, type PipelineStage } from "@/components/pipeline-view"
+
+
+
+// Simple guards to prevent concurrent operations — no caching, DB is source of truth
+let _syncInProgress = false
+
 
 const RELATIONSHIP_TYPES = [
   { value: "lead", label: "Lead" },
@@ -83,6 +89,19 @@ export function CrmView() {
   const [outcomeText, setOutcomeText] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
   const [importHistory, setImportHistory] = useState<ImportHistoryItem[]>([])
+  const [gmailConnected, setGmailConnected] = useState(false)
+  const [syncingEmail, setSyncingEmail] = useState(false)
+  const [emailInsights, setEmailInsights] = useState<Array<{
+    relationship_id: string
+    contact_name: string
+    thread_id: string
+    subject: string
+    intent: string
+    sentiment: string
+    summary: string
+    signals: string[]
+    analyzed_at: string
+  }>>([])
 
   const [newRelationship, setNewRelationship] = useState<Partial<Relationship>>({
     full_name: "",
@@ -111,7 +130,105 @@ export function CrmView() {
   useEffect(() => {
     fetchRelationships()
     fetchImportHistory()
+    checkGmailAndSync()
   }, [])
+
+  const checkGmailAndSync = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data: integration } = await supabase
+        .from("google_integrations")
+        .select("is_connected")
+        .eq("user_id", user.id)
+        .single()
+      const connected = integration?.is_connected === true
+      setGmailConnected(connected)
+
+      if (connected) {
+        // Always load fresh from DB on mount
+        await loadEmailInsights()
+      }
+    } catch { /* non-fatal */ }
+  }
+
+  // Re-load insights when tab regains focus (lightweight DB read, not full Gmail sync)
+  useEffect(() => {
+    const onFocus = () => {
+      if (gmailConnected) loadEmailInsights()
+    }
+    window.addEventListener("focus", onFocus)
+    return () => window.removeEventListener("focus", onFocus)
+  }, [gmailConnected])
+
+  const syncEmailsForCRM = async () => {
+    if (_syncInProgress) return
+    _syncInProgress = true
+    setSyncingEmail(true)
+    try {
+      await fetch("/api/gmail/sync-crm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      })
+      // Reload fresh insights from DB after sync
+      await loadEmailInsights()
+    } catch { /* non-fatal */ } finally {
+      setSyncingEmail(false)
+      _syncInProgress = false
+    }
+  }
+
+  const loadEmailInsights = async () => {
+    // Always load fresh from DB — no caching, DB is the persistent store
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      // Only show analyses from the last 7 days — old stale ones should fade away
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+      console.log(`[loadEmailInsights] Loading analyses since ${sevenDaysAgo}`)
+
+      const { data, error } = await supabase
+        .from("email_analyses")
+        .select("gmail_thread_id, contact_id, intent, sentiment, signals, reasoning, thread_subject, analyzed_at, relationships!inner(full_name)")
+        .eq("user_id", user.id)
+        .gte("analyzed_at", sevenDaysAgo)
+        .order("analyzed_at", { ascending: false })
+        .limit(20)
+
+      console.log(`[loadEmailInsights] Query returned ${data?.length ?? 0} rows, error:`, error)
+
+      if (data) {
+        // Group by contact — show the most recent analysis per contact
+        const seen = new Map<string, any>()
+        for (const row of data) {
+          const existing = seen.get(row.contact_id)
+          if (!existing) {
+            seen.set(row.contact_id, row)
+          } else if (row.intent !== "neutral" && existing.intent === "neutral") {
+            // Prefer non-neutral intents
+            seen.set(row.contact_id, row)
+          }
+        }
+        const insights = Array.from(seen.values()).map((row: any) => ({
+          relationship_id: row.contact_id,
+          contact_name: row.relationships?.full_name ?? "Unknown",
+          thread_id: row.gmail_thread_id ?? "",
+          subject: row.thread_subject || "(no subject)",
+          intent: row.intent ?? "neutral",
+          sentiment: row.sentiment ?? "neutral",
+          summary: row.reasoning || "",
+          signals: Array.isArray(row.signals) ? row.signals : [],
+          analyzed_at: row.analyzed_at ?? new Date().toISOString(),
+        }))
+        console.log(`[loadEmailInsights] ${insights.length} unique contacts with insights:`, insights.map(i => `${i.contact_name} (${i.intent}, ${i.analyzed_at})`))
+        setEmailInsights(insights)
+      }
+    } catch (err) {
+      console.error(`[loadEmailInsights] Error:`, err)
+    }
+  }
 
   // Reset page when filters change
   useEffect(() => {
@@ -442,6 +559,31 @@ export function CrmView() {
             </Button>
           </div>
 
+          {gmailConnected && (
+            <Button
+              variant="outline"
+              className="gap-2 shadow-sm font-bold"
+              onClick={async () => {
+                await syncEmailsForCRM()
+                toast.success("Gmail synced")
+              }}
+              disabled={syncingEmail}
+            >
+              {syncingEmail ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                </svg>
+              )}
+              <span className="hidden md:inline">
+                {syncingEmail ? "Syncing…" : "Sync Gmail"}
+              </span>
+            </Button>
+          )}
           <Button
             variant="outline"
             className="gap-2 shadow-sm font-bold"
@@ -590,6 +732,110 @@ export function CrmView() {
           />
         </div>
       </div>
+
+      {/* ─── AI Email Intelligence Panel ──────────────────────────────────────── */}
+      {emailInsights.length > 0 && (
+        <div className="rounded-2xl border border-border bg-card overflow-hidden">
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/30">
+            <div className="flex items-center gap-2.5">
+              <div className="w-6 h-6 rounded-lg flex items-center justify-center"
+                style={{ background: "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)" }}>
+                <Brain size={12} className="text-white" />
+              </div>
+              <div>
+                <span className="text-xs font-semibold text-foreground">Email Intelligence</span>
+                <span className="text-[10px] text-muted-foreground ml-2">
+                  {emailInsights.length} contact{emailInsights.length !== 1 ? "s" : ""} analysed
+                </span>
+              </div>
+            </div>
+            {syncingEmail && (
+              <div className="flex items-center gap-1.5 text-[11px] text-violet-400">
+                <Loader2 size={11} className="animate-spin" />
+                Syncing…
+              </div>
+            )}
+          </div>
+          {/* Cards */}
+          <div className="flex gap-3 overflow-x-auto p-4 scrollbar-hide">
+            {emailInsights.map((insight) => {
+                const initials = insight.contact_name.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)
+                const sentimentColor = insight.sentiment === "positive"
+                  ? { dot: "#10b981", bg: "bg-emerald-500/10 border-emerald-500/20", text: "text-emerald-400" }
+                  : insight.sentiment === "negative"
+                  ? { dot: "#ef4444", bg: "bg-red-500/10 border-red-500/20", text: "text-red-400" }
+                  : { dot: "#888780", bg: "bg-muted/60 border-border", text: "text-muted-foreground" }
+                const intentColors: Record<string, string> = {
+                  interested: "bg-blue-500/15 text-blue-400",
+                  ready_to_close: "bg-emerald-500/15 text-emerald-400",
+                  requesting_meeting: "bg-violet-500/15 text-violet-400",
+                  not_interested: "bg-red-500/15 text-red-400",
+                  objection: "bg-orange-500/15 text-orange-400",
+                }
+                const intentClass = intentColors[insight.intent] || "bg-muted/60 text-muted-foreground"
+                const timeAgo = insight.analyzed_at
+                  ? (() => {
+                      const diff = Date.now() - new Date(insight.analyzed_at).getTime()
+                      const h = Math.floor(diff / 3600000)
+                      const d = Math.floor(diff / 86400000)
+                      return d > 0 ? `${d}d ago` : h > 0 ? `${h}h ago` : "just now"
+                    })()
+                  : ""
+                return (
+                  <div
+                    key={`${insight.thread_id}-${insight.analyzed_at}`}
+                    className="flex-shrink-0 w-64 rounded-xl border border-border bg-background hover:border-primary/30 transition-colors"
+                  >
+                    {/* Contact header */}
+                    <div className="flex items-center gap-2.5 px-3 pt-3 pb-2 border-b border-border/50">
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0"
+                        style={{ background: `${sentimentColor.dot}20`, color: sentimentColor.dot }}>
+                        {initials}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold truncate">{insight.contact_name}</p>
+                        <p className="text-[10px] text-muted-foreground truncate">{insight.subject}</p>
+                      </div>
+                    </div>
+                    {/* Badges */}
+                    <div className="px-3 pt-2 flex flex-wrap gap-1.5">
+                      <span className={cn("text-[10px] px-2 py-0.5 rounded-full border font-medium flex items-center gap-1", sentimentColor.bg, sentimentColor.text)}>
+                        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: sentimentColor.dot }} />
+                        {insight.sentiment}
+                      </span>
+                      {insight.intent !== "neutral" && (
+                        <span className={cn("text-[10px] px-2 py-0.5 rounded-full font-medium capitalize", intentClass)}>
+                          {insight.intent.replace(/_/g, " ")}
+                        </span>
+                      )}
+                    </div>
+                    {/* Summary */}
+                    {insight.summary && (
+                      <p className="px-3 pt-2 text-[11px] text-muted-foreground leading-relaxed line-clamp-2">
+                        {insight.summary}
+                      </p>
+                    )}
+                    {/* Signals */}
+                    {insight.signals?.length > 0 && (
+                      <div className="px-3 pt-1.5 flex flex-wrap gap-1">
+                        {insight.signals.slice(0, 3).map((s: string, si: number) => (
+                          <span key={si} className="text-[9px] px-1.5 py-0.5 rounded bg-muted/60 text-muted-foreground">
+                            {s}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {/* Footer */}
+                    <div className="px-3 pt-2 pb-3 flex items-center justify-between">
+                      <span className="text-[10px] text-muted-foreground/50">{timeAgo}</span>
+                    </div>
+                  </div>
+                )
+              })}
+          </div>
+        </div>
+      )}
 
       {/* ─── PIPELINE VIEW ─────────────────────────────────────────────────────── */}
       {viewMode === "pipeline" && (

@@ -9,11 +9,13 @@ import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
 import {
-  Moon, Sun, User, Mail, Loader2, Unlink, Video,
+  Moon, Sun, User, Mail, Loader2, Unlink, Video, Mic,
   ExternalLink, AlertCircle, CheckCircle2, HardDrive, Cloud,
 } from "lucide-react"
 import { useTheme } from "next-themes"
+import { PlanGate } from "@/components/ui/plan-gate"
 import { toast } from "sonner"
+import { cn } from "@/lib/utils"
 
 function GoogleIntegrationCard({ isClient }: { isClient?: boolean }) {
   const [integration, setIntegration] = useState<{
@@ -197,6 +199,231 @@ function GoogleIntegrationCard({ isClient }: { isClient?: boolean }) {
   )
 }
 
+function AIModeCard() {
+  const [mode, setModeState] = useState<"quiet" | "balanced" | "aggressive">("balanced")
+  const [saving, setSaving] = useState(false)
+  const supabase = createClient()
+
+  useEffect(() => {
+    const load = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data } = await supabase.from("profiles").select("ai_mode").eq("id", user.id).single()
+      if (data?.ai_mode) setModeState(data.ai_mode as any)
+    }
+    load()
+  }, [])
+
+  const handleSave = async (newMode: "quiet" | "balanced" | "aggressive") => {
+    setSaving(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) {
+      await supabase.from("profiles").update({ ai_mode: newMode }).eq("id", user.id)
+      setModeState(newMode)
+    }
+    setSaving(false)
+  }
+
+  const modes = [
+    { id: "quiet", icon: "🔕", label: "Quiet", desc: "Critical alerts only. No briefings." },
+    { id: "balanced", icon: "⚖️", label: "Balanced", desc: "Morning briefs, EOD summaries, risk alerts." },
+    { id: "aggressive", icon: "🚀", label: "Aggressive", desc: "Maximum proactivity. All alerts." },
+  ] as const
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          ✦ AI Mode
+        </CardTitle>
+        <CardDescription>Controls how proactively the AI communicates with you</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-3 gap-3">
+          {modes.map(m => (
+            <button
+              key={m.id}
+              onClick={() => handleSave(m.id)}
+              disabled={saving}
+              className={cn(
+                "flex flex-col items-start gap-1.5 p-3 rounded-xl border text-left transition-all",
+                mode === m.id
+                  ? "border-primary bg-primary/5"
+                  : "border-border hover:border-primary/30"
+              )}
+            >
+              <span className="text-lg">{m.icon}</span>
+              <span className={cn("text-sm font-medium", mode === m.id && "text-primary")}>{m.label}</span>
+              <span className="text-[11px] text-muted-foreground leading-tight">{m.desc}</span>
+            </button>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function CRMIntelligenceCard() {
+  const [autoDetectLeads, setAutoDetectLeads] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const supabase = createClient()
+
+  useEffect(() => {
+    const load = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data } = await supabase.from("profiles").select("settings").eq("id", user.id).single()
+      if (data?.settings?.auto_detect_leads !== undefined) {
+        setAutoDetectLeads(data.settings.auto_detect_leads)
+      }
+    }
+    load()
+  }, [])
+
+  const handleToggle = async (checked: boolean) => {
+    setSaving(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      // Read existing settings, merge in the new value
+      const { data: profile } = await supabase.from("profiles").select("settings").eq("id", user.id).single()
+      const currentSettings = profile?.settings || {}
+      await supabase.from("profiles").update({
+        settings: { ...currentSettings, auto_detect_leads: checked }
+      }).eq("id", user.id)
+      setAutoDetectLeads(checked)
+      toast.success(checked ? "AI lead detection enabled" : "AI lead detection disabled")
+    } catch { toast.error("Failed to save setting") }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          📧 CRM Intelligence
+        </CardTitle>
+        <CardDescription>Configure how the AI handles incoming emails for your CRM pipeline</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5 flex-1 mr-4">
+            <Label htmlFor="auto-detect-leads" className="text-sm font-medium">Auto-detect leads from emails</Label>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              When a new email arrives from someone not in your CRM, the AI will analyze it and automatically add relevant business leads to your pipeline. Newsletters, notifications, and spam are filtered out.
+            </p>
+          </div>
+          <Switch
+            id="auto-detect-leads"
+            checked={autoDetectLeads}
+            onCheckedChange={handleToggle}
+            disabled={saving}
+          />
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function MeetingRecorderCard() {
+  const [isDesktop, setIsDesktop] = useState(false)
+  const [autoRecord, setAutoRecord] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const supabase = createClient()
+
+  useEffect(() => {
+    // Check if running inside Electron desktop app
+    const electron = (window as any).electron
+    setIsDesktop(!!electron?.isDesktop)
+
+    // Load meeting bot config
+    const loadConfig = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data } = await supabase
+        .from("meeting_bot_config")
+        .select("auto_record")
+        .eq("user_id", user.id)
+        .maybeSingle()
+      if (data) setAutoRecord(data.auto_record)
+    }
+    loadConfig()
+  }, [supabase])
+
+  const handleToggle = async (checked: boolean) => {
+    setSaving(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      await supabase.from("meeting_bot_config").upsert({
+        user_id: user.id,
+        auto_record: checked,
+        groq_whisper_enabled: true,
+      }, { onConflict: "user_id" })
+      setAutoRecord(checked)
+      toast.success(checked ? "Auto-recording enabled" : "Auto-recording disabled")
+    } catch { toast.error("Failed to save setting") }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Mic className="h-5 w-5" /> Meeting Recorder
+        </CardTitle>
+        <CardDescription>
+          Record meetings and let AI extract tasks, decisions, and CRM updates
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center gap-3">
+          {isDesktop ? (
+            <Badge variant="outline" className="border-green-500/40 text-green-600 dark:text-green-400">
+              <CheckCircle2 className="h-3 w-3 mr-1" /> Desktop app connected
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="border-amber-500/40 text-amber-600 dark:text-amber-400">
+              <AlertCircle className="h-3 w-3 mr-1" /> Desktop app required
+            </Badge>
+          )}
+        </div>
+
+        {!isDesktop && (
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Meeting recording requires the Kobin AI desktop app. Audio is captured locally on your device — only the transcript is sent to the cloud for AI processing.
+          </p>
+        )}
+
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5 flex-1 mr-4">
+            <Label htmlFor="auto-record" className="text-sm font-medium">Auto-record meetings</Label>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Automatically start recording when you join a meeting from the calendar.
+            </p>
+          </div>
+          <Switch
+            id="auto-record"
+            checked={autoRecord}
+            onCheckedChange={handleToggle}
+            disabled={saving || !isDesktop}
+          />
+        </div>
+
+        <div className="rounded-lg bg-muted/50 p-3 space-y-1">
+          <p className="text-xs font-medium">How it works</p>
+          <ul className="text-xs text-muted-foreground space-y-1">
+            <li>🎙 Your microphone captures what you say (host)</li>
+            <li>🔊 System audio captures what participants say</li>
+            <li>🤖 Groq Whisper transcribes audio ($0.04/hr)</li>
+            <li>📋 AI creates tasks, logs decisions, updates CRM</li>
+          </ul>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 export function SettingsView({ isClient }: { isClient?: boolean } = {}) {
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
@@ -300,6 +527,20 @@ export function SettingsView({ isClient }: { isClient?: boolean } = {}) {
         </Card>
 
         <GoogleIntegrationCard isClient={isClient} />
+
+        {!isClient && <CRMIntelligenceCard />}
+
+        {!isClient && (
+          <PlanGate feature="meeting_recorder" requiredPlan="agency" mode="disable" upgradeMessage="Meeting Recorder requires Agency plan">
+            <MeetingRecorderCard />
+          </PlanGate>
+        )}
+
+        {!isClient && (
+          <PlanGate feature="ai_proactive_briefings" requiredPlan="agency" mode="disable" upgradeMessage="Proactive AI requires Agency plan">
+            <AIModeCard />
+          </PlanGate>
+        )}
       </div>
     </div>
   )

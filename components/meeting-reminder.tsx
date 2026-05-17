@@ -54,28 +54,27 @@ const fetchUpcomingEvents = async () => {
 
   if (!error && data) setEvents(data)
 }
-
   const sendMeetingPush = async (event: Event, minutesUntil: number) => {
     const isUrgent = minutesUntil <= 1
-    try {
-      await fetch("/api/push/send-self", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          payload: {
-            type: "meeting_reminder",
-            title: isUrgent ? "🔴 Meeting Starting Now!" : "📅 Meeting in 5 minutes",
-            body: `${event.title} — ${isUrgent ? "starting NOW" : "in 5 minutes"}${event.purpose ? `\n${event.purpose}` : ""}`,
-            event_id: event.id,
-            meeting_link: event.meeting_link || null,
-            minutes_until: minutesUntil,
-          },
-        }),
-      })
-    } catch {
-      // non-fatal
+    const title = isUrgent ? "Meeting Starting Now!" : "Meeting in 5 minutes"
+    const body = `${event.title}${event.purpose ? ` — ${event.purpose}` : ""}${isUrgent ? " — starting NOW" : " — in 5 minutes"}`
+
+    if ((window as any).electron?.isDesktop) {
+      const electron = (window as any).electron
+      if (electron?.showNotification) {
+        await electron.showNotification({
+          title,
+          body,
+          tab: "Calendar",
+          type: "meeting",
+          meetingLink: event.meeting_link || null,
+          meetingTitle: event.title,
+        }).catch(() => {})
+      }
     }
+    // Web push removed — desktop only
   }
+  
 
   const checkForReminders = () => {
     const now = new Date()

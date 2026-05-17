@@ -1,5 +1,11 @@
 "use client"
 
+// Module-level rooms cache — persists across remounts within the same page session
+// This gives instant room list restore when user navigates away and back
+let _roomsCache: any[] | null = null
+let _roomsCacheTime = 0
+const ROOMS_CACHE_TTL = 60_000 // 1 minute
+
 import React, {
   useEffect,
   useState,
@@ -22,6 +28,7 @@ import {
   Hash,
   MessageSquare,
   Plus,
+  Sparkles,
   Send,
   Paperclip,
   X,
@@ -38,6 +45,8 @@ import {
   MoreHorizontal,
   Circle,
   Calendar as CalendarIcon,
+  Inbox,
+  Mail,
 } from "lucide-react"
 import { GmailThreadView } from "@/components/gmail-thread-view"
 
@@ -141,23 +150,32 @@ function avatarInitials(name: string): string {
     : parts[0][0].toUpperCase()
 }
 
-const AVATAR_COLORS = [
-  "bg-blue-500", "bg-emerald-500", "bg-violet-500",
-  "bg-rose-500", "bg-amber-500", "bg-cyan-500",
+const AVATAR_PALETTES = [
+  { bg: "#B5D4F4", color: "#0C447C" },
+  { bg: "#9FE1CB", color: "#085041" },
+  { bg: "#FAC775", color: "#633806" },
+  { bg: "#F5C4B3", color: "#712B13" },
+  { bg: "#CECBF6", color: "#3C3489" },
+  { bg: "#C0DD97", color: "#27500A" },
 ]
 
-function avatarColor(userId: string): string {
+function avatarPalette(userId: string) {
   let hash = 0
   for (let i = 0; i < userId.length; i++) hash = userId.charCodeAt(i) + ((hash << 5) - hash)
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
+  return AVATAR_PALETTES[Math.abs(hash) % AVATAR_PALETTES.length]
 }
 
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 
 function Avatar({ user, size = "sm" }: { user: Profile; size?: "sm" | "md" }) {
-  const sz = size === "sm" ? "w-7 h-7 text-[10px]" : "w-9 h-9 text-xs"
+  const sz = size === "sm" ? 28 : 34
+  const p = avatarPalette(user.id)
   return (
-    <div className={cn("rounded-full flex items-center justify-center font-bold text-white flex-shrink-0", avatarColor(user.id), sz)}>
+    <div style={{
+      width: sz, height: sz, borderRadius: "50%", flexShrink: 0,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      background: p.bg, color: p.color, fontSize: size === "sm" ? 10 : 12, fontWeight: 500,
+    }}>
       {avatarInitials(user.full_name || "?")}
     </div>
   )
@@ -326,10 +344,10 @@ function CreateChannelDialog({
                           : "border-border text-muted-foreground hover:border-foreground/40"
                       )}
                     >
-                      <div className={cn(
-                        "w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white",
-                        avatarColor(p.id)
-                      )}>
+<div
+  className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold"
+  style={{ background: avatarPalette(p.id).bg, color: avatarPalette(p.id).color }}
+>
                         {avatarInitials(p.full_name)[0]}
                       </div>
                       {p.full_name.split(" ")[0]}
@@ -614,7 +632,7 @@ function AIMessageBubble({ content, isStreaming }: { content: string; isStreamin
         {/* AI label */}
         <span className="text-[10px] font-semibold mb-0.5 px-1"
           style={{ color: "#7C3AED" }}>
-          AI · Command Center
+          AI · Kobin Ai
         </span>
 
         {/* Bubble */}
@@ -801,12 +819,18 @@ const MessageBubble = React.memo(function MessageBubble({
         ) : (
         <div className={cn(
           "relative px-3.5 py-2 text-sm leading-relaxed",
-          isOwn
-            ? "text-white rounded-[20px] rounded-br-[4px]"
-            : "bg-muted text-foreground rounded-[20px] rounded-bl-[4px]",
+isOwn
+  ? "text-white rounded-[18px] rounded-br-[3px]"
+  : "text-foreground rounded-[18px] rounded-bl-[3px]",
           msg.file_url && !msg.content && "p-1 bg-transparent"
         )}
-        style={isOwn && !(msg.file_url && !msg.content) ? { background: "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)" } : undefined}
+        style={
+  isOwn && !(msg.file_url && !msg.content)
+    ? { background: "#5B5BD6" }
+    : !isOwn && !(msg.file_url && !msg.content)
+    ? { background: "#252523", border: "0.5px solid #333331" }
+    : undefined
+}
         >
           {msg.content && (
   <p className="whitespace-pre-wrap break-words">
@@ -1162,7 +1186,7 @@ function MessageInput({
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs font-semibold" style={{ color: "#7C3AED" }}>
-                AI · Command Center
+                AI · Kobin Ai
               </p>
               <p className="text-[10px] text-muted-foreground mt-0.5">
                 Type your question after <span className="font-mono">@ai</span> and press Enter
@@ -1201,7 +1225,8 @@ function MessageInput({
               onClick={() => selectMention(p)}
               className={cn("w-full flex items-center gap-2.5 px-3 py-2 transition-colors text-left", filteredPeople.indexOf(p) === mentionIndex ? "bg-muted" : "hover:bg-muted")}
             >
-              <div className={cn("w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0", avatarColor(p.id))}>
+              <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0"
+style={{ background: avatarPalette(p.id).bg, color: avatarPalette(p.id).color }}>
                 {avatarInitials(p.full_name)[0]}
               </div>
               <span className="text-sm">{p.full_name}</span>
@@ -1240,36 +1265,38 @@ function MessageInput({
         </div>
       )}
 
-      <div className="flex items-end gap-2">
-        <button type="button" onClick={() => fileRef.current?.click()}
-          className="p-2 text-muted-foreground hover:text-foreground transition-colors flex-shrink-0 mb-0.5">
-          <Paperclip className="h-5 w-5" />
-        </button>
-        <input ref={fileRef} type="file" className="hidden"
-          accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip"
-          onChange={(e) => setFile(e.target.files?.[0] || null)} />
+      <div className="flex items-end gap-2 bg-muted/30 border border-border/60 rounded-[22px] px-3 py-2 focus-within:border-border/80 transition-colors">
+  <button type="button" onClick={() => fileRef.current?.click()}
+    className="p-1 text-muted-foreground hover:text-foreground transition-colors flex-shrink-0 mb-0.5">
+    <Paperclip className="h-4 w-4" />
+  </button>
+  <input ref={fileRef} type="file" className="hidden"
+    accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.zip"
+    onChange={(e) => setFile(e.target.files?.[0] || null)} />
 
-        <div className="flex items-end flex-1 bg-muted/40 border border-border/60 rounded-[24px] px-4 py-2 focus-within:border-border transition-colors">
-          <textarea
-            ref={textRef} value={text} onChange={handleTextChange} onKeyDown={handleKey}
-            placeholder={disabled ? "No permission to send" : "Message… or /task to attach a task"}
-            disabled={disabled} rows={1}
-            className="flex-1 bg-transparent text-sm resize-none outline-none placeholder:text-muted-foreground/50 min-h-[20px] max-h-[120px] leading-5"
-            style={{ height: "20px" }}
-          />
-        </div>
+  <textarea
+    ref={textRef} value={text} onChange={handleTextChange} onKeyDown={handleKey}
+    placeholder={disabled ? "No permission to send" : "Message… or /task to attach a task"}
+    disabled={disabled} rows={1}
+    className="flex-1 bg-transparent text-sm resize-none outline-none placeholder:text-muted-foreground/40 min-h-[20px] max-h-[120px] leading-5"
+    style={{ height: "20px" }}
+  />
 
-        {canSend ? (
-          <button onClick={handleSend}
-            className="p-2 text-primary hover:text-primary/80 transition-colors flex-shrink-0 mb-0.5 font-semibold text-sm">
-            <Send className="h-5 w-5" />
-          </button>
-        ) : (
-          <button className="p-2 text-muted-foreground flex-shrink-0 mb-0.5">
-            <Circle className="h-5 w-5" />
-          </button>
-        )}
-      </div>
+  <button
+    onClick={canSend ? handleSend : undefined}
+    disabled={!canSend}
+    className={cn(
+      "w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mb-0.5 transition-all",
+      canSend
+        ? "bg-[#5B5BD6] hover:bg-[#4A4AC4] shadow-sm"
+        : "bg-muted-foreground/20 cursor-default"
+    )}
+  >
+    <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-white">
+      <path d="M22 2L11 13M22 2L15 22 11 13 2 9l20-7z"/>
+    </svg>
+  </button>
+</div>
     </div>
   )
 }
@@ -1372,7 +1399,17 @@ export function InboxView({ canSendMessages = true }: InboxViewProps) {
   const [gmailThreads, setGmailThreads] = useState<GmailThread[]>([])
   const [activeGmailThread, setActiveGmailThread] = useState<GmailThread | null>(null)
   const [gmailConnected, setGmailConnected] = useState(false)
-  const [loadingGmail, setLoadingGmail] = useState(false)
+  const [sidebarTab, setSidebarTab] = useState<"inbox" | "gmail">("inbox")
+
+  // Message intelligence
+  const [extractedTask, setExtractedTask] = useState<{
+    has_task: boolean
+    task_title: string | null
+    assigned_to_hint: string | null
+    urgency: string
+    message_id: string
+  } | null>(null)
+  const [creatingExtractedTask, setCreatingExtractedTask] = useState(false)
 
   // AI streaming state
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null)
@@ -1389,9 +1426,10 @@ const activeRoom = useMemo(
 )
 
 const groupedRooms = useMemo(() => ({
+  ai: rooms.filter((r) => r.dm_key?.startsWith("ai-room:")),
   project: rooms.filter((r) => r.type === "project"),
   group: rooms.filter((r) => r.type === "group"),
-  direct: rooms.filter((r) => r.type === "direct"),
+  direct: rooms.filter((r) => r.type === "direct" && !r.dm_key?.startsWith("ai-room:")),
 }), [rooms])
 
 const filteredRooms = useMemo(() => {
@@ -1400,6 +1438,9 @@ const filteredRooms = useMemo(() => {
     r.display_name.toLowerCase().includes(sidebarSearch.toLowerCase())
   )
 }, [rooms, sidebarSearch])
+
+const [loadingGmail, setLoadingGmail] = useState(false)
+  const [gmailCrmOnly, setGmailCrmOnly] = useState(true)
 
 
 // ... rest of your hooks
@@ -1411,10 +1452,11 @@ const filteredRooms = useMemo(() => {
   const realtimeRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
   const messagesRef = useRef<ChatMessage[]>([])
   // ── Boot ────────────────────────────────────────────────────────────────────
-  const loadGmailThreads = useCallback(async () => {
+  const loadGmailThreads = useCallback(async (crmOnly = true) => {
     setLoadingGmail(true)
     try {
-      const res = await fetch("/api/gmail/threads")
+      const url = crmOnly ? "/api/gmail/threads?crm_only=true" : "/api/gmail/threads"
+      const res = await fetch(url)
       const data = await res.json()
       setGmailConnected(data.connected || false)
       setGmailThreads(data.threads || [])
@@ -1445,7 +1487,19 @@ const filteredRooms = useMemo(() => {
   // ── Load rooms ─────────────────────────────────────────────────────────────
   const loadRooms = useCallback(async (userId: string) => {
   // Single query for memberships
+    // If we have a fresh cache, restore immediately for instant render
+  // The full fetch still continues in background to get fresh data
+  const hasFreshCache = _roomsCache && Date.now() - _roomsCacheTime < ROOMS_CACHE_TTL
+  if (hasFreshCache) {
+    setRooms(_roomsCache as ChatRoom[])
+    setLoadingRooms(false)
+    if (!activeRoomId && (_roomsCache as ChatRoom[]).length > 0) {
+      setActiveRoomId((_roomsCache as ChatRoom[])[0].id)
+    }
+  } else {
     setLoadingRooms(true)
+  }
+
   const { data: memberships } = await supabase
     .from("chat_room_members")
     .select("room_id, last_read_at")
@@ -1558,6 +1612,10 @@ const { data: allUnread } = await supabase
     const bTime = b.last_message_at ? new Date(b.last_message_at).getTime() : new Date(b.created_at).getTime()
     return bTime - aTime
   })
+
+  // Save fresh data to module cache for next remount
+  _roomsCache = sorted
+  _roomsCacheTime = Date.now()
 
   setRooms(sorted)
 
@@ -1897,9 +1955,12 @@ const { data: allUnread } = await supabase
     if (!activeRoomId || !currentUser) return
 
     // ── @AI intercept ──────────────────────────────────────────────────────
-    const isAIMessage = content.trim().toLowerCase().startsWith("@ai")
+    const isAIRoom = activeRoom?.dm_key?.startsWith("ai-room:")
+    const isAIMessage = content.trim().toLowerCase().startsWith("@ai") || isAIRoom
     if (isAIMessage && !file && !taskRef) {
-      const userMessage = content.trim().slice(3).trim() // strip @ai prefix
+      const userMessage = isAIRoom && !content.trim().toLowerCase().startsWith("@ai")
+        ? content.trim()
+        : content.trim().slice(3).trim() // strip @ai prefix
       if (!userMessage) return
 
       // 1. Save the user's message normally first
@@ -2120,35 +2181,23 @@ if (error) {
         })
       })
 
-      // Web push to all other room members
-      const { data: members } = await supabase
-        .from("chat_room_members")
-        .select("user_id")
-        .eq("room_id", activeRoomId)
-        .neq("user_id", currentUser.id)
-
-      if (members?.length) {
-        const pushBody = file ? `📎 ${file.name}` : content
-        const senderName = currentUser.full_name || "Someone"
-        await Promise.all(
-          members.map((m) =>
-            fetch("/api/push/send-to-user", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                user_id: m.user_id,
-                payload: {
-                  type: "inbox_message",
-                  title: senderName,
-                  body: pushBody,
-                  room_id: activeRoomId,
-                  sender_name: senderName,
-                  message_preview: pushBody,
-                },
-              }),
-            }).catch(() => {})
-          )
-        )
+      // Message intelligence — extract tasks in background (non-blocking)
+      if (content && content.length > 15 && !editingMsg) {
+        const roomName = activeRoom?.display_name || ""
+        fetch("/api/ai/extract-task", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message_id: tempId,
+            content,
+            sender_name: currentUser?.full_name,
+            room_name: roomName,
+          }),
+        }).then(r => r.json()).then(result => {
+          if (result.has_task && result.confidence >= 0.7) {
+            setExtractedTask({ ...result, message_id: tempId })
+          }
+        }).catch(() => {})
       }
     }
   }, [activeRoomId, currentUser, replyTo, editingMsg, supabase])
@@ -2321,21 +2370,111 @@ if (error) {
 
       {/* ── Sidebar ── */}
       <aside className="w-60 flex-shrink-0 flex flex-col border-r border-border bg-muted/20 overflow-hidden">
-        {/* Header */}
-        <div className="px-3 py-3 border-b border-border">
-          <h2 className="text-sm font-bold tracking-tight">Inbox</h2>
-          <div className="relative mt-2">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-            <input
-              value={sidebarSearch}
-              onChange={(e) => setSidebarSearch(e.target.value)}
-              placeholder="Search…"
-              className="w-full pl-7 pr-2 py-1.5 text-xs bg-background border border-border rounded-lg outline-none focus:border-primary/50 transition-colors"
-            />
-          </div>
-        </div>
+{/* Tabs */}
+<div className="flex px-2 pt-2 gap-1 border-b border-border">
+  <button
+    onClick={() => setSidebarTab("inbox")}
+    className={cn(
+      "flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-medium rounded-t-md border-b-2 transition-colors",
+      sidebarTab === "inbox"
+        ? "border-primary text-foreground bg-card"
+        : "border-transparent text-muted-foreground hover:text-foreground"
+    )}
+  >
+    <Inbox className="h-3 w-3" /> Inbox
+  </button>
+  <button
+    onClick={() => setSidebarTab("gmail")}
+    className={cn(
+      "flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-medium rounded-t-md border-b-2 transition-colors",
+      sidebarTab === "gmail"
+        ? "border-primary text-foreground bg-card"
+        : "border-transparent text-muted-foreground hover:text-foreground"
+    )}
+  >
+    <Mail className="h-3 w-3" /> Gmail
+    {gmailThreads.filter(t => t.unread).length > 0 && (
+      <span className="text-[10px] bg-red-500 text-white rounded-full px-1.5 py-px font-medium leading-tight">
+        {gmailThreads.filter(t => t.unread).length}
+      </span>
+    )}
+  </button>
+</div>
+{/* CRM-only toggle — shown when on Gmail tab */}
+{sidebarTab === "gmail" && gmailConnected && (
+  <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/50 bg-muted/20">
+    <span className="text-[10px] text-muted-foreground">CRM contacts only</span>
+    <button
+      onClick={() => setGmailCrmOnly(v => !v)}
+      className={cn(
+        "relative inline-flex h-4 w-7 items-center rounded-full transition-colors",
+        gmailCrmOnly ? "bg-primary" : "bg-muted-foreground/30"
+      )}
+    >
+      <span className={cn(
+        "inline-block h-3 w-3 rounded-full bg-white shadow transition-transform",
+        gmailCrmOnly ? "translate-x-3.5" : "translate-x-0.5"
+      )} />
+    </button>
+  </div>
+)}
+
+{/* Search */}
+<div className="px-2 py-2">
+  <div className="relative">
+    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+    <input
+      value={sidebarSearch}
+      onChange={e => setSidebarSearch(e.target.value)}
+      placeholder={sidebarTab === "gmail" ? "Search emails…" : "Search…"}
+      className="w-full pl-7 pr-2 py-1.5 text-xs bg-background border border-border rounded-lg outline-none focus:border-primary/50 transition-colors"
+    />
+  </div>
+</div>
 
         <div className="flex-1 overflow-y-auto">
+  {/* Gmail Tab */}
+  {sidebarTab === "gmail" && (
+    <div className="pb-3">
+      {!gmailConnected ? (
+        <div className="px-4 py-6 text-center text-xs text-muted-foreground">
+          Connect Google in{" "}
+          <a href="/settings" className="text-primary underline">Settings</a>{" "}
+          to see Gmail here
+        </div>
+      ) : loadingGmail ? (
+        <div className="px-4 py-4 text-xs text-muted-foreground">Loading…</div>
+      ) : gmailThreads.length === 0 ? (
+        <div className="px-4 py-4 text-xs text-muted-foreground">No inbox threads</div>
+      ) : (
+        gmailThreads.map((thread, i) => (
+          <React.Fragment key={thread.id}>
+            {i > 0 && <div className="h-px bg-border/40 mx-2" />}
+            <button
+              onClick={() => { setActiveGmailThread(thread); setActiveRoomId(null) }}
+              className={cn(
+                "w-full flex flex-col gap-0.5 px-3 py-2.5 text-left transition-colors",
+                activeGmailThread?.id === thread.id ? "bg-primary/10" : "hover:bg-muted/40"
+              )}
+            >
+              <div className="flex items-center justify-between gap-1">
+                <span className={cn("text-xs truncate flex items-center gap-1.5", thread.unread && "font-semibold text-foreground")}>
+                  {thread.unread && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" />}
+                  {thread.senderName}
+                </span>
+                <span className="text-[10px] text-muted-foreground shrink-0">{thread.date}</span>
+              </div>
+              <span className="text-[11px] text-muted-foreground truncate">{thread.subject}</span>
+              <span className="text-[11px] text-muted-foreground/60 truncate">{thread.snippet}</span>
+            </button>
+          </React.Fragment>
+        ))
+      )}
+    </div>
+  )}
+
+  {/* Inbox Tab */}
+  {sidebarTab === "inbox" && <>
             {loadingRooms ? (
             <div className="px-2 pt-3 space-y-1">
               {[...Array(4)].map((_, i) => (
@@ -2353,6 +2492,46 @@ if (error) {
               <p className="text-xs text-muted-foreground">No conversations yet</p>
             </div>
           ) : null}
+          {/* AI Room — pinned at top */}
+          {groupedRooms.ai.length > 0 && (
+            <div className="pt-3 px-2">
+              {groupedRooms.ai.map((room) => (
+                <button
+                  key={room.id}
+                  onClick={() => { setActiveRoomId(room.id); setActiveGmailThread(null) }}
+                  className={cn(
+                    "w-full flex items-center gap-2 px-2 py-2 rounded-lg text-left transition-colors",
+                    activeRoomId === room.id
+                      ? "bg-violet-500/20 text-violet-200"
+                      : "hover:bg-violet-500/10 text-muted-foreground hover:text-violet-300"
+                  )}
+                >
+                  <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0"
+                    style={{ background: "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)" }}>
+                    <Sparkles className="h-3 w-3 text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold truncate" style={{ color: activeRoomId === room.id ? "#c4b5fd" : undefined }}>
+                        AI · Kobin Ai
+                      </span>
+                      {room.unread_count > 0 && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold"
+                          style={{ background: "#7C3AED", color: "white" }}>
+                          {room.unread_count}
+                        </span>
+                      )}
+                    </div>
+                    {room.last_message && (
+                      <p className="text-[10px] text-muted-foreground truncate">{room.last_message}</p>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="h-px bg-border/40 mx-3 mt-2" />
+
           {/* Project Channels */}
           {groupedRooms.project.length > 0 && (
             <div className="pt-3 px-2">
@@ -2410,65 +2589,8 @@ if (error) {
             )}
           </div>
 
-          {/* Gmail section */}
-          <div className="pt-3 px-2 pb-3">
-            <div className="flex items-center justify-between px-2 mb-1">
-              <span className="text-[10px] font-semibold uppercase tracking-widest flex items-center gap-1.5" style={{ color: gmailConnected ? "var(--color-text-danger, #E24B4A)" : "var(--muted-foreground)" }}>
-                <svg width="11" height="11" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
-                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-                </svg>
-                Gmail
-              </span>
-              {gmailConnected && gmailThreads.filter(t => t.unread).length > 0 && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/20">
-                  {gmailThreads.filter(t => t.unread).length}
-                </span>
-              )}
-            </div>
-
-            {!gmailConnected ? (
-              <div className="px-2 py-2 text-[11px] text-muted-foreground">
-                Connect Google in{" "}
-                <a href="/settings" className="text-primary underline">Settings</a>{" "}
-                to see Gmail threads here
-              </div>
-            ) : loadingGmail ? (
-              <div className="px-2 py-1.5 text-[11px] text-muted-foreground">Loading…</div>
-            ) : gmailThreads.length === 0 ? (
-              <div className="px-2 py-1.5 text-[11px] text-muted-foreground">No inbox threads</div>
-            ) : (
-              gmailThreads.map((thread) => (
-                <button
-                  key={thread.id}
-                  onClick={() => {
-                    setActiveGmailThread(thread)
-                    setActiveRoomId(null)
-                  }}
-                  className={cn(
-                    "w-full flex flex-col gap-0.5 px-2 py-2 rounded-lg text-left transition-colors",
-                    activeGmailThread?.id === thread.id
-                      ? "bg-primary/10 text-foreground"
-                      : "hover:bg-muted/50 text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <div className="flex items-center justify-between gap-1">
-                    <span className={cn("text-xs truncate flex items-center gap-1", thread.unread && "font-semibold text-foreground")}>
-                      {thread.unread && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0 inline-block" />}
-                      {thread.senderName}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground shrink-0">
-                      {thread.messageCount > 1 ? `${thread.messageCount}` : ""}
-                    </span>
-                  </div>
-                  <span className="text-[10px] text-muted-foreground truncate">{thread.snippet}</span>
-                </button>
-              ))
-            )}
-          </div>
-        </div>
+</>}
+</div>
       </aside>
 
       {/* ── Main Chat Area ── */}
@@ -2619,6 +2741,51 @@ if (error) {
                 </div>
               )}
             </div>
+            {/* Message intelligence banner */}
+            {extractedTask?.has_task && (
+              <div className="mx-4 mb-2 flex items-center gap-3 px-3 py-2.5 rounded-xl border border-violet-500/30 bg-violet-500/5">
+                <Sparkles className="h-4 w-4 text-violet-400 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-violet-300">Task detected</p>
+                  <p className="text-[11px] text-muted-foreground truncate">{extractedTask.task_title}</p>
+                </div>
+                <div className="flex gap-1.5 shrink-0">
+                  <button
+                    disabled={creatingExtractedTask}
+                    onClick={async () => {
+                      setCreatingExtractedTask(true)
+                      try {
+                        const { data: { user } } = await supabase.auth.getUser()
+                        if (!user) return
+                        await supabase.from("tasks").insert({
+                          user_id: user.id,
+                          created_by: user.id,
+                          title: extractedTask.task_title,
+                          bucket: extractedTask.urgency === "today" ? "today" : "this-week",
+                          status: "todo",
+                          priority: "medium",
+                          is_completed: false,
+                          source_message_id: extractedTask.message_id,
+                        })
+                        setExtractedTask(null)
+                        window.dispatchEvent(new Event("tasks-updated"))
+                      } catch {}
+                      setCreatingExtractedTask(false)
+                    }}
+                    className="text-[11px] px-2.5 py-1 rounded-lg font-medium transition-colors"
+                    style={{ background: "rgba(124,58,237,0.2)", color: "#c4b5fd" }}
+                  >
+                    {creatingExtractedTask ? "Creating…" : "Create task"}
+                  </button>
+                  <button
+                    onClick={() => setExtractedTask(null)}
+                    className="text-muted-foreground hover:text-foreground p-1 rounded"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Input */}
             <MessageInput
@@ -2704,6 +2871,8 @@ function RoomButton({
   active: boolean
   onClick: () => void
 }) {
+  const isAIRoom = room.dm_key?.startsWith("ai-room:")
+
   return (
     <button
       onClick={onClick}
@@ -2713,7 +2882,22 @@ function RoomButton({
       )}
     >
       <div className="flex-shrink-0">
-        {room.type === "direct" && room.other_user ? (
+        {isAIRoom ? (
+          <div
+            className="w-6 h-6 rounded-full flex items-center justify-center"
+            style={{ background: "linear-gradient(135deg, #5B5BD6 0%, #7C3AED 100%)" }}
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+                stroke="white"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
+        ) : room.type === "direct" && room.other_user ? (
           <Avatar user={room.other_user} size="sm" />
         ) : room.type === "project" ? (
           <div className="w-5 h-5 flex items-center justify-center">
@@ -2728,11 +2912,24 @@ function RoomButton({
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between">
-          <span className={cn("text-xs font-medium truncate", active && "text-foreground font-semibold")}>
-            {room.display_name}
+          <span
+            className={cn(
+              "text-xs font-medium truncate",
+              active && "text-foreground font-semibold",
+              isAIRoom && "text-violet-400"
+            )}
+          >
+            {isAIRoom ? "✦ AI Assistant" : room.display_name}
           </span>
           {room.unread_count > 0 && (
-            <Badge className="h-4 min-w-4 px-1 text-[9px] bg-primary text-primary-foreground rounded-full ml-1">
+            <Badge
+              className={cn(
+                "h-4 min-w-4 px-1 text-[9px] rounded-full ml-1",
+                isAIRoom
+                  ? "bg-violet-500 text-white"
+                  : "bg-primary text-primary-foreground"
+              )}
+            >
               {room.unread_count > 99 ? "99+" : room.unread_count}
             </Badge>
           )}

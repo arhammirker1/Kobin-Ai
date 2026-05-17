@@ -1,0 +1,1199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Kobin AI — Vault v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+:root {
+  --bg:#161614;--bg2:#1C1C1A;--bg3:#222220;--bg4:#2A2A28;--bg5:#313130;
+  --border:#333331;--border2:#3A3A38;--border3:#444442;
+  --fg:#F0EFEC;--fg2:#B8B6B0;--fg3:#6B6A65;--fg4:#3E3E3C;
+  --violet:#5B4FE8;--violet2:#7C3AED;--violet-bg:rgba(91,79,232,0.12);--violet-border:rgba(91,79,232,0.3);
+  --emerald:#3DD68C;--emerald-bg:rgba(61,214,140,0.1);
+  --amber:#F5A623;--amber-bg:rgba(245,166,35,0.1);
+  --red:#E5534B;--red-bg:rgba(229,83,75,0.1);
+  --blue:#54B8F5;--blue-bg:rgba(84,184,245,0.1);
+  --r:0.5rem;--r2:0.75rem;--r3:1rem;--r4:1.25rem;
+  --shadow:0 1px 3px rgba(0,0,0,.4),0 1px 2px rgba(0,0,0,.3);
+  --shadow2:0 4px 24px rgba(0,0,0,.6),0 1px 4px rgba(0,0,0,.3);
+  --shadow3:0 8px 40px rgba(0,0,0,.7);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Geist',-apple-system,sans-serif;background:var(--bg);color:var(--fg);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;overflow:hidden;height:100vh;display:flex;}
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
+svg{display:block;}
+button{font-family:inherit;cursor:pointer;}
+
+/* ── SHELL ── */
+.app{display:flex;width:100vw;height:100vh;overflow:hidden;}
+
+/* ── LEFT NAV ── */
+.left-nav{width:48px;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:4px;flex-shrink:0;z-index:10;}
+.nav-logo{width:28px;height:28px;background:linear-gradient(135deg,var(--violet),var(--violet2));border-radius:8px;display:flex;align-items:center;justify-content:center;margin-bottom:8px;}
+.ni{width:36px;height:36px;border-radius:var(--r);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;color:var(--fg3);position:relative;border:none;background:none;}
+.ni:hover{background:var(--bg3);color:var(--fg2);}
+.ni.active{background:var(--violet-bg);color:var(--violet);}
+.ni svg{width:16px;height:16px;}
+.ni .badge{position:absolute;top:4px;right:4px;width:6px;height:6px;background:var(--violet);border-radius:50%;}
+.nav-bottom{margin-top:auto;display:flex;flex-direction:column;align-items:center;gap:4px;}
+.av{width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,var(--violet),var(--violet2));display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:white;cursor:pointer;}
+
+/* ── VAULT LAYOUT ── */
+.vault{display:flex;flex:1;overflow:hidden;}
+
+/* ── SIDEBAR PROJECTS ── */
+.sp{width:210px;flex-shrink:0;border-right:1px solid var(--border);display:flex;flex-direction:column;background:var(--bg2);overflow:hidden;}
+.sp-head{padding:14px 12px 10px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+.sp-title{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--fg3);}
+.drive-ok{display:flex;align-items:center;gap:5px;padding:4px 8px;background:var(--emerald-bg);border:1px solid rgba(61,214,140,.2);border-radius:6px;margin:8px 8px 4px;}
+.drive-ok svg{width:10px;height:10px;color:var(--emerald);}
+.drive-ok span{font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--emerald);}
+.proj-list{flex:1;overflow-y:auto;padding:4px 6px;}
+.sec-hdr{padding:8px 6px 3px;font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--fg4);}
+.pi{display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:var(--r);cursor:pointer;transition:all .15s;color:var(--fg2);font-size:12.5px;}
+.pi:hover{background:var(--bg3);color:var(--fg);}
+.pi.active{background:var(--violet-bg);color:var(--violet);font-weight:500;}
+.pi svg{width:12px;height:12px;flex-shrink:0;opacity:.7;}
+.pi span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pdot{width:5px;height:5px;background:var(--amber);border-radius:50%;flex-shrink:0;}
+
+/* ── SIDEBAR FOLDERS ── */
+.sf{width:188px;flex-shrink:0;border-right:1px solid var(--border);display:flex;flex-direction:column;background:var(--bg);overflow:hidden;}
+.sf-head{padding:12px 12px 8px;border-bottom:1px solid var(--border);}
+.sf-pname{font-size:12px;font-weight:600;color:var(--fg);}
+.sf-psub{font-size:10px;color:var(--fg3);margin-top:1px;}
+.fl{flex:1;overflow-y:auto;padding:4px 6px;}
+.fi{display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:var(--r);cursor:pointer;transition:all .15s;color:var(--fg2);font-size:12.5px;}
+.fi:hover{background:var(--bg3);color:var(--fg);}
+.fi.active{background:var(--violet-bg);color:var(--violet);font-weight:500;}
+.fi svg{width:12px;height:12px;flex-shrink:0;}
+.fi .fn{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.fi .ei{width:10px;height:10px;opacity:.4;flex-shrink:0;}
+.sf-foot{padding:8px 10px;border-top:1px solid var(--border);}
+.nfb{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--fg3);cursor:pointer;transition:all .15s;padding:3px 2px;background:none;border:none;width:100%;}
+.nfb:hover{color:var(--fg);}
+.nfb svg{width:12px;height:12px;}
+
+/* ── MAIN ── */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;}
+.topbar{padding:10px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-shrink:0;}
+.bc{display:flex;align-items:center;gap:5px;font-size:12.5px;color:var(--fg3);flex:1;min-width:0;}
+.bc svg{width:11px;height:11px;flex-shrink:0;opacity:.5;}
+.bc .cur{font-weight:600;color:var(--fg);}
+.cli-badge{display:flex;align-items:center;gap:4px;padding:2px 6px;background:var(--blue-bg);border:1px solid rgba(84,184,245,.2);border-radius:4px;font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--blue);flex-shrink:0;}
+.tba{display:flex;align-items:center;gap:6px;flex-shrink:0;}
+.btn{display:flex;align-items:center;gap:5px;padding:6px 11px;border-radius:var(--r);font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;border:none;font-family:inherit;}
+.btn-p{background:var(--fg);color:var(--bg);}
+.btn-p:hover{background:#d4d2ce;}
+.btn-g{background:transparent;color:var(--fg2);border:1px solid var(--border);}
+.btn-g:hover{background:var(--bg3);color:var(--fg);}
+.btn svg{width:12px;height:12px;}
+
+/* ── AI STRIP ── */
+.ai-strip{margin:10px 18px 0;padding:9px 12px;background:var(--violet-bg);border:1px solid var(--violet-border);border-radius:var(--r2);display:flex;align-items:center;gap:9px;flex-shrink:0;cursor:pointer;transition:all .15s;}
+.ai-strip:hover{background:rgba(91,79,232,.18);}
+.ai-icon{width:22px;height:22px;background:linear-gradient(135deg,var(--violet),var(--violet2));border-radius:5px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.ai-icon svg{width:10px;height:10px;}
+.ai-txt{flex:1;min-width:0;}
+.ai-ttl{font-size:11px;font-weight:600;color:var(--violet);}
+.ai-sub{font-size:10px;color:var(--fg3);margin-top:1px;}
+.ai-chips{display:flex;gap:4px;flex-wrap:wrap;margin-top:5px;}
+.aic{padding:2px 6px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;font-size:10px;color:var(--fg2);}
+.aic strong{color:var(--violet);font-weight:500;}
+
+/* ── FILTER BAR ── */
+.fbar{padding:8px 18px;display:flex;align-items:center;gap:8px;flex-shrink:0;border-bottom:1px solid var(--border);}
+.sw{position:relative;flex:1;}
+.sw svg{position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;color:var(--fg3);pointer-events:none;}
+.si{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);padding:6px 9px 6px 30px;font-size:12px;color:var(--fg);font-family:inherit;outline:none;transition:all .15s;}
+.si::placeholder{color:var(--fg3);}
+.si:focus{border-color:var(--violet-border);background:var(--bg4);}
+.fps{display:flex;gap:2px;}
+.fp{padding:4px 9px;border-radius:var(--r);font-size:11px;font-weight:500;cursor:pointer;transition:all .15s;border:none;background:none;color:var(--fg3);font-family:inherit;}
+.fp:hover{color:var(--fg2);background:var(--bg3);}
+.fp.active{background:var(--fg);color:var(--bg);}
+.vt{display:flex;gap:2px;}
+.vb{width:26px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:var(--r);cursor:pointer;transition:all .15s;color:var(--fg3);background:none;border:none;}
+.vb:hover{background:var(--bg3);color:var(--fg2);}
+.vb.active{background:var(--bg3);color:var(--fg);}
+.vb svg{width:13px;height:13px;}
+.sort-b{display:flex;align-items:center;gap:4px;padding:4px 9px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);font-size:11px;color:var(--fg2);cursor:pointer;transition:all .15s;font-family:inherit;}
+.sort-b:hover{color:var(--fg);}
+.sort-b svg{width:11px;height:11px;}
+
+/* ── ITEMS AREA ── */
+.ia{flex:1;overflow-y:auto;padding:14px 18px;}
+.sl{font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--fg4);margin-bottom:8px;margin-top:2px;}
+.ig{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:8px;margin-bottom:18px;}
+
+/* ── VAULT CARD ── */
+.vc{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r3);padding:13px;cursor:pointer;transition:all .15s;position:relative;overflow:hidden;animation:fadeIn .2s ease both;}
+.vc::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;opacity:0;transition:opacity .15s;}
+.vc.tf::before{background:linear-gradient(90deg,#54B8F5,#3B82F6);}
+.vc.tn::before{background:linear-gradient(90deg,var(--violet),var(--violet2));}
+.vc.tl::before{background:linear-gradient(90deg,var(--emerald),#22C55E);}
+.vc.td::before{background:linear-gradient(90deg,var(--amber),#F97316);}
+.vc.ti::before{background:linear-gradient(90deg,#EC4899,#F43F5E);}
+.vc.tc::before{background:linear-gradient(90deg,#14B8A6,#0EA5E9);}
+.vc:hover,.vc.sel{border-color:var(--border2);background:var(--bg3);transform:translateY(-1px);box-shadow:var(--shadow2);}
+.vc:hover::before,.vc.sel::before{opacity:1;}
+.ct{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:9px;}
+.tb{display:flex;align-items:center;gap:4px;padding:3px 7px;border-radius:5px;font-size:10px;font-weight:600;letter-spacing:.03em;border:1px solid;}
+.tb svg{width:10px;height:10px;}
+.bf{background:var(--blue-bg);color:var(--blue);border-color:rgba(84,184,245,.2);}
+.bn{background:var(--violet-bg);color:var(--violet);border-color:var(--violet-border);}
+.bl{background:var(--emerald-bg);color:var(--emerald);border-color:rgba(61,214,140,.2);}
+.bd{background:var(--amber-bg);color:var(--amber);border-color:rgba(245,166,35,.2);}
+.bi{background:rgba(236,72,153,.1);color:#EC4899;border-color:rgba(236,72,153,.2);}
+.bc2{background:rgba(20,184,166,.1);color:#14B8A6;border-color:rgba(20,184,166,.2);}
+.bpdf{background:var(--red-bg);color:var(--red);border-color:rgba(229,83,75,.2);}
+.cmb{width:22px;height:22px;display:flex;align-items:center;justify-content:center;border-radius:var(--r);opacity:0;transition:all .15s;background:none;border:none;color:var(--fg3);}
+.vc:hover .cmb{opacity:1;}
+.cmb:hover{background:var(--bg4);color:var(--fg);}
+.cmb svg{width:12px;height:12px;}
+.ctitle{font-size:13px;font-weight:600;color:var(--fg);line-height:1.3;margin-bottom:3px;}
+.cdesc{font-size:11px;color:var(--fg3);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.cprev{margin:8px 0;padding:7px 9px;background:var(--bg);border:1px solid var(--border);border-radius:var(--r);font-size:11px;color:var(--fg2);line-height:1.5;}
+.cprev.np{font-family:'Geist',sans-serif;color:var(--fg3);}
+.clp{display:flex;align-items:center;gap:5px;margin:7px 0;font-size:11px;color:var(--violet);overflow:hidden;}
+.clp svg{width:10px;height:10px;flex-shrink:0;}
+.clp span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.cai{display:flex;align-items:flex-start;gap:5px;padding:6px 8px;background:var(--violet-bg);border:1px solid var(--violet-border);border-radius:var(--r);margin:7px 0;}
+.cai-dot{width:14px;height:14px;background:linear-gradient(135deg,var(--violet),var(--violet2));border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;}
+.cai-dot svg{width:8px;height:8px;}
+.cai-t{font-size:10px;color:var(--fg2);line-height:1.4;}
+.cai-t strong{color:var(--violet);font-weight:500;}
+
+/* approval badge */
+.appr-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 7px;border-radius:5px;font-size:10px;font-weight:600;margin:6px 0;}
+.ap-pending{background:var(--amber-bg);color:var(--amber);border:1px solid rgba(245,166,35,.2);}
+.ap-approved{background:var(--emerald-bg);color:var(--emerald);border:1px solid rgba(61,214,140,.2);}
+.ap-rejected{background:var(--red-bg);color:var(--red);border:1px solid rgba(229,83,75,.2);}
+.ap-badge svg{width:10px;height:10px;}
+
+.ctask{display:flex;gap:4px;flex-wrap:wrap;margin:5px 0;}
+.tch{display:flex;align-items:center;gap:3px;padding:2px 6px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-size:10px;color:var(--fg3);}
+.tch .td2{width:5px;height:5px;border-radius:50%;}
+.td2.todo{background:var(--fg3);}
+.td2.doing{background:var(--violet);}
+.td2.done{background:var(--emerald);}
+.cfoot{display:flex;align-items:center;justify-content:space-between;padding-top:8px;border-top:1px solid var(--border);margin-top:8px;}
+.cfl{display:flex;align-items:center;gap:5px;}
+.abp{font-size:9px;font-weight:600;padding:2px 5px;border-radius:4px;text-transform:capitalize;letter-spacing:.02em;}
+.byf{background:var(--violet-bg);color:var(--violet);}
+.byt{background:var(--blue-bg);color:var(--blue);}
+.byc{background:var(--emerald-bg);color:var(--emerald);}
+.dtt{font-size:9px;padding:2px 5px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg3);}
+.cdate{font-size:10px;color:var(--fg4);}
+
+/* ai generating shimmer */
+.ai-gen{display:flex;align-items:center;gap:6px;padding:6px 8px;background:var(--violet-bg);border:1px solid var(--violet-border);border-radius:var(--r);margin:7px 0;}
+.ai-gen-dot{width:6px;height:6px;border-radius:50%;background:var(--violet);animation:pulse 1s ease infinite;}
+.ai-gen-dot:nth-child(2){animation-delay:.2s;}
+.ai-gen-dot:nth-child(3){animation-delay:.4s;}
+.ai-gen-txt{font-size:10px;color:var(--fg3);}
+
+/* ── TEMPLATE GRID ── */
+.tg{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;}
+.tcard{padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r2);cursor:pointer;transition:all .15s;}
+.tcard:hover,.tcard.feat{border-color:var(--violet-border);background:var(--bg4);}
+.tcard-name{font-size:12px;font-weight:600;color:var(--fg);margin:4px 0 2px;}
+.tcard-desc{font-size:10px;color:var(--fg3);}
+.tcard.feat .tcard-name{color:var(--violet);}
+
+/* ── RIGHT PANEL ── */
+.rp{width:400px;flex-shrink:0;border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;background:var(--bg);}
+.rp-top{padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:7px;}
+.pclose{width:22px;height:22px;display:flex;align-items:center;justify-content:center;border-radius:var(--r);cursor:pointer;transition:all .15s;color:var(--fg3);background:none;border:none;}
+.pclose:hover{background:var(--bg3);color:var(--fg);}
+.pclose svg{width:12px;height:12px;}
+.ptitle{flex:1;font-size:12.5px;font-weight:600;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pacts{display:flex;gap:3px;}
+.pab{width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:var(--r);cursor:pointer;transition:all .15s;color:var(--fg3);background:none;border:none;}
+.pab:hover{background:var(--bg3);color:var(--fg);}
+.pab svg{width:12px;height:12px;}
+.ptabs{display:flex;gap:1px;padding:0 14px;border-bottom:1px solid var(--border);}
+.ptab{padding:6px 10px;font-size:12px;font-weight:500;cursor:pointer;transition:all .15s;color:var(--fg3);border-bottom:2px solid transparent;margin-bottom:-1px;border-top:none;border-left:none;border-right:none;background:none;font-family:inherit;}
+.ptab:hover{color:var(--fg2);}
+.ptab.active{color:var(--violet);border-bottom-color:var(--violet);}
+.pb{flex:1;overflow-y:auto;padding:14px;}
+
+/* context items */
+.cs{margin-bottom:14px;}
+.cs-ttl{font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--fg4);margin-bottom:6px;}
+.ci2{display:flex;align-items:center;gap:7px;padding:7px 9px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);margin-bottom:3px;cursor:pointer;transition:all .15s;}
+.ci2:hover{background:var(--bg3);border-color:var(--border2);}
+.cii{width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.cii svg{width:12px;height:12px;}
+.civ{background:var(--violet-bg);color:var(--violet);}
+.cie{background:var(--emerald-bg);color:var(--emerald);}
+.cia{background:var(--amber-bg);color:var(--amber);}
+.cib{background:var(--blue-bg);color:var(--blue);}
+.cir{background:var(--red-bg);color:var(--red);}
+.cim{flex:1;min-width:0;}
+.cit{font-size:12px;font-weight:500;color:var(--fg);}
+.cis{font-size:10px;color:var(--fg3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px;}
+.cbadge{font-size:9px;font-weight:600;padding:2px 5px;border-radius:4px;flex-shrink:0;}
+.cp-badge{background:var(--amber-bg);color:var(--amber);}
+.cs-done{background:var(--emerald-bg);color:var(--emerald);}
+.cs-doing{background:var(--violet-bg);color:var(--violet);}
+.emb-strip{display:flex;align-items:center;gap:6px;padding:5px 9px;background:var(--emerald-bg);border:1px solid rgba(61,214,140,.15);border-radius:var(--r);margin-bottom:12px;}
+.emb-strip svg{width:10px;height:10px;color:var(--emerald);flex-shrink:0;}
+.emb-strip span{font-size:10px;color:var(--fg3);}
+.emb-strip strong{color:var(--emerald);font-weight:500;}
+.qa-btn{display:flex;align-items:center;gap:7px;padding:7px 9px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);cursor:pointer;transition:all .15s;font-size:12px;color:var(--fg2);font-family:inherit;text-align:left;width:100%;margin-bottom:3px;}
+.qa-btn:hover{background:var(--bg3);}
+.qa-btn svg{width:12px;height:12px;flex-shrink:0;}
+
+/* approval panel */
+.appr-panel{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);padding:12px;margin-bottom:12px;}
+.appr-panel-title{font-size:11px;font-weight:600;color:var(--fg);margin-bottom:8px;display:flex;align-items:center;gap:6px;}
+.appr-panel-title svg{width:13px;height:13px;color:var(--amber);}
+.appr-status{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--amber-bg);border:1px solid rgba(245,166,35,.2);border-radius:var(--r);margin-bottom:10px;}
+.appr-status svg{width:14px;height:14px;color:var(--amber);}
+.appr-status-txt{font-size:11px;color:var(--fg2);}
+.appr-status-txt strong{color:var(--amber);}
+.appr-btns{display:flex;gap:6px;}
+.appr-btn-ok{flex:1;padding:7px;background:var(--emerald-bg);border:1px solid rgba(61,214,140,.3);border-radius:var(--r);font-size:11px;font-weight:600;color:var(--emerald);cursor:pointer;transition:all .15s;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:5px;}
+.appr-btn-ok:hover{background:rgba(61,214,140,.2);}
+.appr-btn-rej{flex:1;padding:7px;background:var(--red-bg);border:1px solid rgba(229,83,75,.3);border-radius:var(--r);font-size:11px;font-weight:600;color:var(--red);cursor:pointer;transition:all .15s;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:5px;}
+.appr-btn-rej:hover{background:rgba(229,83,75,.2);}
+.appr-comment{width:100%;padding:6px 9px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);font-size:11px;color:var(--fg);font-family:inherit;outline:none;margin-top:8px;resize:none;}
+.appr-comment::placeholder{color:var(--fg4);}
+.appr-comment:focus{border-color:var(--violet-border);}
+.appr-history{margin-top:10px;}
+.appr-h-item{display:flex;gap:7px;margin-bottom:8px;align-items:flex-start;}
+.appr-av{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:white;flex-shrink:0;}
+.appr-h-body{flex:1;}
+.appr-h-head{display:flex;align-items:center;gap:5px;margin-bottom:2px;}
+.appr-h-name{font-size:11px;font-weight:600;color:var(--fg);}
+.appr-h-time{font-size:10px;color:var(--fg4);}
+.appr-h-txt{font-size:11px;color:var(--fg2);}
+
+/* comments */
+.cm{display:flex;gap:7px;margin-bottom:11px;}
+.cmav{width:22px;height:22px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:white;}
+.cmb2{flex:1;}
+.cmhd{display:flex;align-items:center;gap:5px;margin-bottom:2px;}
+.cmatr{font-size:11px;font-weight:600;color:var(--fg);}
+.cmtime{font-size:10px;color:var(--fg4);}
+.cmtxt{font-size:12px;color:var(--fg2);line-height:1.5;}
+.cm-in{display:flex;gap:5px;align-items:flex-end;padding:9px 14px;border-top:1px solid var(--border);}
+.cmav-sm{width:18px;height:18px;border-radius:50%;flex-shrink:0;background:var(--violet);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:white;}
+.cm-field{flex:1;padding:5px 9px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);font-size:12px;color:var(--fg);font-family:inherit;outline:none;resize:none;line-height:1.4;}
+.cm-field:focus{border-color:var(--violet-border);}
+.cm-field::placeholder{color:var(--fg4);}
+
+/* activity */
+.act-item{display:flex;gap:7px;margin-bottom:9px;align-items:flex-start;}
+.act-dot{width:5px;height:5px;border-radius:50%;background:var(--fg4);flex-shrink:0;margin-top:5px;}
+.act-dot.v{background:var(--violet);}
+.act-dot.e{background:var(--emerald);}
+.act-txt{font-size:11px;color:var(--fg3);line-height:1.5;}
+.act-txt strong{color:var(--fg2);font-weight:500;}
+.act-time{font-size:10px;color:var(--fg4);}
+
+/* ── OVERLAYS ── */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);backdrop-filter:blur(6px);z-index:100;display:none;align-items:flex-start;justify-content:center;padding-top:100px;}
+.overlay.show{display:flex;}
+.overlay-c{display:flex;align-items:center;justify-content:center;}
+
+/* search */
+.ssbox{width:580px;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r4);overflow:hidden;box-shadow:var(--shadow3);}
+.ss-in-wrap{display:flex;align-items:center;gap:9px;padding:13px 14px;border-bottom:1px solid var(--border);}
+.ss-in-wrap svg{width:15px;height:15px;color:var(--fg3);flex-shrink:0;}
+.ss-in-wrap input{flex:1;background:none;border:none;outline:none;font-size:13px;color:var(--fg);font-family:inherit;}
+.ss-in-wrap input::placeholder{color:var(--fg3);}
+.ssai-badge{display:flex;align-items:center;gap:4px;padding:3px 7px;background:var(--violet-bg);border:1px solid var(--violet-border);border-radius:5px;font-size:10px;font-weight:600;color:var(--violet);}
+.ssai-badge svg{width:9px;height:9px;}
+.ss-res{max-height:360px;overflow-y:auto;padding:6px;}
+.ss-sl{font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--fg4);padding:6px 8px 3px;}
+.ss-ri{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:var(--r);cursor:pointer;transition:all .15s;}
+.ss-ri:hover,.ss-ri.sel{background:var(--bg3);}
+.ss-ri-ic{width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.ss-ri-ic svg{width:12px;height:12px;}
+.ss-ri-m{flex:1;min-width:0;}
+.ss-ri-t{font-size:12px;font-weight:500;color:var(--fg);}
+.ss-ri-s{font-size:10px;color:var(--fg3);}
+.ss-ri-s em{font-style:normal;color:var(--violet);background:var(--violet-bg);padding:0 2px;border-radius:2px;}
+.ss-ri-ty{font-size:9px;color:var(--fg4);flex-shrink:0;}
+.ss-ai-ans{padding:9px;background:var(--violet-bg);border:1px solid var(--violet-border);border-radius:var(--r2);margin:4px 4px 6px;}
+.ss-ai-ans-hdr{font-size:10px;font-weight:700;color:var(--violet);letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px;}
+.ss-ai-ans-txt{font-size:12px;color:var(--fg2);line-height:1.6;}
+.ss-foot{padding:7px 12px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+.ss-foot-t{font-size:10px;color:var(--fg4);}
+.ss-foot-h{display:flex;gap:7px;}
+.ss-foot-h span{font-size:10px;color:var(--fg4);display:flex;align-items:center;gap:2px;}
+.ss-foot-h kbd{padding:1px 4px;background:var(--bg3);border:1px solid var(--border);border-radius:3px;font-size:9px;color:var(--fg3);font-family:'Geist Mono',monospace;}
+
+/* ADD MODAL */
+.modal{width:480px;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r4);overflow:hidden;box-shadow:var(--shadow3);}
+.mhd{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+.mtitle{font-size:13px;font-weight:600;color:var(--fg);}
+.mclose{background:none;border:none;cursor:pointer;color:var(--fg3);display:flex;padding:2px;}
+.mclose:hover{color:var(--fg);}
+.mclose svg{width:14px;height:14px;}
+.mbody{padding:16px;}
+.tpicker{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:14px;}
+.tpbtn{display:flex;flex-direction:column;align-items:center;gap:5px;padding:12px 6px;border-radius:var(--r2);border:1px solid var(--border);background:var(--bg3);cursor:pointer;transition:all .15s;}
+.tpbtn:hover{border-color:var(--border2);background:var(--bg4);}
+.tpbtn.sel{border-color:var(--violet-border);background:var(--violet-bg);}
+.tpi{width:30px;height:30px;border-radius:var(--r);display:flex;align-items:center;justify-content:center;}
+.tpi svg{width:15px;height:15px;}
+.tplabel{font-size:10px;font-weight:600;color:var(--fg2);letter-spacing:.02em;}
+.tpbtn.sel .tplabel{color:var(--violet);}
+.ff{margin-bottom:10px;}
+.fl2{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--fg3);margin-bottom:5px;display:block;}
+.fi2{width:100%;padding:7px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);font-size:12px;color:var(--fg);font-family:inherit;outline:none;transition:all .15s;}
+.fi2:focus{border-color:var(--violet-border);background:var(--bg4);}
+.fi2::placeholder{color:var(--fg4);}
+textarea.fi2{resize:none;line-height:1.5;}
+select.fi2{appearance:none;}
+.ai-sug{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--violet);cursor:pointer;margin-top:3px;background:none;border:none;font-family:inherit;padding:0;}
+.ai-sug:hover{color:var(--violet2);}
+.ai-sug svg{width:10px;height:10px;}
+.ai-sug-loading{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--fg3);margin-top:3px;}
+.ai-sug-loading svg{width:10px;height:10px;color:var(--violet);animation:spin 1s linear infinite;}
+.uz{border:2px dashed var(--border);border-radius:var(--r2);padding:18px;text-align:center;cursor:pointer;transition:all .15s;}
+.uz:hover{border-color:var(--violet-border);background:var(--violet-bg);}
+.uz svg{width:22px;height:22px;color:var(--fg4);margin:0 auto 5px;}
+.uz p{font-size:11px;color:var(--fg3);}
+.uz p.sm{font-size:10px;color:var(--fg4);margin-top:2px;}
+.mfoot{padding:12px 16px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+.mfoot-meta{font-size:10px;color:var(--fg4);}
+.mfoot-acts{display:flex;gap:6px;}
+
+/* ── VIEWER / EDITOR FULLSCREEN ── */
+.viewer{position:fixed;inset:0;background:var(--bg);z-index:200;display:none;flex-direction:column;}
+.viewer.show{display:flex;}
+.vhd{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;}
+.vhd-left{display:flex;align-items:center;gap:8px;flex:1;min-width:0;}
+.vback{display:flex;align-items:center;gap:5px;padding:5px 10px;background:none;border:1px solid var(--border);border-radius:var(--r);font-size:12px;color:var(--fg2);cursor:pointer;transition:all .15s;font-family:inherit;}
+.vback:hover{background:var(--bg3);color:var(--fg);}
+.vback svg{width:12px;height:12px;}
+.vhd-title{font-size:13px;font-weight:600;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.vhd-meta{font-size:10px;color:var(--fg3);}
+.vhd-tabs{display:flex;gap:1px;}
+.vtab{padding:5px 10px;font-size:11px;font-weight:500;cursor:pointer;transition:all .15s;color:var(--fg3);border-bottom:2px solid transparent;border-top:none;border-left:none;border-right:none;background:none;font-family:inherit;}
+.vtab:hover{color:var(--fg2);}
+.vtab.active{color:var(--violet);border-bottom-color:var(--violet);}
+.vhd-acts{display:flex;gap:6px;flex-shrink:0;}
+.vbtn{display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:var(--r);font-size:11px;font-weight:500;cursor:pointer;transition:all .15s;border:none;font-family:inherit;}
+.vbtn-p{background:var(--fg);color:var(--bg);}
+.vbtn-p:hover{background:#d4d2ce;}
+.vbtn-g{background:var(--bg3);border:1px solid var(--border);color:var(--fg2);}
+.vbtn-g:hover{background:var(--bg4);color:var(--fg);}
+.vbtn svg{width:11px;height:11px;}
+.vbody{flex:1;display:flex;overflow:hidden;}
+
+/* doc editor */
+.ed-main{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.ed-toolbar{display:flex;align-items:center;gap:1px;padding:5px 8px;border-bottom:1px solid var(--border);background:var(--bg2);flex-wrap:wrap;flex-shrink:0;}
+.tbb{width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:var(--r);cursor:pointer;transition:all .15s;color:var(--fg3);background:none;border:none;font-size:11px;font-weight:600;font-family:inherit;}
+.tbb:hover{background:var(--bg3);color:var(--fg);}
+.tbb.active{background:var(--bg4);color:var(--fg);}
+.tsep{width:1px;height:14px;background:var(--border);margin:0 3px;}
+.ed-area{flex:1;overflow-y:auto;padding:32px 48px;max-width:860px;margin:0 auto;width:100%;}
+.ed-title{font-size:28px;font-weight:700;color:var(--fg);border:none;background:none;outline:none;width:100%;margin-bottom:6px;font-family:inherit;line-height:1.2;}
+.ed-title::placeholder{color:var(--fg4);}
+.ed-meta{font-size:11px;color:var(--fg3);margin-bottom:24px;display:flex;align-items:center;gap:10px;}
+.ed-content{color:var(--fg2);font-size:14px;line-height:1.8;min-height:300px;outline:none;}
+.ed-content h1{font-size:22px;font-weight:700;color:var(--fg);margin:20px 0 8px;}
+.ed-content h2{font-size:18px;font-weight:600;color:var(--fg);margin:18px 0 6px;}
+.ed-content h3{font-size:15px;font-weight:600;color:var(--fg2);margin:14px 0 4px;}
+.ed-content p{margin-bottom:10px;}
+.ed-content ul{padding-left:18px;margin-bottom:10px;}
+.ed-content ul li{margin-bottom:4px;}
+.ed-content blockquote{border-left:3px solid var(--violet);padding-left:14px;color:var(--fg3);font-style:italic;margin:12px 0;}
+.ed-content code{font-family:'Geist Mono',monospace;font-size:12px;background:var(--bg3);border:1px solid var(--border);padding:1px 5px;border-radius:3px;color:var(--amber);}
+.ed-content pre{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);padding:14px;margin:12px 0;overflow-x:auto;}
+.ed-content pre code{background:none;border:none;padding:0;font-size:13px;color:var(--fg2);}
+.todo-row{display:flex;align-items:flex-start;gap:8px;margin-bottom:5px;}
+.todo-cb{width:14px;height:14px;border:1.5px solid var(--border2);border-radius:3px;flex-shrink:0;margin-top:4px;display:flex;align-items:center;justify-content:center;cursor:pointer;}
+.todo-cb.chk{background:var(--violet);border-color:var(--violet);}
+.todo-cb.chk::after{content:'✓';font-size:9px;color:white;font-weight:700;}
+.todo-txt{font-size:13px;color:var(--fg2);}
+.todo-txt.done{text-decoration:line-through;color:var(--fg4);}
+.cb2{display:flex;align-items:flex-start;gap:7px;padding:9px 11px;background:var(--violet-bg);border:1px solid var(--violet-border);border-radius:var(--r);margin:10px 0;}
+.cb2-icon{font-size:13px;flex-shrink:0;}
+.cb2-txt{font-size:12px;color:var(--fg2);line-height:1.5;}
+.ed-hint{font-size:11px;color:var(--fg4);padding:5px 8px 5px 48px;}
+.ed-hint kbd{padding:1px 4px;background:var(--bg3);border:1px solid var(--border);border-radius:3px;font-size:9px;color:var(--fg3);font-family:'Geist Mono',monospace;}
+
+/* slash command popup */
+.slash-popup{position:absolute;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r2);padding:4px;box-shadow:var(--shadow2);z-index:300;min-width:220px;}
+.slash-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:var(--r);cursor:pointer;transition:all .15s;}
+.slash-item:hover,.slash-item.sel{background:var(--bg3);}
+.slash-ic{width:24px;height:24px;border-radius:5px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.slash-ic svg{width:12px;height:12px;}
+.slash-nm{font-size:12px;font-weight:500;color:var(--fg);}
+.slash-desc{font-size:10px;color:var(--fg3);}
+
+/* ai writer panel */
+.ai-writer{width:300px;border-left:1px solid var(--border);display:flex;flex-direction:column;background:var(--bg2);overflow:hidden;}
+.aw-head{padding:10px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:7px;}
+.aw-icon{width:20px;height:20px;background:linear-gradient(135deg,var(--violet),var(--violet2));border-radius:5px;display:flex;align-items:center;justify-content:center;}
+.aw-icon svg{width:10px;height:10px;}
+.aw-title{font-size:12px;font-weight:600;color:var(--fg);flex:1;}
+.aw-close{background:none;border:none;cursor:pointer;color:var(--fg3);display:flex;}
+.aw-close svg{width:13px;height:13px;}
+.aw-body{flex:1;overflow-y:auto;padding:10px;}
+.aw-suggest{display:flex;align-items:flex-start;gap:6px;padding:8px 9px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);margin-bottom:6px;cursor:pointer;transition:all .15s;}
+.aw-suggest:hover{border-color:var(--violet-border);background:var(--bg4);}
+.aw-sug-icon{width:20px;height:20px;border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--violet-bg);}
+.aw-sug-icon svg{width:10px;height:10px;color:var(--violet);}
+.aw-sug-txt{font-size:11px;color:var(--fg2);line-height:1.4;}
+.aw-input-area{padding:10px;border-top:1px solid var(--border);}
+.aw-input-wrap{display:flex;gap:5px;align-items:flex-end;}
+.aw-input{flex:1;padding:7px 9px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);font-size:12px;color:var(--fg);font-family:inherit;outline:none;resize:none;line-height:1.4;max-height:80px;}
+.aw-input:focus{border-color:var(--violet-border);}
+.aw-input::placeholder{color:var(--fg4);}
+.aw-send{width:28px;height:28px;background:var(--violet);border:none;border-radius:var(--r);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;}
+.aw-send:hover{background:var(--violet2);}
+.aw-send svg{width:12px;height:12px;color:white;}
+.aw-resp{padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--r);font-size:11px;color:var(--fg2);line-height:1.6;margin-bottom:6px;}
+.aw-resp-acts{display:flex;gap:5px;margin-bottom:8px;}
+.aw-act-btn{padding:4px 8px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);font-size:10px;font-weight:500;color:var(--fg2);cursor:pointer;transition:all .15s;font-family:inherit;}
+.aw-act-btn:hover{background:var(--bg3);color:var(--fg);}
+.aw-act-btn.primary{background:var(--violet-bg);color:var(--violet);border-color:var(--violet-border);}
+
+/* image viewer */
+.img-viewer{flex:1;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--bg);position:relative;}
+.img-viewer img{max-width:100%;max-height:100%;object-fit:contain;border-radius:var(--r2);}
+.img-toolbar{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:4px;padding:6px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r3);box-shadow:var(--shadow2);}
+.img-tb-btn{width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:var(--r);background:none;border:none;color:var(--fg2);cursor:pointer;transition:all .15s;}
+.img-tb-btn:hover{background:var(--bg3);color:var(--fg);}
+.img-tb-btn svg{width:13px;height:13px;}
+.img-ai-panel{width:280px;border-left:1px solid var(--border);padding:14px;background:var(--bg2);overflow-y:auto;}
+.iap-title{font-size:11px;font-weight:600;color:var(--fg);margin-bottom:10px;display:flex;align-items:center;gap:6px;}
+.iap-title svg{width:12px;height:12px;color:var(--violet);}
+.iap-result{padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--r);font-size:11px;color:var(--fg2);line-height:1.6;margin-bottom:8px;}
+.iap-label{font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--fg4);margin-bottom:4px;margin-top:8px;}
+.iap-tag{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;font-size:10px;color:var(--fg2);margin:2px;}
+.iap-input-row{display:flex;gap:5px;margin-top:10px;}
+.iap-input{flex:1;padding:6px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);font-size:11px;color:var(--fg);font-family:inherit;outline:none;}
+.iap-input:focus{border-color:var(--violet-border);}
+.iap-input::placeholder{color:var(--fg4);}
+.iap-send{width:26px;height:26px;background:var(--violet);border:none;border-radius:var(--r);display:flex;align-items:center;justify-content:center;cursor:pointer;}
+.iap-send svg{width:11px;height:11px;color:white;}
+
+/* pdf viewer */
+.pdf-viewer{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.pdf-toolbar{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;}
+.pdf-tb-btn{display:flex;align-items:center;gap:4px;padding:4px 9px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);font-size:11px;color:var(--fg2);cursor:pointer;transition:all .15s;font-family:inherit;}
+.pdf-tb-btn:hover{background:var(--bg4);color:var(--fg);}
+.pdf-tb-btn svg{width:11px;height:11px;}
+.pdf-pg{font-size:11px;color:var(--fg3);flex:1;text-align:center;}
+.pdf-body{flex:1;display:flex;overflow:hidden;}
+.pdf-main{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;align-items:center;gap:10px;}
+.pdf-page{width:600px;background:white;border-radius:var(--r);box-shadow:var(--shadow2);padding:40px;color:#1a1a1a;line-height:1.7;}
+.pdf-page h1{font-size:20px;font-weight:700;margin-bottom:8px;border-bottom:2px solid #e0e0e0;padding-bottom:8px;}
+.pdf-page h2{font-size:16px;font-weight:600;margin:16px 0 6px;}
+.pdf-page p{font-size:13px;margin-bottom:10px;}
+.pdf-page .highlight{background:rgba(91,79,232,.15);padding:1px 3px;border-radius:2px;}
+.pdf-ai-panel{width:260px;border-left:1px solid var(--border);padding:12px;background:var(--bg2);overflow-y:auto;}
+
+/* code editor */
+.code-editor{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.ce-toolbar{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;}
+.ce-lang{padding:3px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);font-size:11px;color:var(--fg2);font-family:inherit;appearance:none;outline:none;}
+.ce-run{display:flex;align-items:center;gap:4px;padding:4px 10px;background:var(--emerald-bg);border:1px solid rgba(61,214,140,.3);border-radius:var(--r);font-size:11px;font-weight:600;color:var(--emerald);cursor:pointer;font-family:inherit;}
+.ce-body{flex:1;display:flex;overflow:hidden;}
+.ce-nums{width:40px;padding:14px 0;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0;}
+.ce-num{font-size:12px;font-family:'Geist Mono',monospace;color:var(--fg4);padding:0 10px;line-height:1.6;}
+.ce-code{flex:1;padding:14px;overflow:auto;font-family:'Geist Mono',monospace;font-size:12.5px;line-height:1.6;color:var(--fg2);outline:none;background:var(--bg);}
+.ce-code .kw{color:#C792EA;}
+.ce-code .fn{color:#82AAFF;}
+.ce-code .str{color:#C3E88D;}
+.ce-code .cm3{color:#546E7A;font-style:italic;}
+.ce-code .num{color:#F78C6C;}
+.ce-code .type{color:#FFCB6B;}
+.ce-out{height:140px;border-top:1px solid var(--border);background:var(--bg2);flex-shrink:0;overflow:hidden;display:flex;flex-direction:column;}
+.ce-out-head{display:flex;align-items:center;gap:6px;padding:6px 12px;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--fg4);}
+.ce-out-head svg{width:11px;height:11px;}
+.ce-out-body{flex:1;overflow-y:auto;padding:8px 12px;font-family:'Geist Mono',monospace;font-size:12px;color:var(--fg2);}
+
+/* ── ANIMATIONS ── */
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes slideUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.vc:nth-child(1){animation-delay:.04s}
+.vc:nth-child(2){animation-delay:.08s}
+.vc:nth-child(3){animation-delay:.12s}
+.vc:nth-child(4){animation-delay:.16s}
+.vc:nth-child(5){animation-delay:.20s}
+.vc:nth-child(6){animation-delay:.24s}
+.emb-pulse{animation:pulse 2s ease infinite}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- LEFT NAV -->
+<nav class="left-nav">
+  <div class="nav-logo"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div>
+  <button class="ni" title="Home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></button>
+  <button class="ni" title="Tasks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></button>
+  <button class="ni active" title="Vault"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="3" width="20" height="18" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M12 2v1M12 21v1M2 12h1M21 12h1"/></svg></button>
+  <button class="ni" title="CRM"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg></button>
+  <button class="ni" title="Inbox"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg><span class="badge"></span></button>
+  <div class="nav-bottom">
+    <button class="ni" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></button>
+    <div class="av">AM</div>
+  </div>
+</nav>
+
+<div class="vault">
+<!-- SIDEBAR PROJECTS -->
+<div class="sp">
+  <div class="sp-head"><span class="sp-title">Vault</span><button onclick="openSearch()" style="background:none;border:none;cursor:pointer;color:var(--fg3);display:flex;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg></button></div>
+  <div class="drive-ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 10h-1.26A8 8 0 109 20h9a5 5 0 000-10z"/></svg><span>Drive connected</span></div>
+  <div class="proj-list">
+    <div class="sec-hdr">Projects</div>
+    <div class="pi active" onclick="selProj(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg><span>Kobin</span></div>
+    <div class="pi" onclick="selProj(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg><span>Reelix</span><span class="pdot"></span></div>
+    <div class="pi" onclick="selProj(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg><span>Website Redesign</span></div>
+    <div class="pi" onclick="selProj(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg><span>Brand Identity</span></div>
+    <div class="sec-hdr" style="margin-top:6px;">Agency Docs</div>
+    <div class="pi" onclick="selProj(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg><span>SOPs</span></div>
+    <div class="pi" onclick="selProj(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span>Proposals</span></div>
+    <div class="pi" onclick="selProj(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg><span>Templates</span></div>
+  </div>
+</div>
+
+<!-- SIDEBAR FOLDERS -->
+<div class="sf">
+  <div class="sf-head"><div class="sf-pname">Kobin</div><div class="sf-psub">Project folders</div></div>
+  <div class="fl">
+    <div class="sec-hdr" style="padding:6px 2px 3px;">Internal</div>
+    <div class="fi" onclick="selFol(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg><span class="fn">Internal Docs</span></div>
+    <div class="fi active" onclick="selFol(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg><span class="fn">Deliverables</span><svg class="ei" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></div>
+    <div class="sec-hdr" style="padding:8px 2px 3px;">Client</div>
+    <div class="fi" onclick="selFol(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg><span class="fn">Client Uploads</span><svg class="ei" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></div>
+    <div class="sec-hdr" style="padding:8px 2px 3px;">Knowledge</div>
+    <div class="fi" onclick="selFol(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg><span class="fn">Notes</span></div>
+    <div class="fi" onclick="selFol(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span class="fn">Documents</span></div>
+    <div class="fi" onclick="selFol(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg><span class="fn">Code Snippets</span></div>
+  </div>
+  <div class="sf-foot"><button class="nfb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>New folder</button></div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+  <div class="topbar">
+    <div class="bc"><span>Kobin</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg><span class="cur">Deliverables</span><div class="cli-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>Client visible</div></div>
+    <div class="tba">
+      <button class="btn btn-g" onclick="openSearch()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>Search<span style="font-size:10px;color:var(--fg4);border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-family:monospace;">⌘K</span></button>
+      <button class="btn btn-g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Import</button>
+      <button class="btn btn-p" onclick="openModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add to Vault</button>
+    </div>
+  </div>
+  <div class="ai-strip">
+    <div class="ai-icon"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div>
+    <div class="ai-txt">
+      <div class="ai-ttl">Kobin AI has full context on this folder</div>
+      <div class="ai-sub">6 items vectorised · pgvector indexed · updated 1 min ago</div>
+      <div class="ai-chips"><span class="aic"><strong>Arham Mirkar</strong> — Negotiating</span><span class="aic">4 open tasks</span><span class="aic">2 awaiting approval</span><span class="aic">Last meeting: Apr 9</span><span class="aic">Ask AI →</span></div>
+    </div>
+  </div>
+  <div class="fbar">
+    <div class="sw"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input class="si" placeholder="Search or ask AI — 'show me pending approvals'…"/></div>
+    <div class="fps">
+      <button class="fp active">All</button><button class="fp">File</button><button class="fp">Note</button><button class="fp">Doc</button><button class="fp">Image</button><button class="fp">Code</button>
+    </div>
+    <div style="width:1px;height:16px;background:var(--border);flex-shrink:0;"></div>
+    <button class="sort-b"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>Latest</button>
+    <div class="vt">
+      <button class="vb active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></button>
+      <button class="vb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></button>
+    </div>
+  </div>
+
+  <div class="ia">
+    <div class="sl">Awaiting approval</div>
+    <div class="ig">
+      <!-- CARD: File with pending approval -->
+      <div class="vc tf sel" onclick="openPanel('approval')">
+        <div class="ct"><div class="tb bf"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>File</div><button class="cmb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+        <div class="ctitle">AI Layer Launch — Insta Post Pack</div>
+        <div class="cdesc">8 carousel frames, captions, CTA variations for the AI layer launch campaign</div>
+        <div class="appr-badge ap-pending"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:10px;height:10px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Awaiting client approval</div>
+        <div class="cai"><div class="cai-dot"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div><div class="cai-t">Similar to <strong>Q1 campaign pack</strong> — client approved that style. 92% similarity.</div></div>
+        <div class="ctask"><span class="tch"><span class="td2 done"></span>Design frames</span><span class="tch"><span class="td2 doing"></span>Client review</span></div>
+        <div class="cfoot"><div class="cfl"><span class="abp byf">Founder</span><span class="dtt">Content</span></div><span class="cdate">Apr 1</span></div>
+      </div>
+      <!-- CARD: Doc pending approval -->
+      <div class="vc td" onclick="openPanel('approval')">
+        <div class="ct"><div class="tb bd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Doc</div><button class="cmb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+        <div class="ctitle">Proposal — Social Media Retainer</div>
+        <div class="cdesc">6-month retainer proposal for Reelix covering content strategy and paid amplification</div>
+        <div class="appr-badge ap-pending"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:10px;height:10px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Awaiting client approval</div>
+        <div class="cai"><div class="cai-dot"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div><div class="cai-t">Budget here <strong>differs from CRM deal value</strong> by ₹12,000. Review before sending.</div></div>
+        <div class="cfoot"><div class="cfl"><span class="abp byf">Founder</span><span class="dtt">Proposal</span></div><span class="cdate">Apr 7</span></div>
+      </div>
+    </div>
+
+    <div class="sl">All deliverables</div>
+    <div class="ig">
+      <!-- CARD: Note -->
+      <div class="vc tn" onclick="openViewer('doc')">
+        <div class="ct"><div class="tb bn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>Note</div><button class="cmb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+        <div class="ctitle">Project Kickoff Notes — Kobin v2</div>
+        <div class="cdesc">Goals, timeline, open questions from Apr 3 kickoff call</div>
+        <div class="cprev np">✓ Launch AI Vault by Apr 20<br/>✓ TipTap editor in notes<br/>→ pgvector setup needed<br/>→ Design system audit</div>
+        <div class="appr-badge ap-approved"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:10px;height:10px;"><polyline points="20 6 9 17 4 12"/></svg> Approved Apr 4</div>
+        <div class="cfoot"><div class="cfl"><span class="abp byf">Founder</span><span class="dtt">Brief</span></div><span class="cdate">Apr 3</span></div>
+      </div>
+      <!-- CARD: Image -->
+      <div class="vc ti" onclick="openViewer('image')">
+        <div class="ct"><div class="tb bi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>Image</div><button class="cmb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+        <div class="ctitle">Brand Assets — Product Photos</div>
+        <div class="cdesc">Raw product photography uploaded by client for campaign use</div>
+        <div style="margin:8px 0;height:60px;background:linear-gradient(135deg,#1a1a1a,#2a2a28);border-radius:6px;display:flex;align-items:center;justify-content:center;gap:8px;overflow:hidden;">
+          <div style="width:48px;height:48px;background:linear-gradient(135deg,#EC4899,#F43F5E);border-radius:6px;opacity:.7;"></div>
+          <div style="width:48px;height:48px;background:linear-gradient(135deg,#5B4FE8,#7C3AED);border-radius:6px;opacity:.7;"></div>
+          <div style="width:48px;height:48px;background:linear-gradient(135deg,#3DD68C,#14B8A6);border-radius:6px;opacity:.7;"></div>
+          <div style="font-size:10px;color:var(--fg3);">+12 more</div>
+        </div>
+        <div class="ai-gen"><div class="ai-gen-dot"></div><div class="ai-gen-dot"></div><div class="ai-gen-dot"></div><div class="ai-gen-txt">AI analysing images via Llama 4 Scout Vision…</div></div>
+        <div class="cfoot"><div class="cfl"><span class="abp byc">Client</span><span class="dtt">Design Asset</span></div><span class="cdate">Apr 8</span></div>
+      </div>
+      <!-- CARD: PDF -->
+      <div class="vc tf" onclick="openViewer('pdf')">
+        <div class="ct"><div class="tb bpdf"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>PDF</div><button class="cmb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+        <div class="ctitle">Q1 Performance Report</div>
+        <div class="cdesc">Analytics breakdown — reach, engagement, conversion across all channels</div>
+        <div class="appr-badge ap-approved"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:10px;height:10px;"><polyline points="20 6 9 17 4 12"/></svg> Approved Apr 6</div>
+        <div class="cfoot"><div class="cfl"><span class="abp byf">Founder</span><span class="dtt">Report</span></div><span class="cdate">Apr 5</span></div>
+      </div>
+      <!-- CARD: Code -->
+      <div class="vc tc" onclick="openViewer('code')">
+        <div class="ct"><div class="tb bc2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>Code</div><button class="cmb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+        <div class="ctitle">API Integration — Webhook Handler</div>
+        <div class="cdesc">Node.js webhook handler for Kobin's Gmail Pub/Sub integration</div>
+        <div class="cprev" style="font-family:'Geist Mono',monospace;font-size:10px;color:#82AAFF;">export async function POST(req) {<br/>&nbsp;&nbsp;<span style="color:#C792EA">const</span> body = <span style="color:#82AAFF">await</span> req.json();<br/>&nbsp;&nbsp;<span style="color:#546E7A;">// verify signature…</span></div>
+        <div class="cfoot"><div class="cfl"><span class="abp byt">Team</span><span class="dtt">Code</span></div><span class="cdate">Apr 6</span></div>
+      </div>
+      <!-- CARD: Link -->
+      <div class="vc tl">
+        <div class="ct"><div class="tb bl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>Link</div><button class="cmb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+        <div class="ctitle">Figma — Brand Identity v3</div>
+        <div class="cdesc">Updated logo, colours, and component library for 2025 rebrand</div>
+        <div class="clp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg><span>figma.com/file/KobinBrand2025</span></div>
+        <div class="cfoot"><div class="cfl"><span class="abp byt">Team</span><span class="dtt">Design Asset</span></div><span class="cdate">Mar 28</span></div>
+      </div>
+    </div>
+
+    <div class="sl">Start from template</div>
+    <div class="tg">
+      <div class="tcard feat" onclick="openViewer('doc')"><div style="font-size:16px;margin-bottom:4px;">📋</div><div class="tcard-name">Client Proposal</div><div class="tcard-desc">Pre-filled with CRM context</div></div>
+      <div class="tcard" onclick="openViewer('doc')"><div style="font-size:16px;margin-bottom:4px;">🔁</div><div class="tcard-name">Onboarding SOP</div><div class="tcard-desc">Step-by-step checklist</div></div>
+      <div class="tcard" onclick="openViewer('doc')"><div style="font-size:16px;margin-bottom:4px;">📊</div><div class="tcard-name">Weekly Update</div><div class="tcard-desc">Auto-pulls task status</div></div>
+      <div class="tcard" onclick="openViewer('doc')"><div style="font-size:16px;margin-bottom:4px;">🚀</div><div class="tcard-name">Project Brief</div><div class="tcard-desc">Goals, KPIs, timeline</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- RIGHT PANEL -->
+<div class="rp" id="rp">
+  <div class="rp-top">
+    <button class="pclose" onclick="closePanel()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    <span class="ptitle">AI Layer Launch — Insta Pack</span>
+    <div class="pacts">
+      <button class="pab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button>
+      <button class="pab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg></button>
+      <button class="pab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button>
+    </div>
+  </div>
+  <div class="ptabs">
+    <button class="ptab active" onclick="switchPTab(this,'ctx')">Context</button>
+    <button class="ptab" onclick="switchPTab(this,'appr')">Approval <span style="background:var(--amber-bg);color:var(--amber);font-size:9px;padding:1px 4px;border-radius:3px;margin-left:2px;">1</span></button>
+    <button class="ptab" onclick="switchPTab(this,'cmts')">Comments <span style="background:var(--violet-bg);color:var(--violet);font-size:9px;padding:1px 4px;border-radius:3px;margin-left:2px;">2</span></button>
+    <button class="ptab" onclick="switchPTab(this,'act')">Activity</button>
+  </div>
+
+  <!-- CONTEXT TAB -->
+  <div class="pb" id="t-ctx">
+    <div class="emb-strip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg><span class="emb-pulse"><strong>Vectorised</strong> · pgvector indexed · 2 min ago</span></div>
+    <div class="cs"><div class="cs-ttl">Client</div>
+      <div class="ci2"><div class="cii civ"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div><div class="cim"><div class="cit">Arham Mirkar — Kobin</div><div class="cis">Last contact: Apr 9 · 4 open tasks</div></div><span class="cbadge cp-badge">Negotiating</span></div>
+    </div>
+    <div class="cs"><div class="cs-ttl">Linked tasks</div>
+      <div class="ci2"><div class="cii cie"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></div><div class="cim"><div class="cit">Design all 8 carousel frames</div><div class="cis">Due Apr 12</div></div><span class="cbadge cs-done">Done</span></div>
+      <div class="ci2"><div class="cii cib"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></div><div class="cim"><div class="cit">Client approval on carousel pack</div><div class="cis">Due Apr 14</div></div><span class="cbadge cs-doing">Doing</span></div>
+    </div>
+    <div class="cs"><div class="cs-ttl">AI memory — related</div>
+      <div class="ci2"><div class="cii cia"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div><div class="cim"><div class="cit">Q4 Campaign — Content Brief</div><div class="cis">0.91 similarity · same client, same style</div></div></div>
+      <div class="ci2"><div class="cii civ"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div><div class="cim"><div class="cit">Apr 3 Meeting — Campaign Notes</div><div class="cis">0.87 similarity · mentions this campaign</div></div></div>
+      <div class="ci2"><div class="cii cib"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></div><div class="cim"><div class="cit">Email: "re: campaign final?"</div><div class="cis">0.84 similarity · arham@kobin.ai</div></div></div>
+    </div>
+    <div class="cs"><div class="cs-ttl">AI quick actions</div>
+      <button class="qa-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>Draft follow-up email to client</button>
+      <button class="qa-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>Create delivery task from this file</button>
+      <button class="qa-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>Find similar across all projects</button>
+    </div>
+  </div>
+
+  <!-- APPROVAL TAB -->
+  <div class="pb" id="t-appr" style="display:none;">
+    <div class="appr-panel">
+      <div class="appr-panel-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Deliverable approval</div>
+      <div class="appr-status"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><div class="appr-status-txt">Sent to <strong>Arham Mirkar</strong> for review · Apr 9 · <strong>Pending</strong></div></div>
+      <div style="font-size:10px;color:var(--fg3);margin-bottom:8px;">Request client to approve or request changes on this deliverable.</div>
+      <div class="appr-btns">
+        <button class="appr-btn-ok" onclick="approveItem(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;"><polyline points="20 6 9 17 4 12"/></svg>Mark approved</button>
+        <button class="appr-btn-rej"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Request changes</button>
+      </div>
+      <textarea class="appr-comment" rows="2" placeholder="Add a note for the client (optional)…"></textarea>
+    </div>
+    <div class="appr-history">
+      <div class="cs-ttl">Approval history</div>
+      <div class="appr-h-item"><div class="appr-av" style="background:var(--violet);">AM</div><div class="appr-h-body"><div class="appr-h-head"><span class="appr-h-name">Arham Mirkar</span><span class="appr-h-time">Apr 9, 2:14 PM</span></div><div class="appr-h-txt">Sent for approval — "Please review the carousel pack and let us know if any changes needed."</div></div></div>
+      <div class="appr-h-item"><div class="appr-av" style="background:var(--amber);">KA</div><div class="appr-h-body"><div class="appr-h-head"><span class="appr-h-name">Kobin AI</span><span class="appr-h-time">Apr 9, 2:14 PM</span></div><div class="appr-h-txt">Approval request sent to client portal. Vectorised and logged to AI memory.</div></div></div>
+    </div>
+  </div>
+
+  <!-- COMMENTS TAB -->
+  <div class="pb" id="t-cmts" style="display:none;">
+    <div class="cm"><div class="cmav" style="background:var(--violet);">AM</div><div class="cmb2"><div class="cmhd"><span class="cmatr">Arham Mirkar</span><span class="cmtime">Apr 8, 2:14 PM</span></div><div class="cmtxt">Love frames 3 and 5. Can we adjust the CTA on frame 7 to "Start free" instead of "Try now"?</div></div></div>
+    <div class="cm"><div class="cmav" style="background:var(--blue);">BM</div><div class="cmb2"><div class="cmhd"><span class="cmatr">Bilal M.</span><span class="cmtime">Apr 9, 10:02 AM</span></div><div class="cmtxt">Updated frame 7 — reuploaded to Drive. Let me know if this works!</div></div></div>
+  </div>
+  <div id="cm-in-area" style="display:none;border-top:1px solid var(--border);">
+    <div class="cm-in"><div class="cmav-sm">AM</div><textarea class="cm-field" rows="2" placeholder="Add a comment…"></textarea><button class="btn btn-p" style="padding:5px 9px;font-size:11px;flex-shrink:0;">Send</button></div>
+  </div>
+
+  <!-- ACTIVITY TAB -->
+  <div class="pb" id="t-act" style="display:none;">
+    <div class="act-item"><div class="act-dot v"></div><div><div class="act-txt"><strong>Arham Mirkar</strong> added file to Deliverables</div><div class="act-time">Apr 1, 11:32 AM</div></div></div>
+    <div class="act-item"><div class="act-dot e"></div><div><div class="act-txt"><strong>Kobin AI</strong> vectorised and indexed via pgvector</div><div class="act-time">Apr 1, 11:32 AM</div></div></div>
+    <div class="act-item"><div class="act-dot v"></div><div><div class="act-txt"><strong>Kobin AI</strong> auto-generated title and description using Llama 4</div><div class="act-time">Apr 1, 11:33 AM</div></div></div>
+    <div class="act-item"><div class="act-dot"></div><div><div class="act-txt">Approval request sent to <strong>Arham Mirkar</strong></div><div class="act-time">Apr 9, 2:14 PM</div></div></div>
+    <div class="act-item"><div class="act-dot e"></div><div><div class="act-txt"><strong>Kobin AI</strong> found 0.91 similarity with Q4 Campaign Brief</div><div class="act-time">Apr 9, 2:14 PM</div></div></div>
+  </div>
+</div>
+</div><!-- end vault -->
+</div><!-- end app -->
+
+<!-- ── SEARCH OVERLAY ── -->
+<div class="overlay" id="search-ov" onclick="if(event.target===this)closeSearch()">
+  <div class="ssbox">
+    <div class="ss-in-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search or ask anything about your vault…" id="ss-input"/><div class="ssai-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>AI Search</div></div>
+    <div class="ss-res">
+      <div class="ss-sl">Top results</div>
+      <div class="ss-ri sel"><div class="ss-ri-ic bf"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div><div class="ss-ri-m"><div class="ss-ri-t">AI Layer Launch — Insta Post Pack</div><div class="ss-ri-s">Kobin / Deliverables · <em>AI layer</em> campaign content pack</div></div><span class="ss-ri-ty">File</span></div>
+      <div class="ss-ri"><div class="ss-ri-ic bn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div><div class="ss-ri-m"><div class="ss-ri-t">Project Kickoff Notes — Kobin v2</div><div class="ss-ri-s">Kobin / Notes · mentions <em>AI</em> Vault launch</div></div><span class="ss-ri-ty">Note</span></div>
+      <div class="ss-ri"><div class="ss-ri-ic bi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></div><div class="ss-ri-m"><div class="ss-ri-t">Brand Assets — Product Photos (15 images)</div><div class="ss-ri-s">Kobin / Deliverables · <em>AI</em> vision analysis complete</div></div><span class="ss-ri-ty">Image</span></div>
+      <div class="ss-sl" style="margin-top:6px;">AI answer</div>
+      <div class="ss-ai-ans"><div class="ss-ai-ans-hdr">Kobin AI</div><div class="ss-ai-ans-txt">You have <strong style="color:var(--fg)">3 deliverables</strong> related to "AI Layer Launch" across 2 projects. The carousel pack is pending client approval since Apr 9. The kickoff notes mention the campaign is tied to the pgvector launch milestone.</div></div>
+    </div>
+    <div class="ss-foot"><span class="ss-foot-t">15 items · 12 indexed</span><div class="ss-foot-h"><span><kbd>↑↓</kbd> navigate</span><span><kbd>↵</kbd> open</span><span><kbd>Esc</kbd> close</span></div></div>
+  </div>
+</div>
+
+<!-- ── ADD MODAL ── -->
+<div class="overlay overlay-c" id="add-ov" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="mhd"><span class="mtitle">Add to Vault</span><button class="mclose" onclick="closeModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+    <div class="mbody">
+      <div class="tpicker">
+        <div class="tpbtn sel"><div class="tpi" style="background:var(--blue-bg);color:var(--blue);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div><span class="tplabel">File</span></div>
+        <div class="tpbtn"><div class="tpi" style="background:var(--violet-bg);color:var(--violet);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div><span class="tplabel">Note</span></div>
+        <div class="tpbtn"><div class="tpi" style="background:var(--emerald-bg);color:var(--emerald);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg></div><span class="tplabel">Link</span></div>
+        <div class="tpbtn"><div class="tpi" style="background:var(--amber-bg);color:var(--amber);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div><span class="tplabel">Doc</span></div>
+      </div>
+      <div class="ff"><label class="fl2">Title *</label><input class="fi2" placeholder="e.g. Q2 Campaign Deliverables Pack" id="modal-title"/></div>
+      <div class="ff">
+        <label class="fl2">Description *</label>
+        <textarea class="fi2" rows="2" placeholder="What is this? Add context…" id="modal-desc"></textarea>
+        <button class="ai-sug" onclick="simulateAISuggest()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>AI: auto-generate from file content</button>
+        <div class="ai-sug-loading" id="ai-loading" style="display:none;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0"/></svg>Analysing with Llama 4 Scout Vision…</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div class="ff"><label class="fl2">Doc type</label><select class="fi2"><option>Content</option><option>Deliverable</option><option>Report</option><option>Contract</option><option>Brief</option><option>Proposal</option></select></div>
+        <div class="ff"><label class="fl2">Folder</label><select class="fi2"><option>Deliverables</option><option>Internal Docs</option><option>Client Uploads</option><option>Notes</option></select></div>
+      </div>
+      <div class="uz"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><p>Click to upload or drag & drop</p><p class="sm">Any format — AI will auto-analyse content + images via Llama 4 Scout</p></div>
+    </div>
+    <div class="mfoot"><span class="mfoot-meta">Auto-vectorised · indexed by Kobin AI</span><div class="mfoot-acts"><button class="btn btn-g" onclick="closeModal()">Cancel</button><button class="btn btn-p">Add to Vault</button></div></div>
+  </div>
+</div>
+
+<!-- ── VIEWER: DOC EDITOR ── -->
+<div class="viewer" id="viewer-doc">
+  <div class="vhd">
+    <div class="vhd-left">
+      <button class="vback" onclick="closeViewer('doc')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>Back</button>
+      <div>
+        <div class="vhd-title">Project Kickoff Notes — Kobin v2</div>
+        <div class="vhd-meta">Kobin / Notes · Edited 2 min ago · Auto-saved</div>
+      </div>
+    </div>
+    <div class="vhd-tabs">
+      <button class="vtab active" onclick="switchVTab(this,'edit','doc')">Edit</button>
+      <button class="vtab" onclick="switchVTab(this,'preview','doc')">Preview</button>
+    </div>
+    <div class="vhd-acts">
+      <button class="vbtn vbtn-g" onclick="toggleAIWriter()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>Kobin AI</button>
+      <button class="vbtn vbtn-g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>Share</button>
+      <button class="vbtn vbtn-p"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/></svg>Send for Approval</button>
+    </div>
+  </div>
+  <div class="vbody">
+    <div class="ed-main">
+      <div class="ed-toolbar">
+        <button class="tbb" title="Bold"><b>B</b></button>
+        <button class="tbb" title="Italic"><i>I</i></button>
+        <button class="tbb" title="Underline"><u>U</u></button>
+        <div class="tsep"></div>
+        <button class="tbb" title="H1" style="font-size:10px;">H1</button>
+        <button class="tbb" title="H2" style="font-size:10px;">H2</button>
+        <button class="tbb" title="H3" style="font-size:10px;">H3</button>
+        <div class="tsep"></div>
+        <button class="tbb" title="Bullet list">• —</button>
+        <button class="tbb" title="Numbered list">1.</button>
+        <button class="tbb" title="To-do list">☐</button>
+        <div class="tsep"></div>
+        <button class="tbb" title="Callout">💬</button>
+        <button class="tbb" title="Code block">&lt;/&gt;</button>
+        <button class="tbb" title="Quote">"</button>
+        <div class="tsep"></div>
+        <button class="tbb" title="Link" style="font-size:10px;">🔗</button>
+        <button class="tbb" title="Image" style="font-size:10px;">🖼</button>
+        <div class="tsep"></div>
+        <button class="tbb active" style="font-size:10px;background:var(--violet-bg);color:var(--violet);width:auto;padding:0 6px;" onclick="showSlashMenu()">/kobin</button>
+      </div>
+      <div style="position:relative;flex:1;display:flex;flex-direction:column;overflow:hidden;">
+        <!-- SLASH COMMAND POPUP -->
+        <div class="slash-popup" id="slash-popup" style="top:8px;left:48px;">
+          <div class="ss-sl">/kobin commands</div>
+          <div class="slash-item sel"><div class="slash-ic" style="background:var(--violet-bg);color:var(--violet);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div><div><div class="slash-nm">Write with AI</div><div class="slash-desc">Generate or continue text</div></div></div>
+          <div class="slash-item"><div class="slash-ic" style="background:var(--amber-bg);color:var(--amber);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></div><div><div class="slash-nm">Draft follow-up</div><div class="slash-desc">Create email from this doc</div></div></div>
+          <div class="slash-item"><div class="slash-ic" style="background:var(--blue-bg);color:var(--blue);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></div><div><div class="slash-nm">Create task</div><div class="slash-desc">Add to project task list</div></div></div>
+          <div class="slash-item"><div class="slash-ic" style="background:var(--emerald-bg);color:var(--emerald);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><div><div class="slash-nm">Request approval</div><div class="slash-desc">Send to client for sign-off</div></div></div>
+          <div class="slash-item"><div class="slash-ic" style="background:var(--red-bg);color:var(--red);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></div><div><div class="slash-nm">Insert code block</div><div class="slash-desc">Add syntax-highlighted code</div></div></div>
+          <div class="slash-item"><div class="slash-ic" style="background:var(--bg3);color:var(--fg3);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></div><div><div class="slash-nm">Embed image</div><div class="slash-desc">Insert from Vault</div></div></div>
+        </div>
+        <div style="flex:1;overflow-y:auto;">
+          <div class="ed-area">
+            <input class="ed-title" value="Project Kickoff Notes — Kobin v2" placeholder="Untitled…"/>
+            <div class="ed-meta"><span>Arham Mirkar</span><span>·</span><span>Apr 3, 2025</span><span>·</span><span>Kobin / Notes</span></div>
+            <div class="ed-content" contenteditable="true">
+              <h2>Goals</h2>
+              <p>Deliver the AI Vault feature as a complete replacement for Notion within the Kobin ecosystem. The Vault should be the agency's second brain — every deliverable, note, SOP, and piece of context stored, indexed, and queryable via AI.</p>
+              <div class="todo-row"><div class="todo-cb chk"></div><span class="todo-txt done">Define full Vault feature scope</span></div>
+              <div class="todo-row"><div class="todo-cb chk"></div><span class="todo-txt done">Design system audit before build</span></div>
+              <div class="todo-row"><div class="todo-cb"></div><span class="todo-txt">Launch AI Vault by Apr 20</span></div>
+              <div class="todo-row"><div class="todo-cb"></div><span class="todo-txt">Set up pgvector in Supabase</span></div>
+              <h2>Timeline</h2>
+              <p>Phase 1 (Apr 14–20): Core Vault UI, TipTap editor, file viewers, image viewer with AI analysis. Phase 2 (Apr 21–28): pgvector embeddings, semantic search, context panel. Phase 3 (May+): Client approval flow, AI writer, deliverable comments.</p>
+              <h3>Open questions</h3>
+              <div class="cb2"><span class="cb2-icon">💡</span><span class="cb2-txt">Do we use Supabase pgvector or Pinecone? Leaning pgvector to keep infrastructure simple. Need to confirm embedding model — text-embedding-3-small vs nomic-embed-text.</span></div>
+              <blockquote>"The vault should know more about the agency than the founder does." — core design principle</blockquote>
+              <h3>Tech stack</h3>
+              <pre><code>// Embedding pipeline
+const embed = await openai.embeddings.create({
+  model: "text-embedding-3-small",
+  input: document.content,
+});
+await supabase.from("vault_embeddings").insert({
+  vault_item_id: item.id,
+  embedding: embed.data[0].embedding,
+});</code></pre>
+            </div>
+          </div>
+          <div class="ed-hint">Type <kbd>/kobin</kbd> for AI commands · <kbd>⌘S</kbd> to save · <kbd>⌘⇧A</kbd> to request approval</div>
+        </div>
+      </div>
+    </div>
+    <!-- AI WRITER PANEL -->
+    <div class="ai-writer" id="ai-writer" style="display:none;">
+      <div class="aw-head"><div class="aw-icon"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div><span class="aw-title">Kobin AI Writer</span><button class="aw-close" onclick="toggleAIWriter()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+      <div class="aw-body">
+        <div class="cs-ttl" style="padding:0 0 6px;">Suggestions based on context</div>
+        <div class="aw-suggest"><div class="aw-sug-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div><div class="aw-sug-txt">Expand the timeline section with milestones from linked tasks</div></div>
+        <div class="aw-suggest"><div class="aw-sug-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></div><div class="aw-sug-txt">Draft a client-facing summary of this kickoff for the portal</div></div>
+        <div class="aw-suggest"><div class="aw-sug-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></div><div class="aw-sug-txt">Convert todos into tasks and assign to Bilal M.</div></div>
+        <div class="aw-resp">
+          <div style="font-size:9px;font-weight:700;color:var(--violet);letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px;">Kobin AI · gpt-4o-mini</div>
+          Here's an expanded timeline section based on your linked tasks:<br/><br/>
+          <strong style="color:var(--fg)">Phase 1 — Core (Apr 14–20)</strong><br/>
+          · TipTap editor integration (Bilal M. · Apr 14)<br/>
+          · File viewer for PDF + images (Apr 16)<br/>
+          · Llama 4 Scout vision analysis for uploads (Apr 18)<br/><br/>
+          <em style="color:var(--fg3)">2 more tasks not yet assigned…</em>
+        </div>
+        <div class="aw-resp-acts">
+          <button class="aw-act-btn primary">Insert into doc</button>
+          <button class="aw-act-btn">Regenerate</button>
+          <button class="aw-act-btn">Discard</button>
+        </div>
+      </div>
+      <div class="aw-input-area">
+        <div class="aw-input-wrap"><textarea class="aw-input" rows="2" placeholder="Ask AI to write, edit, or summarise…"></textarea><button class="aw-send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── VIEWER: IMAGE ── -->
+<div class="viewer" id="viewer-image">
+  <div class="vhd">
+    <div class="vhd-left">
+      <button class="vback" onclick="closeViewer('image')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>Back</button>
+      <div><div class="vhd-title">Brand Assets — Product Photos</div><div class="vhd-meta">15 images · Analysed by Llama 4 Scout Vision · Apr 8</div></div>
+    </div>
+    <div class="vhd-acts">
+      <button class="vbtn vbtn-g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Download</button>
+      <button class="vbtn vbtn-p"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/></svg>Send for Approval</button>
+    </div>
+  </div>
+  <div class="vbody">
+    <div class="img-viewer">
+      <!-- placeholder image grid -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;max-width:800px;width:100%;">
+        <div style="aspect-ratio:1;background:linear-gradient(135deg,#EC4899,#F43F5E);border-radius:8px;display:flex;align-items:center;justify-content:center;color:white;font-size:10px;font-weight:500;cursor:pointer;border:2px solid var(--violet);">Photo 1</div>
+        <div style="aspect-ratio:1;background:linear-gradient(135deg,#5B4FE8,#7C3AED);border-radius:8px;display:flex;align-items:center;justify-content:center;color:white;font-size:10px;font-weight:500;cursor:pointer;">Photo 2</div>
+        <div style="aspect-ratio:1;background:linear-gradient(135deg,#3DD68C,#14B8A6);border-radius:8px;display:flex;align-items:center;justify-content:center;color:white;font-size:10px;font-weight:500;cursor:pointer;">Photo 3</div>
+        <div style="aspect-ratio:1;background:linear-gradient(135deg,#F5A623,#F97316);border-radius:8px;display:flex;align-items:center;justify-content:center;color:white;font-size:10px;font-weight:500;cursor:pointer;">Photo 4</div>
+        <div style="aspect-ratio:1;background:linear-gradient(135deg,#54B8F5,#3B82F6);border-radius:8px;display:flex;align-items:center;justify-content:center;color:white;font-size:10px;font-weight:500;cursor:pointer;">Photo 5</div>
+        <div style="aspect-ratio:1;background:linear-gradient(135deg,#C792EA,#EC4899);border-radius:8px;display:flex;align-items:center;justify-content:center;color:white;font-size:10px;font-weight:500;cursor:pointer;">Photo 6</div>
+        <div style="aspect-ratio:1;background:linear-gradient(135deg,#FFCB6B,#F5A623);border-radius:8px;display:flex;align-items:center;justify-content:center;color:white;font-size:10px;font-weight:500;cursor:pointer;">Photo 7</div>
+        <div style="aspect-ratio:1;background:var(--bg3);border-radius:8px;border:1px dashed var(--border2);display:flex;align-items:center;justify-content:center;color:var(--fg3);font-size:11px;cursor:pointer;">+8 more</div>
+      </div>
+      <div class="img-toolbar">
+        <button class="img-tb-btn" title="Zoom in"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
+        <button class="img-tb-btn" title="Zoom out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button>
+        <button class="img-tb-btn" title="Grid / Single toggle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></button>
+        <div style="width:1px;height:14px;background:var(--border);margin:0 2px;"></div>
+        <button class="img-tb-btn" title="Download selected"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+      </div>
+    </div>
+    <div class="img-ai-panel">
+      <div class="iap-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>Vision AI Analysis</div>
+      <div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--fg4);margin-bottom:5px;">Auto-generated description</div>
+      <div class="iap-result">15 professional product photographs. Clean white studio backgrounds. Products appear to be a SaaS or tech brand — minimal aesthetic. Dominant colors: white, deep navy, violet accent. High resolution, campaign-ready.</div>
+      <div class="iap-label">Detected tags</div>
+      <div><span class="iap-tag">product photography</span><span class="iap-tag">studio</span><span class="iap-tag">white bg</span><span class="iap-tag">campaign-ready</span><span class="iap-tag">tech brand</span><span class="iap-tag">high-res</span></div>
+      <div class="iap-label">Suggested use</div>
+      <div class="iap-result" style="font-size:10px;">Suitable for social media campaigns, hero banners, and product landing pages. Matches the visual style of the AI Layer Launch campaign.</div>
+      <div class="iap-label">Ask AI about this image set</div>
+      <div class="iap-input-row"><input class="iap-input" placeholder="e.g. which photo suits carousel frame 3?"/><button class="iap-send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── VIEWER: PDF ── -->
+<div class="viewer" id="viewer-pdf">
+  <div class="vhd">
+    <div class="vhd-left">
+      <button class="vback" onclick="closeViewer('pdf')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>Back</button>
+      <div><div class="vhd-title">Q1 Performance Report</div><div class="vhd-meta">12 pages · Vectorised · Highlights extracted by AI</div></div>
+    </div>
+    <div class="vhd-acts">
+      <button class="vbtn vbtn-g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download</button>
+      <button class="vbtn vbtn-p"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>Share</button>
+    </div>
+  </div>
+  <div class="vbody">
+    <div class="pdf-viewer">
+      <div class="pdf-toolbar">
+        <button class="pdf-tb-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:11px;height:11px;"><polyline points="15 18 9 12 15 6"/></svg>Prev</button>
+        <button class="pdf-tb-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:11px;height:11px;"><polyline points="9 18 15 12 9 6"/></svg>Next</button>
+        <span class="pdf-pg">Page 1 of 12</span>
+        <button class="pdf-tb-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:11px;height:11px;"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>Zoom in</button>
+        <button class="pdf-tb-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:11px;height:11px;"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/><line x1="8" y1="11" x2="14" y2="11"/></svg>Zoom out</button>
+      </div>
+      <div class="pdf-body">
+        <div class="pdf-main">
+          <div class="pdf-page">
+            <h1>Q1 2025 Performance Report</h1>
+            <p style="color:#888;font-size:11px;">Kobin Agency · Jan–Mar 2025 · Prepared for Arham Mirkar</p>
+            <h2>Executive Summary</h2>
+            <p>Q1 delivered <span class="highlight">strong growth across all channels</span> with total reach increasing 142% YoY. Engagement rate held steady at 4.2% against an industry average of 1.8%. The AI Layer campaign was the <span class="highlight">top-performing initiative</span> contributing 38% of total impressions.</p>
+            <h2>Key Metrics</h2>
+            <p>Total Reach: <strong>2.4M</strong> · Engagement Rate: <strong>4.2%</strong> · Content Pieces: <strong>48</strong> · Avg. CPM: <strong>₹180</strong></p>
+            <h2>Platform Breakdown</h2>
+            <p>Instagram remained the dominant channel with 64% of total reach. LinkedIn saw a <span class="highlight">significant uptick in B2B engagement</span>, growing 87% QoQ driven by the founder-led content strategy introduced in February.</p>
+          </div>
+        </div>
+        <div class="pdf-ai-panel">
+          <div class="iap-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>AI Highlights</div>
+          <div class="cs-ttl">Key insights extracted</div>
+          <div class="iap-result">• Reach grew 142% YoY — top performer<br/>• Instagram drives 64% of total reach<br/>• LinkedIn +87% QoQ on B2B content<br/>• AI Layer campaign = 38% of impressions</div>
+          <div class="cs-ttl" style="margin-top:8px;">Ask about this PDF</div>
+          <div class="iap-input-row"><input class="iap-input" placeholder="e.g. summarise page 3…"/><button class="iap-send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── VIEWER: CODE ── -->
+<div class="viewer" id="viewer-code">
+  <div class="vhd">
+    <div class="vhd-left">
+      <button class="vback" onclick="closeViewer('code')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>Back</button>
+      <div><div class="vhd-title">API Integration — Webhook Handler</div><div class="vhd-meta">webhook-handler.ts · TypeScript · 84 lines</div></div>
+    </div>
+    <div class="vhd-acts">
+      <button class="vbtn vbtn-g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download</button>
+      <button class="vbtn vbtn-p"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/></svg>Save to Vault</button>
+    </div>
+  </div>
+  <div class="vbody">
+    <div class="code-editor">
+      <div class="ce-toolbar">
+        <select class="ce-lang"><option>TypeScript</option><option>JavaScript</option><option>Python</option><option>SQL</option></select>
+        <button class="ce-run"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:11px;height:11px;"><polygon points="5 3 19 12 5 21 5 3"/></svg>Run</button>
+        <div style="flex:1;"></div>
+        <button class="vbtn vbtn-g" style="font-size:10px;" onclick="toggleAIWriter()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:10px;height:10px;"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>Ask AI</button>
+      </div>
+      <div class="ce-body">
+        <div class="ce-nums"><div class="ce-num">1</div><div class="ce-num">2</div><div class="ce-num">3</div><div class="ce-num">4</div><div class="ce-num">5</div><div class="ce-num">6</div><div class="ce-num">7</div><div class="ce-num">8</div><div class="ce-num">9</div><div class="ce-num">10</div><div class="ce-num">11</div><div class="ce-num">12</div><div class="ce-num">13</div><div class="ce-num">14</div><div class="ce-num">15</div><div class="ce-num">16</div><div class="ce-num">17</div></div>
+        <div class="ce-code">
+<span class="cm3">// Kobin AI — Gmail Pub/Sub Webhook Handler</span>
+<span class="cm3">// Receives push notifications from Google Cloud</span>
+
+<span class="kw">import</span> { <span class="type">NextResponse</span> } <span class="kw">from</span> <span class="str">"next/server"</span>
+<span class="kw">import</span> { <span class="fn">supabaseAdmin</span> } <span class="kw">from</span> <span class="str">"@/lib/supabase/admin"</span>
+<span class="kw">import</span> { <span class="fn">analyzeEmail</span> } <span class="kw">from</span> <span class="str">"@/lib/gmail/analyze"</span>
+
+<span class="kw">export async function</span> <span class="fn">POST</span>(req: <span class="type">Request</span>) {
+  <span class="kw">const</span> body = <span class="kw">await</span> req.<span class="fn">json</span>()
+  <span class="kw">const</span> { message } = body
+
+  <span class="cm3">// Decode base64 Pub/Sub message</span>
+  <span class="kw">const</span> data = <span class="type">Buffer</span>.<span class="fn">from</span>(message.data, <span class="str">'base64'</span>).<span class="fn">toString</span>()
+  <span class="kw">const</span> parsed = <span class="type">JSON</span>.<span class="fn">parse</span>(data)
+
+  <span class="cm3">// Find the founder via gmail historyId</span>
+  <span class="kw">const</span> { data: integration } = <span class="kw">await</span> supabaseAdmin
+    .<span class="fn">from</span>(<span class="str">'google_integrations'</span>)
+    .<span class="fn">select</span>(<span class="str">'*'</span>)
+        </div>
+      </div>
+      <div class="ce-out">
+        <div class="ce-out-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>Output</div>
+        <div class="ce-out-body"><span style="color:var(--emerald);">✓ TypeScript compiled</span><br/><span style="color:var(--fg3);">Ready to run · No errors detected</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── STATE ──
+let rpMode = 'ctx';
+
+// ── NAV ──
+document.querySelectorAll('.ni').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.ni').forEach(x=>x.classList.remove('active'));b.classList.add('active');}));
+
+// ── PANEL ──
+function openPanel(mode='ctx') {
+  document.getElementById('rp').style.display='flex';
+  if(mode==='approval') switchPTab(document.querySelectorAll('.ptab')[1],'appr');
+}
+function closePanel(){document.getElementById('rp').style.display='none';}
+function switchPTab(el,name){
+  document.querySelectorAll('.ptab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  ['ctx','appr','cmts','act'].forEach(n=>document.getElementById('t-'+n).style.display='none');
+  document.getElementById('t-'+name).style.display='block';
+  const cin=document.getElementById('cm-in-area');
+  if(cin)cin.style.display=name==='cmts'?'block':'none';
+}
+
+// ── APPROVAL ──
+function approveItem(btn){
+  const panel=btn.closest('.appr-panel');
+  panel.querySelector('.appr-status').style.background='var(--emerald-bg)';
+  panel.querySelector('.appr-status').style.borderColor='rgba(61,214,140,.2)';
+  panel.querySelector('.appr-status svg').style.color='var(--emerald)';
+  panel.querySelector('.appr-status-txt').innerHTML='Marked as <strong style="color:var(--emerald)">Approved</strong> by Arham Mirkar · Just now';
+  btn.textContent='✓ Approved';
+  btn.style.background='var(--emerald-bg)';
+}
+
+// ── SEARCH ──
+function openSearch(){const ov=document.getElementById('search-ov');ov.classList.add('show');setTimeout(()=>document.getElementById('ss-input').focus(),50);}
+function closeSearch(){document.getElementById('search-ov').classList.remove('show');}
+
+// ── MODAL ──
+function openModal(){document.getElementById('add-ov').classList.add('show');}
+function closeModal(){document.getElementById('add-ov').classList.remove('show');}
+
+// ── AI SUGGEST in modal ──
+function simulateAISuggest(){
+  const loading=document.getElementById('ai-loading');
+  const desc=document.getElementById('modal-desc');
+  loading.style.display='flex';
+  desc.value='';
+  setTimeout(()=>{
+    loading.style.display='none';
+    desc.value='8 Instagram carousel frames with captions and CTA variations for the AI Layer Launch campaign. Designed for the 25–40 tech-founder audience. Includes light and dark variants.';
+  },2000);
+}
+
+// ── VIEWER ──
+function openViewer(type){document.getElementById('viewer-'+type).classList.add('show');}
+function closeViewer(type){document.getElementById('viewer-'+type).classList.remove('show');}
+function switchVTab(el,name,type){
+  const vhd=el.closest('.vhd');
+  vhd.querySelectorAll('.vtab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+}
+
+// ── AI WRITER ──
+function toggleAIWriter(){
+  const aw=document.getElementById('ai-writer');
+  aw.style.display=aw.style.display==='none'?'flex':'none';
+}
+
+// ── SLASH MENU ──
+let slashVisible=false;
+function showSlashMenu(){
+  const sp=document.getElementById('slash-popup');
+  slashVisible=!slashVisible;
+  sp.style.display=slashVisible?'block':'none';
+}
+document.addEventListener('click',e=>{
+  const sp=document.getElementById('slash-popup');
+  if(sp&&!sp.contains(e.target)&&!e.target.closest('[onclick="showSlashMenu()"]')){sp.style.display='none';slashVisible=false;}
+});
+
+// ── KEYBOARD ──
+document.addEventListener('keydown',e=>{
+  if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();openSearch();}
+  if(e.key==='Escape'){closeSearch();closeModal();}
+});
+
+// ── FILTER PILLS ──
+document.querySelectorAll('.fp').forEach(p=>p.addEventListener('click',()=>{document.querySelectorAll('.fp').forEach(x=>x.classList.remove('active'));p.classList.add('active');}));
+
+// ── VIEW TOGGLE ──
+document.querySelectorAll('.vb').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.vb').forEach(x=>x.classList.remove('active'));b.classList.add('active');}));
+
+// ── CARD CLICK ──
+document.querySelectorAll('.vc').forEach(c=>c.addEventListener('click',()=>{document.querySelectorAll('.vc').forEach(x=>x.classList.remove('sel'));c.classList.add('sel');}));
+
+// ── PROJ / FOLDER SELECT ──
+function selProj(el){document.querySelectorAll('.pi').forEach(i=>i.classList.remove('active'));el.classList.add('active');}
+function selFol(el){document.querySelectorAll('.fi').forEach(i=>i.classList.remove('active'));el.classList.add('active');}
+
+// ── TYPE PICKER ──
+document.querySelectorAll('.tpbtn').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.tpbtn').forEach(x=>x.classList.remove('sel'));b.classList.add('sel');}));
+
+// ── SLASH ITEMS ──
+document.querySelectorAll('.slash-item').forEach(i=>i.addEventListener('click',()=>{document.querySelectorAll('.slash-item').forEach(x=>x.classList.remove('sel'));i.classList.add('sel');if(i.querySelector('.slash-nm').textContent==='Write with AI')toggleAIWriter();document.getElementById('slash-popup').style.display='none';slashVisible=false;}));
+
+// ── TEMPLATE CARDS ──
+document.querySelectorAll('.tcard').forEach(c=>c.addEventListener('click',()=>{document.querySelectorAll('.tcard').forEach(x=>x.classList.remove('feat'));c.classList.add('feat');}));
+</script>
+</body>
+</html>

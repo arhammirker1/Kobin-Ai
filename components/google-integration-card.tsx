@@ -135,7 +135,7 @@ export function GoogleIntegrationCard() {
               </div>
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />
-                <span>Links saved automatically to your Command Center events</span>
+                <span>Links saved automatically to your Workspace events</span>
               </div>
             </div>
 

@@ -1,6 +1,20 @@
 "use client"
 
-import { useEffect, useState, useRef } from "react"
+/**
+ * components/vault-view.tsx — Kobin AI Vault v3.1
+ *
+ * ── Changes from v3.0 ────────────────────────────────────────────────────────
+ *  FIX 1  getViewerType — handles document_type="Note/Content/SOP/Brief/Reference"
+ *          with no recognized extension → forces TipTap doc viewer
+ *  FIX 2  openItem — uses extracted_text as fallback when note_content is null
+ *  FIX 3  Dialog — when aiLabelMode=ON, hides ALL input fields; user only
+ *          needs to pick a file and press "Add to Vault"
+ *  FIX 4  Removed duplicate docx/spreadsheet viewer blocks
+ *  FIX 5  Logging — every major action tagged with [Vault/*]
+ *  FIX 6  Right panel is a proper side column (no overlay)
+ */
+
+import { useEffect, useState, useRef, useCallback } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -8,36 +22,69 @@ import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
-  Search,
-  Plus,
-  FileText,
-  Link2,
-  StickyNote,
-  FolderOpen,
-  ChevronRight,
-  Upload,
-  ExternalLink,
-  MoreHorizontal,
-  Trash2,
-  Eye,
-  CloudOff,
-  Cloud,
-  Loader2,
-  X,
-  FolderPlus,
-  Users,
-  Lock,
-  Globe,
+  Search, Plus, FileText, Link2, StickyNote, FolderOpen,
+  ChevronRight, Upload, ExternalLink, MoreHorizontal, Trash2,
+  Eye, CloudOff, Cloud, Loader2, X, FolderPlus, Users, Lock,
+  Globe, ArrowLeft, Sparkles, Code, Image, FileIcon, Check,
+  Clock, AlertCircle, RefreshCw, Send, ChevronLeft, ChevronDown,
+  Activity, MessageSquare, Zap, BookOpen, Download, Pencil,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
+import dynamic from "next/dynamic"
+import { PlanGate, UpgradeBadge } from "@/components/ui/plan-gate"
+
+// ── Dynamic imports (zero bundle cost when not used) ──────────────────────
+
+const NoteEditor = dynamic(() => import("@/components/vault/note-editor"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex-1 flex items-center justify-center">
+      <Loader2 size={16} className="animate-spin text-muted-foreground/60" />
+    </div>
+  ),
+})
+
+const CodeViewerComponent = dynamic(() => import("@/components/vault/code-viewer"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex-1 flex items-center justify-center">
+      <Loader2 size={16} className="animate-spin text-muted-foreground/60" />
+    </div>
+  ),
+})
+
+const SpreadsheetViewerComponent = dynamic(() => import("@/components/vault/spreadsheet-viewer"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex-1 flex items-center justify-center">
+      <Loader2 size={16} className="animate-spin text-muted-foreground/60" />
+    </div>
+  ),
+})
+
+const DocxViewerComponent = dynamic(() => import("@/components/vault/docx-viewer"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex-1 flex items-center justify-center">
+      <Loader2 size={16} className="animate-spin text-muted-foreground/60" />
+    </div>
+  ),
+})
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type FolderType = "root" | "project" | "internal" | "client_uploads" | "deliverables" | "custom"
+type ItemType = "file" | "link" | "note"
+type AddedByType = "founder" | "team" | "client"
+type EmbedStatus = "pending" | "embedded" | "failed" | "skipped"
+type ApprovalStatus = "pending" | "approved" | "changes_requested" | "none"
+type ViewerType = "doc" | "image" | "pdf" | "code" | "link" | "file" | "docx" | "spreadsheet" | null
+type RightPanelTab = "context" | "approval" | "comments" | "activity"
+type FilterType = "all" | "file" | "link" | "note"
 
-type VaultFolder = {
+interface VaultFolder {
   id: string
   founder_id: string
   project_id: string | null
@@ -46,15 +93,14 @@ type VaultFolder = {
   parent_folder_id: string | null
   folder_type: FolderType
   created_at: string
-  children?: VaultFolder[]
 }
 
-type VaultItem = {
+interface VaultItem {
   id: string
   founder_id: string
   project_id: string | null
   folder_id: string
-  item_type: "file" | "link" | "note"
+  item_type: ItemType
   title: string
   description: string
   document_type: string
@@ -63,269 +109,802 @@ type VaultItem = {
   link_url: string | null
   note_content: string | null
   added_by: string
-  added_by_type: "founder" | "team" | "client"
+  added_by_type: AddedByType
   created_at: string
-  profile?: { full_name: string }
+  embedding_status?: EmbedStatus
+  storage_path?: string | null
+  extracted_text?: string | null
 }
 
-type Project = {
+interface RelatedItem {
+  item: VaultItem & { project_name?: string; folder_name?: string }
+  reason: string
+  similarity: number
+}
+
+interface SearchResult extends VaultItem {
+  similarity: number
+  project_name?: string
+  folder_name?: string
+}
+
+interface Project {
   id: string
   name: string
 }
 
+// ── Constants ─────────────────────────────────────────────────────────────────
+
 const DOCUMENT_TYPES = [
-  "Content",
-  "Deliverable",
-  "Report",
-  "Contract",
-  "Brief",
-  "Design Asset",
-  "Spreadsheet",
-  "Presentation",
-  "Reference",
-  "Other",
+  "Content", "Deliverable", "Report", "Contract", "Brief",
+  "Design Asset", "Spreadsheet", "Presentation", "Reference",
+  "Proposal", "SOP", "Note", "Code", "Other",
 ]
 
-
-const FOLDER_TYPE_META: Record<FolderType, { label: string; icon: React.ReactNode; clientVisible: boolean }> = {
-  root: { label: "Vault Root", icon: <FolderOpen size={14} />, clientVisible: false },
-  project: { label: "Project", icon: <FolderOpen size={14} />, clientVisible: false },
-  internal: { label: "Internal", icon: <Lock size={14} />, clientVisible: false },
-  client_uploads: { label: "Client Uploads", icon: <Users size={14} />, clientVisible: true },
-  deliverables: { label: "Deliverables", icon: <Globe size={14} />, clientVisible: true },
-  custom: { label: "Folder", icon: <FolderOpen size={14} />, clientVisible: false },
+const FOLDER_META: Record<FolderType, { label: string; icon: React.ReactNode; clientVisible: boolean; color: string }> = {
+  root: { label: "Vault Root", icon: <FolderOpen size={13} />, clientVisible: false, color: "text-muted-foreground/60" },
+  project: { label: "Project", icon: <FolderOpen size={13} />, clientVisible: false, color: "text-muted-foreground/60" },
+  internal: { label: "Internal", icon: <Lock size={13} />, clientVisible: false, color: "text-muted-foreground/60" },
+  client_uploads: { label: "Client Uploads", icon: <Users size={13} />, clientVisible: true, color: "text-blue-400" },
+  deliverables: { label: "Deliverables", icon: <Globe size={13} />, clientVisible: true, color: "text-violet-400" },
+  custom: { label: "Folder", icon: <FolderOpen size={13} />, clientVisible: false, color: "text-muted-foreground/60" },
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+const TYPE_CONFIG: Record<ItemType, { icon: React.ReactNode; badge: string; color: string }> = {
+  file: { icon: <FileText size={14} />, badge: "File", color: "bg-blue-500/10 text-blue-400 border-blue-500/20" },
+  link: { icon: <Link2 size={14} />, badge: "Link", color: "bg-violet-500/10 text-violet-400 border-violet-500/20" },
+  note: { icon: <StickyNote size={14} />, badge: "Note", color: "bg-amber-500/10 text-amber-400 border-amber-500/20" },
+}
+
+const DOC_TYPE_OVERRIDES: Partial<Record<string, { icon: React.ReactNode; badge: string; color: string }>> = {
+  "Code": { icon: <Code size={14} />, badge: "Code", color: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },
+  "Design Asset": { icon: <Image size={14} />, badge: "Design", color: "bg-pink-500/10 text-pink-400 border-pink-500/20" },
+  "Spreadsheet": { icon: <FileIcon size={14} />, badge: "Sheet", color: "bg-green-500/10 text-green-400 border-green-500/20" },
+  "Presentation": { icon: <FileIcon size={14} />, badge: "Slides", color: "bg-orange-500/10 text-orange-400 border-orange-500/20" },
+  "Contract": { icon: <FileText size={14} />, badge: "Contract", color: "bg-red-500/10 text-red-400 border-red-500/20" },
+  "Report": { icon: <FileText size={14} />, badge: "Report", color: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20" },
+}
+
+function getTypeConfig(item: { item_type: ItemType; document_type?: string }) {
+  if (item.item_type === "file" && item.document_type && DOC_TYPE_OVERRIDES[item.document_type]) {
+    return DOC_TYPE_OVERRIDES[item.document_type]!
+  }
+  return TYPE_CONFIG[item.item_type]
+}
+
+const ADDED_BY_COLOR: Record<AddedByType, string> = {
+  founder: "bg-violet-500/10 text-violet-400",
+  team: "bg-blue-500/10 text-blue-400",
+  client: "bg-emerald-500/10 text-emerald-400",
+}
+
+// ── Document types that should always open in TipTap (FIX 1) ─────────────────
+
+const TEXT_DOC_TYPES = new Set(["Note", "Content", "Brief", "SOP", "Reference", "Proposal", "Report"])
+
+// ── getViewerType — FIXED ─────────────────────────────────────────────────────
+
+function getViewerType(item: VaultItem): ViewerType {
+  console.log(`[Vault/Viewer] Detecting type for "${item.title}" | item_type=${item.item_type} | doc_type=${item.document_type}`)
+
+  if (item.item_type === "note") { console.log(`[Vault/Viewer] → doc (note)`); return "doc" }
+  if (item.item_type === "link") { console.log(`[Vault/Viewer] → link`); return "link" }
+
+  // PRIORITY 1: Extract extension from storage_path (original filename preserved)
+  // Format: founderId/folderId/1776097343923_command-bar.tsx → "tsx"
+  const storagePath = item.storage_path || ""
+  const storageFilename = storagePath.split("/").pop() || ""
+  const storageExtMatch = storageFilename.match(/\.([a-z0-9]+)$/i)
+  const storageExt = storageExtMatch ? storageExtMatch[1].toLowerCase() : ""
+
+  // PRIORITY 2: Extension from title
+  const titleLower = (item.title || "").toLowerCase()
+  const titleExt = titleLower.includes(".") ? (titleLower.split(".").pop() || "") : ""
+
+  // Use storage_path ext first — it's the ground truth
+  const ext = storageExt || titleExt
+  const dt = item.document_type || ""
+
+  console.log(`[Vault/Viewer] ext="${ext}" (storage="${storageExt}", title="${titleExt}") doc_type="${dt}"`)
+
+  // ── Spreadsheets ─────────────────────────────────────────────────────────
+  if (["xlsx", "xls", "csv", "tsv"].includes(ext)) {
+    console.log(`[Vault/Viewer] → spreadsheet (ext match)`)
+    return "spreadsheet"
+  }
+  if (dt === "Spreadsheet") {
+    console.log(`[Vault/Viewer] → spreadsheet (doc_type match)`)
+    return "spreadsheet"
+  }
+
+  // ── Word docs ─────────────────────────────────────────────────────────────
+  if (ext === "docx") { console.log(`[Vault/Viewer] → docx`); return "docx" }
+
+  // ── Plain text / markdown → TipTap (must be before document_type-based checks) ──
+  if (["txt", "md", "mdx"].includes(ext)) {
+    console.log(`[Vault/Viewer] → doc (.${ext})`)
+    return "doc"
+  }
+
+  // ── Code → Monaco ────────────────────────────────────────────────────────
+  const codeExts = [
+    "js", "ts", "tsx", "jsx", "py", "rb", "go", "rs", "java",
+    "cpp", "c", "h", "css", "scss", "html", "json", "yaml",
+    "yml", "sql", "sh", "bash", "env", "toml",
+    "graphql", "gql", "swift", "kt", "r", "scala",
+  ]
+  if (codeExts.includes(ext) || dt === "Code") {
+    console.log(`[Vault/Viewer] → code`)
+    return "code"
+  }
+
+  // ── Images ────────────────────────────────────────────────────────────────
+  if (["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "avif"].includes(ext) || dt === "Design Asset") {
+    console.log(`[Vault/Viewer] → image`)
+    return "image"
+  }
+
+  // ── PDF ───────────────────────────────────────────────────────────────────
+  if (ext === "pdf") { console.log(`[Vault/Viewer] → pdf`); return "pdf" }
+
+  // ── Text doc_type + content → TipTap ─────────────────────────────────────
+  const hasTextContent = !!(item.note_content || item.extracted_text)
+  if (TEXT_DOC_TYPES.has(dt) && hasTextContent) {
+    console.log(`[Vault/Viewer] → doc (text doc_type="${dt}" with content)`)
+    return "doc"
+  }
+  if (item.extracted_text && !item.drive_file_url && !item.storage_path) {
+    console.log(`[Vault/Viewer] → doc (extracted_text only, no binary URL)`)
+    return "doc"
+  }
+
+  console.log(`[Vault/Viewer] → file (generic fallback)`)
+  return "file"
+}
+
+// ── Markdown → TipTap HTML converter ─────────────────────────────────────────
+
+function mdToHtml(text: string): string {
+  let html = text.trim()
+
+  // Tables → proper HTML table (TipTap table extension is loaded in note-editor)
+  html = html.replace(/((?:\|[^\n]+\|[ \t]*\n?){2,})/gm, (match) => {
+    const lines = match.trim().split('\n').filter(l => l.trim())
+    if (lines.length < 2) return match
+
+    const isSeparator = (l: string) => /^\s*\|[\s:|–\-]+\|\s*$/.test(l)
+    const parseRow = (l: string) =>
+      l.split('|').map(c => c.trim()).filter((_, i, a) => i > 0 && i < a.length - 1)
+
+    const dataLines = lines.filter(l => !isSeparator(l))
+    if (dataLines.length === 0) return match
+
+    const headers = parseRow(dataLines[0])
+    const bodyRows = dataLines.slice(1)
+
+    let tableHtml = '<table><thead><tr>'
+    headers.forEach(h => { tableHtml += `<th>${h}</th>` })
+    tableHtml += '</tr></thead><tbody>'
+    bodyRows.forEach(row => {
+      tableHtml += '<tr>'
+      parseRow(row).forEach(cell => { tableHtml += `<td>${cell}</td>` })
+      tableHtml += '</tr>'
+    })
+    tableHtml += '</tbody></table>'
+    return tableHtml + '\n'
+  })
+
+  // Fenced code blocks
+  html = html.replace(/```[\w]*\n?([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+
+  // Headings
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>')
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>')
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>')
+
+  // Bold + italic
+  html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>')
+
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>')
+
+  // Unordered lists
+  html = html.replace(/((?:^[ \t]*[-*+] .+$\n?)+)/gm, (match) => {
+    const items = match.trim().split('\n').map(l => `<li>${l.replace(/^[ \t]*[-*+] /, '')}</li>`).join('')
+    return `<ul>${items}</ul>`
+  })
+
+  // Ordered lists
+  html = html.replace(/((?:^[ \t]*\d+\. .+$\n?)+)/gm, (match) => {
+    const items = match.trim().split('\n').map(l => `<li>${l.replace(/^[ \t]*\d+\. /, '')}</li>`).join('')
+    return `<ol>${items}</ol>`
+  })
+
+  // Wrap remaining blocks in <p> tags
+  html = html.split(/\n{2,}/).map(block => {
+    block = block.trim()
+    if (!block) return ''
+    if (/^<(h[1-6]|ul|ol|pre|blockquote)/i.test(block)) return block
+    return `<p>${block.replace(/\n/g, ' ')}</p>`
+  }).filter(Boolean).join('\n')
+
+  return html
+}
+
+// ── Date helper ───────────────────────────────────────────────────────────────
+
+function formatDate(d: string) {
+  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// MAIN COMPONENT
+// ═════════════════════════════════════════════════════════════════════════════
 
 export function VaultView() {
   const supabase = createClient()
 
-  // Drive connection state
+  // ── State ──────────────────────────────────────────────────────────────────
+  const [isLoading, setIsLoading] = useState(true)
   const [driveConnected, setDriveConnected] = useState(false)
   const [connectingDrive, setConnectingDrive] = useState(false)
+  const [isFounder, setIsFounder] = useState(true)
+  const [founderId, setFounderId] = useState<string | null>(null)
+  const [userId, setUserId] = useState<string | null>(null)
 
-  // Data
   const [folders, setFolders] = useState<VaultFolder[]>([])
   const [items, setItems] = useState<VaultItem[]>([])
   const [projects, setProjects] = useState<Project[]>([])
-  const [userId, setUserId] = useState<string | null>(null)
 
-  // Navigation
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
 
-  // UI
   const [searchQuery, setSearchQuery] = useState("")
-  const [filterType, setFilterType] = useState<"all" | "file" | "link" | "note">("all")
-  const [isLoading, setIsLoading] = useState(true)
+  const [filterType, setFilterType] = useState<FilterType>("all")
 
-  // Add item dialog
+  const [projectsSidebarOpen, setProjectsSidebarOpen] = useState(true)
+  const [foldersSidebarOpen, setFoldersSidebarOpen] = useState(true)
+
+  // Viewer
+  const [activeViewer, setActiveViewer] = useState<ViewerType>(null)
+  const [activeItem, setActiveItem] = useState<VaultItem | null>(null)
+  const [rightPanelOpen, setRightPanelOpen] = useState(false)
+  const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>("context")
+  const [relatedItems, setRelatedItems] = useState<RelatedItem[]>([])
+  const [loadingRelated, setLoadingRelated] = useState(false)
+
+  // AI Writer
+  const [aiWriterOpen, setAiWriterOpen] = useState(false)
+  const [aiWriterPrompt, setAiWriterPrompt] = useState("")
+  const [aiWriterResponse, setAiWriterResponse] = useState("")
+  const [aiWriterLoading, setAiWriterLoading] = useState(false)
+  const [aiWriterSources, setAiWriterSources] = useState<Array<{
+    id: string; title: string; document_type: string; similarity: number; chunk_preview?: string
+  }>>([])
+  const noteEditorInsertRef = useRef<((content: string) => void) | null>(null)
+
+  // Doc editor
+  const [docTitle, setDocTitle] = useState("")
+  const [docContent, setDocContent] = useState("")
+
+  // Approval
+  const [approvalStatus, setApprovalStatus] = useState<ApprovalStatus>("none")
+  const [approvalNote, setApprovalNote] = useState("")
+
+  // Search overlay
+  const [searchOverlayOpen, setSearchOverlayOpen] = useState(false)
+  const [searchOverlayQuery, setSearchOverlayQuery] = useState("")
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([])
+  const [searchLoading, setSearchLoading] = useState(false)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Add dialog
   const [addDialogOpen, setAddDialogOpen] = useState(false)
-  const [addItemType, setAddItemType] = useState<"file" | "link" | "note" | null>(null)
+  const [addItemType, setAddItemType] = useState<ItemType | null>(null)
   const [addForm, setAddForm] = useState({
-    title: "",
-    description: "",
-    document_type: "Content",
-    link_url: "",
-    note_content: "",
+    title: "", description: "", document_type: "Content",
+    link_url: "", note_content: "",
   })
   const [uploadFile, setUploadFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Menu state
+  // AI labeling
+  const [aiLabelMode, setAiLabelMode] = useState(true)
+  const [isAiLabeling, setIsAiLabeling] = useState(false)
+  const [extractedText, setExtractedText] = useState<string>("")
+
+  // File viewer
+  const [signedUrl, setSignedUrl] = useState<string | null>(null)
+  const [fileContent, setFileContent] = useState<string | null>(null)
+  const [fileLoading, setFileLoading] = useState(false)
+
+  // Code / DOCX / Spreadsheet viewer controls
+  const [codeAiWriterOpen, setCodeAiWriterOpen] = useState(false)
+  const [docxEditMode, setDocxEditMode] = useState(false)
+  const [docxAiWriterOpen, setDocxAiWriterOpen] = useState(false)
+  const codeViewerSaveRef = useRef<(() => void) | null>(null)
+  const docxViewerSaveRef = useRef<(() => void) | null>(null)
+  const spreadsheetSaveRef = useRef<(() => void) | null>(null)
+
+  // Context menu
   const [menuItemId, setMenuItemId] = useState<string | null>(null)
-  const [founderId, setFounderId] = useState<string | null>(null)
 
   // ── Init ───────────────────────────────────────────────────────────────────
 
+  useEffect(() => { init() }, [])
+
   useEffect(() => {
-    init()
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault()
+        setSearchOverlayOpen(true)
+        setTimeout(() => searchInputRef.current?.focus(), 50)
+      }
+      if (e.key === "Escape") {
+        setSearchOverlayOpen(false)
+        setAddDialogOpen(false)
+      }
+    }
+    window.addEventListener("keydown", handler)
+    return () => window.removeEventListener("keydown", handler)
   }, [])
 
-    const init = async () => {
+  const init = async () => {
+    console.log("[Vault/Init] Starting vault initialization")
     setIsLoading(true)
+
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
+    if (!user) {
+      console.warn("[Vault/Init] No authenticated user")
+      return
+    }
     setUserId(user.id)
 
-    // Resolve founder ID — team members use their founder's vault
-    let founderId = user.id
+    let fId = user.id
     const { data: profile } = await supabase
-      .from("profiles")
-      .select("user_type")
-      .eq("id", user.id)
-      .single()
-
+      .from("profiles").select("user_type").eq("id", user.id).single()
 
     if (profile?.user_type === "team_member") {
       setIsFounder(false)
-      const { data: teamMember } = await supabase
-        .from("team_members")
-        .select("founder_id")
-        .eq("user_id", user.id)
-        .eq("is_active", true)
-        .single()
-      if (teamMember?.founder_id) founderId = teamMember.founder_id
+      const { data: tm } = await supabase
+        .from("team_members").select("founder_id")
+        .eq("user_id", user.id).eq("is_active", true).single()
+      if (tm?.founder_id) {
+        fId = tm.founder_id
+        console.log(`[Vault/Init] Team member — using founder_id=${fId}`)
+      }
     }
 
-    // Check founder's Drive connection (not the team member's own)
-    setFounderId(founderId)
+    setFounderId(fId)
+
     const { data: integration } = await supabase
       .from("google_integrations")
       .select("drive_connected, drive_vault_folder_id")
-      .eq("user_id", founderId)
-      .maybeSingle()
+      .eq("user_id", fId).maybeSingle()
 
-    setDriveConnected(!!(integration?.drive_connected && integration?.drive_vault_folder_id))
+    const connected = !!(integration?.drive_connected && integration?.drive_vault_folder_id)
+    setDriveConnected(connected)
+    console.log(`[Vault/Init] Drive connected=${connected}`)
 
-    // Load founder's projects + folders
-    await Promise.all([
-      loadProjects(founderId),
-      loadFolders(founderId),
-    ])
+    await Promise.all([loadProjects(fId), loadFolders(fId)])
+
+    // Trigger background embedding (non-blocking)
+    fetch("/api/vault/embed", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ batch: true }),
+    }).catch((err) => console.warn("[Vault/Init] Background embed trigger failed:", err))
 
     setIsLoading(false)
+    console.log("[Vault/Init] ✓ Vault initialized")
   }
 
   const loadProjects = async (uid: string) => {
-    const { data } = await supabase
-      .from("projects")
-      .select("id, name")
-      .eq("founder_id", uid)
-      .order("name")
+    console.log(`[Vault/Projects] Loading projects for uid=${uid}`)
+    const { data, error } = await supabase
+      .from("projects").select("id, name").eq("founder_id", uid).order("name")
+    if (error) console.error("[Vault/Projects] Error:", error)
+    else console.log(`[Vault/Projects] Loaded ${data?.length ?? 0} projects`)
     setProjects(data || [])
   }
 
   const loadFolders = async (uid: string) => {
-    const { data } = await supabase
-      .from("vault_folders")
-      .select("*")
-      .eq("founder_id", uid)
-      .order("created_at")
+    console.log(`[Vault/Folders] Loading folders for uid=${uid}`)
+    const { data, error } = await supabase
+      .from("vault_folders").select("*").eq("founder_id", uid).order("created_at")
+    if (error) console.error("[Vault/Folders] Error:", error)
+    else console.log(`[Vault/Folders] Loaded ${data?.length ?? 0} folders`)
     setFolders(data || [])
   }
 
- const loadItems = async (folderId: string) => {
+  const loadItems = async (folderId: string) => {
+    console.log(`[Vault/Items] Loading items for folder_id=${folderId}`)
     const { data, error } = await supabase
-      .from("vault_items")
-      .select("*")
+      .from("vault_items").select("*")
       .eq("folder_id", folderId)
       .order("created_at", { ascending: false })
-    if (error) console.error("[Vault] loadItems error:", error)
+    if (error) console.error("[Vault/Items] Error:", error)
+    else console.log(`[Vault/Items] Loaded ${data?.length ?? 0} items`)
     setItems(data || [])
   }
-  // ── Drive Connect ──────────────────────────────────────────────────────────
+
+  // ── Drive connect ──────────────────────────────────────────────────────────
 
   const handleConnectDrive = async () => {
+    console.log("[Vault/Drive] Connecting Drive…")
     setConnectingDrive(true)
     try {
       const res = await fetch("/api/vault/connect", { method: "POST" })
       const json = await res.json()
       if (!res.ok) throw new Error(json.message)
       setDriveConnected(true)
-          await loadFolders(userId!)
+      await loadFolders(founderId!)
       toast.success("Google Drive connected — Vault is ready")
+      console.log("[Vault/Drive] ✓ Connected")
     } catch (err: any) {
+      console.error("[Vault/Drive] Connection failed:", err)
       toast.error(err.message || "Failed to connect Drive")
     } finally {
       setConnectingDrive(false)
     }
   }
-  const [isFounder, setIsFounder] = useState(true)
 
   // ── Navigation ─────────────────────────────────────────────────────────────
 
   const selectProject = (projectId: string) => {
+    console.log(`[Vault/Nav] Selected project=${projectId}`)
     setSelectedProjectId(projectId)
     setSelectedFolderId(null)
     setItems([])
+    setActiveViewer(null)
+    setActiveItem(null)
+    setRightPanelOpen(false)
   }
+
+  // ── Activity logging ───────────────────────────────────────────────────────
+  const logVaultActivity = useCallback(async (
+    itemId: string,
+    action: string,
+    details?: object,
+  ) => {
+    try {
+      await fetch("/api/vault/activity", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vault_item_id: itemId, action, details: details || {} }),
+      })
+    } catch (err) {
+      console.warn("[Vault/Activity] Log failed (non-blocking):", err)
+    }
+  }, [])
+
+  // ── Save edited file content (code / docx) ─────────────────────────────────
+  const saveFileContent = useCallback(async (content: string, type: "code" | "docx" | "spreadsheet") => {
+    if (!activeItem) return
+    setIsSaving(true)
+    const { error } = await supabase
+      .from("vault_items")
+      .update({ extracted_text: content })
+      .eq("id", activeItem.id)
+    setIsSaving(false)
+    if (error) { console.error("[Vault/Save]", error); toast.error("Failed to save"); return }
+    toast.success("Saved")
+    await logVaultActivity(activeItem.id, "file_edited", { type, filename: activeItem.title })
+    // Re-embed with new content
+    fetch("/api/vault/embed", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ vault_item_id: activeItem.id }),
+    }).catch(() => {})
+    if (selectedFolderId) loadItems(selectedFolderId)
+  }, [activeItem, supabase, logVaultActivity, selectedFolderId])
 
   const selectFolder = (folder: VaultFolder) => {
+    console.log(`[Vault/Nav] Selected folder=${folder.id} name="${folder.name}"`)
     setSelectedFolderId(folder.id)
     loadItems(folder.id)
+    setActiveViewer(null)
+    setActiveItem(null)
+    setRightPanelOpen(false)
   }
 
-  // ── Derived data ───────────────────────────────────────────────────────────
+  // ── Open item in viewer (FIX 2: extracted_text fallback) ──────────────────
 
-  // Subfolders for selected project
-  const projectFolders = folders.filter(
-    (f) => f.project_id === selectedProjectId && f.folder_type !== "root" && f.folder_type !== "project"
-  )
+  const openItem = useCallback(async (item: VaultItem) => {
+    console.log(`[Vault/Viewer] Opening item="${item.title}" | type=${item.item_type} | doc_type=${item.document_type}`)
+    setActiveItem(item)
+    setRightPanelOpen(true)
+    setRightPanelTab("context")
+    setApprovalStatus("none")
+    setSignedUrl(null)
+    setFileContent(null)
 
-  const selectedFolder = folders.find((f) => f.id === selectedFolderId)
+    const viewer = getViewerType(item)
+    setActiveViewer(viewer)
+    console.log(`[Vault/Viewer] Viewer type resolved to "${viewer}"`)
 
-  const filteredItems = items.filter((item) => {
-    const matchType = filterType === "all" || item.item_type === filterType
-    const matchSearch =
-      !searchQuery ||
-      item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.description?.toLowerCase().includes(searchQuery.toLowerCase())
-    return matchType && matchSearch
-  })
+    // ── FIX 2: Use extracted_text as content fallback for doc viewer ──────
+    if (viewer === "doc") {
+      setDocTitle(item.title)
+      const rawContent = item.note_content || item.extracted_text || ""
+      // Convert raw markdown to HTML for proper TipTap rendering
+      const storedExt = (item.storage_path || "").split(".").pop()?.toLowerCase() || ""
+      const needsConversion = ["md", "mdx", "txt"].includes(storedExt) && rawContent.trim() && !rawContent.trim().startsWith("<")
+      const content = needsConversion ? mdToHtml(rawContent) : rawContent
+      setDocContent(content)
+      console.log(`[Vault/Viewer] Doc content source: ${item.note_content ? "note_content" : item.extracted_text ? "extracted_text" : "empty"} | md_converted=${needsConversion}`)
+    }
 
-  // ── Add Item ───────────────────────────────────────────────────────────────
+    // Fetch file URL for storage-backed files
+    if (item.item_type === "file") {
+      setFileLoading(true)
+      try {
+        if (item.storage_path) {
+          console.log(`[Vault/Viewer] Fetching signed URL for storage_path=${item.storage_path}`)
+          const res = await fetch(`/api/vault/signed-url?item_id=${item.id}`)
+          const { url } = await res.json()
+          setSignedUrl(url || null)
+          console.log(`[Vault/Viewer] Signed URL obtained: ${url ? "✓" : "null"}`)
+
+          if (viewer === "code") {
+            // Prefer previously-edited extracted_text; fall back to raw file
+            if (item.extracted_text) {
+              console.log(`[Vault/Viewer] Using extracted_text (edited) for code viewer`)
+              setFileContent(item.extracted_text)
+            } else if (url) {
+              console.log(`[Vault/Viewer] Fetching raw file content for code viewer`)
+              const contentRes = await fetch(url)
+              const text = await contentRes.text()
+              setFileContent(text)
+              console.log(`[Vault/Viewer] Code content length: ${text.length}`)
+            }
+          }
+        } else if (item.drive_file_url) {
+          console.log(`[Vault/Viewer] Using Drive URL (legacy item)`)
+          setSignedUrl(item.drive_file_url)
+        }
+      } catch (err) {
+        console.error("[Vault/Viewer] Failed to fetch file URL:", err)
+      }
+      setFileLoading(false)
+    }
+
+    // Fetch related items via pgvector
+    setLoadingRelated(true)
+    setRelatedItems([])
+    try {
+      console.log(`[Vault/Related] Searching for related items to "${item.title}"`)
+      const res = await fetch("/api/vault/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: `${item.title} ${item.description}`,
+          mode: "semantic",
+          limit: 5,
+        }),
+      })
+      const json = await res.json()
+      if (json.results) {
+        const related = json.results
+          .filter((r: SearchResult) => r.id !== item.id)
+          .slice(0, 4)
+          .map((r: SearchResult) => ({
+            item: r,
+            reason: `${(r.similarity * 100).toFixed(0)}% similarity`,
+            similarity: r.similarity,
+          }))
+        setRelatedItems(related)
+        console.log(`[Vault/Related] Found ${related.length} related items`)
+      }
+    } catch (err) {
+      console.error("[Vault/Related] Search failed:", err)
+    }
+    setLoadingRelated(false)
+  }, [])
+
+  const closeViewer = () => {
+    console.log("[Vault/Viewer] Closing viewer")
+    setActiveViewer(null)
+    setActiveItem(null)
+    setRightPanelOpen(false)
+    setAiWriterOpen(false)
+    setAiWriterResponse("")
+    setCodeAiWriterOpen(false)
+    setDocxEditMode(false)
+    setDocxAiWriterOpen(false)
+  }
+
+  // ── File select & AI labeling ──────────────────────────────────────────────
+
+  const MAX_UPLOAD_BYTES = 4 * 1024 * 1024 // 4MB — Next.js/Vercel serverless limit
+
+  const handleFileSelect = async (file: File | null) => {
+    setUploadFile(null)
+    setExtractedText("")
+    setAddForm(f => ({ ...f, title: "", description: "", document_type: "Content" }))
+
+    if (!file) {
+      console.log("[Vault/Upload] File deselected")
+      return
+    }
+
+    console.log(`[Vault/Upload] File selected: "${file.name}" | size=${file.size} | type="${file.type}"`)
+
+    // Guard: reject files over the server limit before any processing
+    if (file.size > MAX_UPLOAD_BYTES) {
+      const sizeMB = (file.size / 1024 / 1024).toFixed(1)
+      toast.error(
+        `File too large (${sizeMB}MB). Maximum upload size is 4MB. Please compress or split the file.`,
+        { duration: 6000 }
+      )
+      if (fileInputRef.current) fileInputRef.current.value = ""
+      console.warn(`[Vault/Upload] Rejected: ${file.name} is ${sizeMB}MB, exceeds 4MB limit`)
+      return
+    }
+
+    setUploadFile(file)
+
+    if (!aiLabelMode) {
+      console.log("[Vault/Upload] AI labeling OFF — skipping auto-label")
+      return
+    }
+
+    console.log("[Vault/Upload] AI labeling ON — starting extraction + labeling")
+    setIsAiLabeling(true)
+
+    try {
+      // Step 1: Extract text
+      console.log(`[Vault/Extract] Extracting text from "${file.name}"`)
+      const { extractTextFromFile } = await import("@/lib/vault/extraction")
+      const text = await extractTextFromFile(file)
+      setExtractedText(text)
+      console.log(`[Vault/Extract] Extracted ${text.length} chars`)
+
+      // Step 2: AI label
+      console.log(`[Vault/Label] Calling AI label API`)
+      const res = await fetch("/api/vault/ai-label", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: file.name,
+          fileType: file.type,
+          extracted_text: text || undefined,
+        }),
+      })
+
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({ error: "unknown" }))
+        throw new Error(errBody.error || `HTTP ${res.status}`)
+      }
+
+      const data = await res.json()
+      console.log(`[Vault/Label] ✓ AI labeled: title="${data.title}" | type="${data.document_type}"`)
+
+      setAddForm(f => ({
+        ...f,
+        title: data.title || f.title,
+        description: data.description || f.description,
+        document_type: data.document_type || f.document_type,
+      }))
+    } catch (err: any) {
+      console.error("[Vault/Label] AI labeling failed:", err)
+      // Graceful fallback — use filename stripped of extension
+      const fallbackTitle = file.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ")
+      setAddForm(f => ({
+        ...f,
+        title: f.title || fallbackTitle,
+        description: f.description || "Uploaded file",
+      }))
+      toast.error("AI labeling failed — please add a title manually", { duration: 3000 })
+    }
+
+    setIsAiLabeling(false)
+    console.log("[Vault/Label] Labeling complete")
+  }
+
+  // ── Add item ───────────────────────────────────────────────────────────────
 
   const resetAddForm = () => {
     setAddForm({ title: "", description: "", document_type: "Content", link_url: "", note_content: "" })
     setUploadFile(null)
     setAddItemType(null)
+    setExtractedText("")
+    setIsAiLabeling(false)
   }
 
   const handleAddItem = async () => {
-    if (!addItemType || !selectedFolderId || !userId) return
-    if (!addForm.title.trim()) { toast.error("Title is required"); return }
-    if (!addForm.description.trim()) { toast.error("Description is required"); return }
-    if (addItemType === "link" && !addForm.link_url.trim()) { toast.error("URL is required"); return }
+    if (!addItemType || !selectedFolderId || !userId || !founderId) return
+
+    // When AI labeling is ON for files, just need the file
     if (addItemType === "file" && !uploadFile) { toast.error("Please select a file"); return }
+    if (addItemType !== "file" && !addForm.title.trim()) { toast.error("Title is required"); return }
+    if (addItemType !== "file" && !addForm.description.trim()) { toast.error("Description is required"); return }
+    if (addItemType === "link" && !addForm.link_url.trim()) { toast.error("URL is required"); return }
 
+    // If still AI labeling — wait (should not happen since button is disabled)
+    if (isAiLabeling) { toast.error("AI labeling in progress, please wait…"); return }
+
+    console.log(`[Vault/Add] Adding ${addItemType}: "${addForm.title || uploadFile?.name}"`)
     setUploading(true)
-    try {
-      let driveFileId: string | null = null
-      let driveFileUrl: string | null = null
 
-      // Upload to Drive via API if file
+    try {
+      let storagePath: string | null = null
+      let serverExtractedText = extractedText
+
       if (addItemType === "file" && uploadFile) {
+        console.log(`[Vault/Upload] Uploading "${uploadFile.name}" to Supabase Storage`)
         const formData = new FormData()
         formData.append("file", uploadFile)
         formData.append("folder_id", selectedFolderId)
-        formData.append("title", addForm.title)
-        formData.append("description", addForm.description)
-        formData.append("document_type", addForm.document_type)
+        if (extractedText) formData.append("extracted_text", extractedText)
 
-        const res = await fetch("/api/vault/upload-file", { method: "POST", body: formData })
+        const res = await fetch("/api/vault/upload-internal", { method: "POST", body: formData })
+        if (!res.ok) {
+          if (res.status === 413) {
+            const sizeMB = (uploadFile.size / 1024 / 1024).toFixed(1)
+            throw new Error(`File too large (${sizeMB}MB). Maximum size is 4MB. Please compress it and try again.`)
+          }
+          const json = await res.json().catch(() => ({ message: "Upload failed" }))
+          throw new Error(json.message || `Upload failed (${res.status})`)
+        }
         const json = await res.json()
-        if (!res.ok) throw new Error(json.message)
-        driveFileId = json.drive_file_id
-        driveFileUrl = json.drive_file_url
+
+        storagePath = json.storage_path
+        if (!extractedText && json.extracted_text) {
+          serverExtractedText = json.extracted_text
+          console.log(`[Vault/Upload] Server extracted ${json.extracted_text?.length ?? 0} chars (PDF)`)
+        }
+        console.log(`[Vault/Upload] ✓ Uploaded to storage_path="${storagePath}"`)
       }
 
-      // Save metadata to DB
-      const { error } = await supabase.from("vault_items").insert({
+      // Use filename as title fallback if AI labeling was on but form is still empty
+      const finalTitle = addForm.title.trim() || (uploadFile?.name.replace(/\.[^.]+$/, "") ?? "Untitled")
+      const finalDescription = addForm.description.trim() || "Uploaded file"
+
+      const { data: newItem, error } = await supabase.from("vault_items").insert({
         founder_id: founderId,
         project_id: selectedProjectId,
         folder_id: selectedFolderId,
         item_type: addItemType,
-        title: addForm.title,
-        description: addForm.description,
+        title: finalTitle,
+        description: finalDescription,
         document_type: addForm.document_type,
-        drive_file_id: driveFileId,
-        drive_file_url: driveFileUrl,
+        drive_file_id: null,
+        drive_file_url: null,
+        storage_path: storagePath,
         link_url: addItemType === "link" ? addForm.link_url : null,
         note_content: addItemType === "note" ? addForm.note_content : null,
         added_by: userId,
         added_by_type: isFounder ? "founder" : "team",
-      })
+        embedding_status: "pending",
+        extracted_text: addItemType === "file" ? (serverExtractedText || null) : null,
+      }).select().single()
 
       if (error) throw error
 
+      console.log(`[Vault/Add] ✓ Item saved: id=${newItem?.id}`)
       toast.success("Added to Vault")
+
+      // Trigger embedding async (non-blocking)
+      if (newItem) {
+        fetch("/api/vault/embed", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ vault_item_id: newItem.id }),
+        }).catch((err) => console.warn("[Vault/Embed] Trigger failed:", err))
+        console.log(`[Vault/Embed] Embedding triggered for ${newItem.id}`)
+      }
+
       setAddDialogOpen(false)
       resetAddForm()
       loadItems(selectedFolderId)
     } catch (err: any) {
+      console.error("[Vault/Add] Failed:", err)
       toast.error(err.message || "Failed to add item")
     } finally {
       setUploading(false)
@@ -333,547 +912,1777 @@ export function VaultView() {
   }
 
   const handleDeleteItem = async (itemId: string) => {
+    console.log(`[Vault/Delete] Deleting item=${itemId}`)
     const { error } = await supabase.from("vault_items").delete().eq("id", itemId)
-    if (error) { toast.error("Failed to delete"); return }
+    if (error) {
+      console.error("[Vault/Delete] Error:", error)
+      toast.error("Failed to delete")
+      return
+    }
+    console.log(`[Vault/Delete] ✓ Deleted ${itemId}`)
     toast.success("Removed from Vault")
     setItems((prev) => prev.filter((i) => i.id !== itemId))
     setMenuItemId(null)
+    if (activeItem?.id === itemId) closeViewer()
   }
+
+  // ── Save note ──────────────────────────────────────────────────────────────
+
+  const saveNote = async () => {
+    if (!activeItem) return
+    console.log(`[Vault/Note] Saving note: id=${activeItem.id}`)
+    setIsSaving(true)
+    const { error } = await supabase
+      .from("vault_items")
+      .update({ title: docTitle, note_content: docContent })
+      .eq("id", activeItem.id)
+    setIsSaving(false)
+    if (error) {
+      console.error("[Vault/Note] Save error:", error)
+      toast.error("Failed to save")
+      return
+    }
+    console.log("[Vault/Note] ✓ Saved")
+    toast.success("Saved")
+    await logVaultActivity(activeItem.id, "content_updated", {
+      title: docTitle,
+      title_changed: docTitle !== activeItem.title,
+    })
+    fetch("/api/vault/embed", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ vault_item_id: activeItem.id }),
+    }).catch(() => { })
+    loadItems(selectedFolderId!)
+  }
+
+  // ── AI Writer ──────────────────────────────────────────────────────────────
+
+  const runAIWriter = async () => {
+    if (!aiWriterPrompt.trim()) return
+    console.log(`[Vault/AIWriter] Running prompt: "${aiWriterPrompt.slice(0, 60)}"`)
+    setAiWriterLoading(true)
+    setAiWriterPrompt("") // Clear input immediately on send
+    setAiWriterResponse("")
+    try {
+      const res = await fetch("/api/vault/ai-write", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: aiWriterPrompt,
+          documentTitle: docTitle || activeItem?.title,
+          documentContent: docContent,
+          projectId: selectedProjectId,
+        }),
+      })
+      if (!res.ok) throw new Error("AI writer failed")
+      const reader = res.body!.getReader()
+      const decoder = new TextDecoder()
+      let buf = ""
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value)
+        const lines = buf.split("\n")
+        buf = lines.pop() || ""
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const parsed = JSON.parse(line.slice(6))
+              if (parsed.type === "sources") {
+                setAiWriterSources(parsed.sources || [])
+              } else if (parsed.type === "delta") {
+                setAiWriterResponse((prev) => prev + parsed.content)
+              }
+            } catch { }
+          }
+        }
+      }
+      console.log("[Vault/AIWriter] ✓ Complete")
+    } catch (err: any) {
+      console.error("[Vault/AIWriter] Error:", err)
+      toast.error("AI writer error")
+    } finally {
+      setAiWriterLoading(false)
+    }
+  }
+
+  const insertAIResponse = () => {
+    if (!aiWriterResponse) return
+
+    // Convert markdown (tables, headings, lists) to TipTap-compatible HTML
+    const htmlContent = mdToHtml(aiWriterResponse)
+
+    if (noteEditorInsertRef.current) {
+      noteEditorInsertRef.current(htmlContent)
+    } else {
+      setDocContent((prev) => prev + "\n\n" + aiWriterResponse)
+    }
+
+    setAiWriterResponse("")
+    setAiWriterPrompt("")
+    setAiWriterSources([])
+    toast.success("Content inserted into document")
+  }
+
+  // ── Search overlay ─────────────────────────────────────────────────────────
+
+  const handleSearchOverlayQuery = (q: string) => {
+    setSearchOverlayQuery(q)
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
+    if (!q.trim()) { setSearchResults([]); return }
+    searchDebounceRef.current = setTimeout(async () => {
+      console.log(`[Vault/Search] Querying: "${q}"`)
+      setSearchLoading(true)
+      try {
+        const res = await fetch("/api/vault/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: q, limit: 8, mode: "hybrid" }),
+        })
+        const json = await res.json()
+        setSearchResults(json.results || [])
+        console.log(`[Vault/Search] Found ${json.results?.length ?? 0} results`)
+      } catch (err) {
+        console.error("[Vault/Search] Error:", err)
+      }
+      setSearchLoading(false)
+    }, 350)
+  }
+
+  const openSearchResult = (result: SearchResult) => {
+    console.log(`[Vault/Search] Opening result: "${result.title}"`)
+    setSearchOverlayOpen(false)
+    setSearchOverlayQuery("")
+    setSearchResults([])
+    if (result.project_id) setSelectedProjectId(result.project_id)
+    if (result.folder_id) {
+      setSelectedFolderId(result.folder_id)
+      loadItems(result.folder_id)
+    }
+    setTimeout(() => openItem(result), 100)
+  }
+
+  // ── Derived ────────────────────────────────────────────────────────────────
+
+  const projectFolders = folders.filter(
+    (f) => f.project_id === selectedProjectId &&
+      f.folder_type !== "root" && f.folder_type !== "project"
+  )
+  const selectedFolder = folders.find((f) => f.id === selectedFolderId)
+  const selectedProject = projects.find((p) => p.id === selectedProjectId)
+  const filteredItems = items.filter((item) => {
+    const matchType = filterType === "all" || item.item_type === filterType
+    const matchSearch = !searchQuery ||
+      item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.description?.toLowerCase().includes(searchQuery.toLowerCase())
+    return matchType && matchSearch
+  })
+
+  // Whether the Add to Vault button should be disabled
+  const canSubmitAdd = (() => {
+    if (uploading) return false
+    if (isAiLabeling) return false
+    if (addItemType === "file") return !!uploadFile
+    if (addItemType === "link") return !!(addForm.title.trim() && addForm.link_url.trim())
+    if (addItemType === "note") return !!addForm.title.trim()
+    return false
+  })()
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        <Loader2 className="size-5 animate-spin text-muted-foreground" />
       </div>
     )
   }
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] gap-0 rounded-2xl border border-border/50 overflow-hidden bg-background">
-      {/* ── Left sidebar: Projects ── */}
-      <div className="w-56 shrink-0 border-r border-border/50 flex flex-col bg-muted/20">
-        <div className="px-4 py-4 border-b border-border/50">
-          <h2 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Vault</h2>
-        </div>
+    <>
+      <div className="flex h-[calc(100vh-4rem)] overflow-hidden bg-background">
 
-        {/* Drive connection status */}
-        {driveConnected ? (
-          <div className="px-3 py-2 mx-2 mt-3 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-1.5">
-            <Cloud size={11} className="text-emerald-600" />
-            <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-700">Drive connected</span>
-          </div>
-        ) : isFounder ? (
-          <div className="px-3 py-3 mx-2 mt-3 rounded-xl bg-amber-50 border border-amber-200 space-y-2">
-            <div className="flex items-center gap-1.5 text-amber-700">
-              <CloudOff size={12} />
-              <span className="text-[10px] font-bold uppercase tracking-widest">Drive not connected</span>
-            </div>
-            <Button
-              size="sm"
-              className="w-full h-7 text-xs"
-              onClick={handleConnectDrive}
-              disabled={connectingDrive}
-            >
-              {connectingDrive ? <Loader2 size={12} className="animate-spin" /> : <Cloud size={12} />}
-              <span className="ml-1.5">Connect Drive</span>
-            </Button>
-          </div>
-        ) : (
-          <div className="px-3 py-2 mx-2 mt-3 rounded-xl bg-amber-50 border border-amber-200 flex items-center gap-1.5">
-            <CloudOff size={11} className="text-amber-600" />
-            <span className="text-[10px] font-bold uppercase tracking-widest text-amber-700">Drive not set up</span>
-          </div>
-        )}
-
-        {/* Projects list */}
-        <div className="flex-1 overflow-y-auto py-3 space-y-0.5 px-2">
-          {projects.length === 0 ? (
-            <p className="text-[11px] text-muted-foreground px-2 py-2">No projects yet</p>
-          ) : (
-            projects.map((project) => {
-              const hasVaultFolders = folders.some((f) => f.project_id === project.id)
-              return (
-                <button
-                  key={project.id}
-                  onClick={() => selectProject(project.id)}
-                  className={cn(
-                    "w-full text-left flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
-                    selectedProjectId === project.id
-                      ? "bg-primary/10 text-primary font-semibold"
-                      : "text-foreground/70 hover:bg-muted hover:text-foreground"
-                  )}
-                >
-                  <FolderOpen size={14} className="shrink-0" />
-                  <span className="truncate flex-1">{project.name}</span>
-                  {!hasVaultFolders && driveConnected && (
-                    <span className="size-1.5 rounded-full bg-amber-400 shrink-0" title="Vault folders not created" />
-                  )}
-                </button>
-              )
-            })
-          )}
-        </div>
-      </div>
-
-      {/* ── Middle: Folder list ── */}
-      <div className="w-52 shrink-0 border-r border-border/50 flex flex-col bg-background">
-        {!selectedProjectId ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center px-4">
-            <FolderOpen size={32} className="text-muted-foreground/40" />
-            <p className="text-xs text-muted-foreground">Select a project to see its folders</p>
-          </div>
-        ) : (
-          <>
-            <div className="px-4 py-3 border-b border-border/50">
-              <p className="text-xs font-bold text-foreground truncate">
-                {projects.find((p) => p.id === selectedProjectId)?.name}
-              </p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">Project folders</p>
+        {/* ── Sidebar: Projects ── */}
+        {projectsSidebarOpen && (
+          <div className="w-52 shrink-0 border-r border-border/50 flex flex-col bg-card overflow-hidden">
+            <div className="px-3 py-3 border-b border-border/50 flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Vault</span>
+              <button onClick={() => setSearchOverlayOpen(true)} className="p-1 rounded hover:bg-muted/50 text-muted-foreground/60 hover:text-foreground/60 transition-colors" title="Search (⌘K)">
+                <Search size={11} />
+              </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto py-2 space-y-0.5 px-2">
-              {projectFolders.length === 0 ? (
-                <div className="px-2 py-4 text-center space-y-2">
-                  <p className="text-[11px] text-muted-foreground">No folders yet</p>
-                  {driveConnected && (
-                    <p className="text-[10px] text-muted-foreground/70">
-                      Folders are created automatically when a project is created
-                    </p>
-                  )}
+            {/* Drive status */}
+            {driveConnected ? (
+              <div className="mx-3 mt-3 px-2.5 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-2">
+                <Cloud size={9} className="text-emerald-400" />
+                <span className="text-[9px] font-bold uppercase tracking-widest text-emerald-400">Drive Connected</span>
+              </div>
+            ) : isFounder ? (
+              <div className="mx-3 mt-3 px-2.5 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <CloudOff size={9} className="text-amber-400" />
+                  <span className="text-[9px] font-bold uppercase tracking-widest text-amber-400">Drive not connected</span>
                 </div>
+                <button
+                  onClick={handleConnectDrive}
+                  disabled={connectingDrive}
+                  className="w-full flex items-center justify-center gap-1.5 py-1 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 rounded text-[10px] font-semibold text-amber-400 transition-colors"
+                >
+                  {connectingDrive ? <Loader2 size={10} className="animate-spin" /> : <Cloud size={10} />}
+                  Connect Drive
+                </button>
+              </div>
+            ) : null}
+
+            {/* Project list */}
+            <div className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
+              <div className="px-2 py-1 text-[9px] font-bold uppercase tracking-widest text-muted-foreground/40">Projects</div>
+              {projects.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground/50 px-2 py-2">No projects yet</p>
               ) : (
-                projectFolders.map((folder) => {
-                  const meta = FOLDER_TYPE_META[folder.folder_type]
+                projects.map((project) => {
+                  const hasVaultFolders = folders.some((f) => f.project_id === project.id)
                   return (
                     <button
-                      key={folder.id}
-                      onClick={() => selectFolder(folder)}
+                      key={project.id}
+                      onClick={() => selectProject(project.id)}
                       className={cn(
-                        "w-full text-left flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
-                        selectedFolderId === folder.id
-                          ? "bg-primary/10 text-primary font-semibold"
-                          : "text-foreground/70 hover:bg-muted hover:text-foreground"
+                        "w-full text-left flex items-center gap-2 px-2.5 py-2 rounded-lg text-[12px] transition-all",
+                        selectedProjectId === project.id
+                          ? "bg-violet-500/15 text-violet-300 font-medium"
+                          : "text-muted-foreground hover:bg-muted/50 hover:text-foreground/80"
                       )}
                     >
-                      <span className="shrink-0 text-muted-foreground">{meta.icon}</span>
-                      <span className="truncate flex-1 text-[13px]">{folder.name}</span>
-                      {meta.clientVisible && (
-                        <span title="Visible to clients" className="shrink-0">
-                          <Eye size={10} className="text-muted-foreground/60" />
-                        </span>
+                      <FolderOpen size={11} className="shrink-0 opacity-70" />
+                      <span className="truncate flex-1">{project.name}</span>
+                      {!hasVaultFolders && driveConnected && (
+                        <span className="size-1.5 rounded-full bg-amber-400 shrink-0" />
                       )}
                     </button>
                   )
                 })
               )}
             </div>
+          </div>
+        )}
 
-            {/* Add custom folder — future feature placeholder */}
-            <div className="px-3 py-3 border-t border-border/50">
-              <button className="flex items-center gap-2 text-[11px] text-muted-foreground hover:text-foreground transition-colors w-full px-1 py-1">
-                <FolderPlus size={13} />
-                New folder
+        {/* ── Sidebar: Folders ── */}
+        {foldersSidebarOpen && selectedProjectId && (
+          <div className="w-48 shrink-0 border-r border-border/50 flex flex-col bg-background overflow-hidden">
+            <div className="px-3 py-3 border-b border-border/50">
+              <p className="text-[11px] font-semibold text-foreground/80 truncate">{selectedProject?.name}</p>
+              <p className="text-[9px] text-muted-foreground/50 mt-0.5 uppercase tracking-wider">Project folders</p>
+            </div>
+            <div className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
+              {projectFolders.length === 0 ? (
+                <p className="text-[10px] text-muted-foreground/40 px-2 py-3 text-center">No folders yet</p>
+              ) : (
+                projectFolders.map((folder) => {
+                  const meta = FOLDER_META[folder.folder_type]
+                  return (
+                    <button
+                      key={folder.id}
+                      onClick={() => selectFolder(folder)}
+                      className={cn(
+                        "w-full text-left flex items-center gap-2 px-2.5 py-2 rounded-lg text-[12px] transition-all",
+                        selectedFolderId === folder.id
+                          ? "bg-violet-500/15 text-violet-300 font-medium"
+                          : "text-muted-foreground hover:bg-muted/50 hover:text-foreground/80"
+                      )}
+                    >
+                      <span className={cn("shrink-0", selectedFolderId === folder.id ? "text-violet-300" : meta.color)}>{meta.icon}</span>
+                      <span className="truncate flex-1">{folder.name}</span>
+                      {meta.clientVisible && <Eye size={9} className="shrink-0 opacity-40" />}
+                    </button>
+                  )
+                })
+              )}
+            </div>
+            <div className="px-3 py-2.5 border-t border-border/50">
+              <button className="flex items-center gap-1.5 text-[10px] text-muted-foreground/50 hover:text-foreground/60 transition-colors w-full">
+                <FolderPlus size={11} />New folder
               </button>
             </div>
-          </>
-        )}
-      </div>
-
-      {/* ── Right: Items view ── */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {!selectedFolderId ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center px-8">
-            {!selectedProjectId ? (
-              <>
-                <div className="size-16 rounded-2xl bg-muted flex items-center justify-center">
-                  <FolderOpen size={28} className="text-muted-foreground/40" />
-                </div>
-                <div>
-                  <p className="font-semibold text-foreground/70">Select a project</p>
-                  <p className="text-sm text-muted-foreground mt-1">Choose a project from the left to browse its vault</p>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="size-16 rounded-2xl bg-muted flex items-center justify-center">
-                  <FolderOpen size={28} className="text-muted-foreground/40" />
-                </div>
-                <div>
-                  <p className="font-semibold text-foreground/70">Select a folder</p>
-                  <p className="text-sm text-muted-foreground mt-1">Choose a folder to see its contents</p>
-                </div>
-              </>
-            )}
           </div>
-        ) : (
-          <>
-            {/* Header */}
-            <div className="px-6 py-4 border-b border-border/50 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground min-w-0">
-                <span className="truncate">{projects.find((p) => p.id === selectedProjectId)?.name}</span>
-                <ChevronRight size={14} />
-                <span className="font-semibold text-foreground truncate">{selectedFolder?.name}</span>
-                {selectedFolder && FOLDER_TYPE_META[selectedFolder.folder_type].clientVisible && (
-                  <Badge variant="secondary" className="text-[9px] font-bold uppercase tracking-widest h-4 px-1.5 shrink-0">
-                    <Eye size={8} className="mr-1" />
-                    Client visible
-                  </Badge>
-                )}
-              </div>
+        )}
 
-              <Button
-                size="sm"
-                className="gap-1.5 shrink-0"
-                onClick={() => { setAddDialogOpen(true) }}
-              >
-                <Plus size={14} />
-                Add to Vault
-              </Button>
+        {/* ── Main area ── */}
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+
+          {/* Topbar */}
+          <div className="px-4 py-2.5 border-b border-border/50 flex items-center gap-3 bg-background flex-shrink-0">
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button onClick={() => setProjectsSidebarOpen((v) => !v)} className="p-1.5 rounded hover:bg-muted/50 text-muted-foreground/60 hover:text-foreground/60 transition-colors">
+                <FolderOpen size={12} />
+              </button>
+              {selectedProjectId && (
+                <button onClick={() => setFoldersSidebarOpen((v) => !v)} className="p-1.5 rounded hover:bg-muted/50 text-muted-foreground/60 hover:text-foreground/60 transition-colors">
+                  <ChevronRight size={12} />
+                </button>
+              )}
             </div>
 
-            {/* Search + filter */}
-            <div className="px-6 py-3 border-b border-border/50 flex items-center gap-3">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search by title or description…"
-                  className="pl-9 h-9 text-sm"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
+            {/* Breadcrumb */}
+            <div className="flex items-center gap-2 text-[11px] text-muted-foreground/60 flex-1 min-w-0">
+              {selectedProject && <span className="truncate">{selectedProject.name}</span>}
+              {selectedFolder && (
+                <>
+                  <ChevronRight size={10} className="opacity-50" />
+                  <span className="font-semibold text-foreground/70 truncate">{selectedFolder.name}</span>
+                </>
+              )}
+              {selectedFolder && FOLDER_META[selectedFolder.folder_type].clientVisible && (
+                <Badge variant="outline" className="text-[8px] h-4 px-1.5 border-blue-500/30 text-blue-400 bg-blue-500/10 shrink-0">
+                  <Eye size={7} className="mr-1" />Client visible
+                </Badge>
+              )}
+              {activeItem && activeViewer && (
+                <>
+                  <ChevronRight size={10} className="opacity-50" />
+                  <span className="text-foreground/60 truncate">{activeItem.title}</span>
+                </>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={() => { setSearchOverlayOpen(true); setTimeout(() => searchInputRef.current?.focus(), 50) }}
+                className="flex items-center gap-2 px-3 py-1.5 bg-muted/50 hover:bg-muted/60 border border-border rounded-lg text-[11px] text-muted-foreground/80 hover:text-foreground/70 transition-all"
+              >
+                <Search size={11} />
+                <span>Search</span>
+                <span className="text-[9px] border border-border rounded px-1 py-0.5 font-mono">⌘K</span>
+              </button>
+              {selectedFolderId && (
+                <button
+                  onClick={() => setAddDialogOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-500 hover:bg-violet-600 rounded-lg text-[11px] font-semibold text-white transition-colors"
+                >
+                  <Plus size={11} />Add to Vault
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Content */}
+          {!activeViewer ? (
+            /* ── Cards view ── */
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {selectedFolderId && items.length > 0 && (
+                <div className="mx-4 mt-3 px-3 py-2.5 bg-violet-500/8 border border-violet-500/20 rounded-xl flex items-center gap-3 cursor-pointer hover:bg-violet-500/12 transition-colors flex-shrink-0">
+                  <div className="w-7 h-7 bg-gradient-to-br from-violet-500 to-purple-600 rounded-lg flex items-center justify-center shrink-0">
+                    <Sparkles size={12} className="text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[10px] font-semibold text-violet-400">Kobin AI has context on this folder</div>
+                    <div className="text-[10px] text-muted-foreground/60 mt-0.5">
+                      {items.filter(i => i.embedding_status === "embedded").length} items vectorised · pgvector indexed · Click any item to see related context
+                    </div>
+                  </div>
+                  <Sparkles size={12} className="text-violet-500/40 shrink-0" />
+                </div>
+              )}
+
+              {selectedFolderId && (
+                <div className="px-4 py-2.5 flex items-center gap-3 border-b border-border/50 flex-shrink-0">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground/50" />
+                    <Input
+                      placeholder="Filter items…"
+                      className="pl-8 h-8 text-[11px] bg-muted/40 border-border text-foreground/70 placeholder:text-muted-foreground/50 focus:border-violet-500/40"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex items-center gap-0.5">
+                    {(["all", "file", "link", "note"] as const).map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => setFilterType(t)}
+                        className={cn(
+                          "px-2.5 py-1.5 rounded-md text-[10px] font-semibold capitalize transition-all",
+                          filterType === t ? "bg-muted text-white" : "text-muted-foreground/60 hover:text-foreground/60 hover:bg-muted/50"
+                        )}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex-1 overflow-y-auto p-4">
+                {!selectedProjectId ? (
+                  <EmptyState icon={<FolderOpen size={28} className="text-white/15" />} title="Select a project" desc="Choose a project from the sidebar to browse its vault" />
+                ) : !selectedFolderId ? (
+                  <EmptyState icon={<FolderOpen size={28} className="text-white/15" />} title="Select a folder" desc="Choose a folder to see its contents" />
+                ) : filteredItems.length === 0 ? (
+                  <EmptyState
+                    icon={<Plus size={24} className="text-white/15" />}
+                    title="Empty folder"
+                    desc="Add files, links, or notes to this folder"
+                    action={
+                      <button onClick={() => setAddDialogOpen(true)} className="mt-1 flex items-center gap-1.5 px-3 py-1.5 border border-border rounded-lg text-[11px] text-muted-foreground/80 hover:text-foreground/70 hover:border-white/20 transition-all">
+                        <Plus size={11} />Add to Vault
+                      </button>
+                    }
+                  />
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
+                    {filteredItems.map((item) => (
+                      <VaultCard
+                        key={item.id}
+                        item={item}
+                        active={activeItem?.id === item.id}
+                        menuOpen={menuItemId === item.id}
+                        onOpen={() => openItem(item)}
+                        onMenuToggle={() => setMenuItemId(menuItemId === item.id ? null : item.id)}
+                        onDelete={() => handleDeleteItem(item.id)}
+                        onMenuClose={() => setMenuItemId(null)}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
-              <div className="flex items-center gap-1">
-                {(["all", "file", "link", "note"] as const).map((t) => (
+            </div>
+          ) : (
+            /* ── Viewer ── (FIX 6: right panel is a proper side column) */
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {/* Viewer header */}
+              <div className="px-4 py-2.5 border-b border-border/50 flex items-center gap-3 bg-card flex-shrink-0">
+                <button
+                  onClick={closeViewer}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 border border-border rounded-lg text-[11px] text-muted-foreground/80 hover:text-foreground/70 hover:border-white/20 transition-all"
+                >
+                  <ArrowLeft size={11} />Back
+                </button>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12px] font-semibold text-foreground/80 truncate">{activeItem?.title}</p>
+                  <p className="text-[10px] text-muted-foreground/50">
+                    {activeItem?.document_type} · {activeItem?.added_by_type} · {activeItem ? formatDate(activeItem.created_at) : ""}
+                    {activeItem?.embedding_status === "embedded" && <span className="ml-2 text-violet-400/60">· vectorised</span>}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {activeViewer === "code" && (
+                  <>
+                    <PlanGate feature="vault_ai_writer" requiredPlan="agency" mode="badge">
+                    <button
+                      onClick={() => setCodeAiWriterOpen((v) => !v)}
+                      className={cn(
+                        "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all",
+                        codeAiWriterOpen
+                          ? "bg-violet-500/20 border border-violet-500/30 text-violet-300"
+                          : "bg-muted/50 border border-border text-muted-foreground hover:text-foreground/80"
+                      )}
+                    >
+                      <Sparkles size={11} />Kobin AI
+                    </button>
+                    </PlanGate>
+                    <button
+                      onClick={() => codeViewerSaveRef.current?.()}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white text-black hover:bg-white/90 rounded-lg text-[11px] font-semibold transition-all"
+                    >
+                      {isSaving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                      Save
+                    </button>
+                  </>
+                )}
+                {activeViewer === "docx" && (
+                  <>
+                    {docxEditMode && (
+                      <PlanGate feature="vault_ai_writer" requiredPlan="agency" mode="badge">
+                      <button
+                        onClick={() => setDocxAiWriterOpen((v) => !v)}
+                        className={cn(
+                          "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all",
+                          docxAiWriterOpen
+                            ? "bg-violet-500/20 border border-violet-500/30 text-violet-300"
+                            : "bg-muted/50 border border-border text-muted-foreground hover:text-foreground/80"
+                        )}
+                      >
+                        <Sparkles size={11} />Kobin AI
+                      </button>
+                      </PlanGate>
+                    )}
+                    {docxEditMode && (
+                      <button
+                        onClick={() => docxViewerSaveRef.current?.()}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white text-black hover:bg-white/90 rounded-lg text-[11px] font-semibold transition-all"
+                      >
+                        {isSaving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                        Save
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setDocxEditMode((v) => !v)}
+                      className={cn(
+                        "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all border",
+                        docxEditMode
+                          ? "bg-blue-500/10 border-blue-500/20 text-blue-300"
+                          : "bg-muted/50 border border-border text-muted-foreground hover:text-foreground/80"
+                      )}
+                    >
+                      {docxEditMode ? <><Eye size={11} />View</> : <><Pencil size={11} />Edit</>}
+                    </button>
+                  </>
+                )}
+                {activeViewer === "doc" && (
+                    <>
+                      <PlanGate feature="vault_ai_writer" requiredPlan="agency" mode="badge">
+                      <button
+                        onClick={() => setAiWriterOpen((v) => !v)}
+                        className={cn(
+                          "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all",
+                          aiWriterOpen
+                            ? "bg-violet-500/20 border border-violet-500/30 text-violet-300"
+                            : "bg-muted/50 border border-border text-muted-foreground hover:text-foreground/80"
+                        )}
+                      >
+                        <Sparkles size={11} />Kobin AI
+                      </button>
+                      </PlanGate>
+                      <button
+                        onClick={saveNote}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white text-black hover:bg-white/90 rounded-lg text-[11px] font-semibold transition-all"
+                      >
+                        {isSaving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                        Save
+                      </button>
+                    </>
+                  )}
+                  {activeViewer === "spreadsheet" && (
+                    <button
+                      onClick={() => spreadsheetSaveRef.current?.()}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white text-black hover:bg-white/90 rounded-lg text-[11px] font-semibold transition-all"
+                    >
+                      {isSaving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                      Save
+                    </button>
+                  )}
+                  {activeItem?.drive_file_url && (
+                    <a href={activeItem.drive_file_url} target="_blank" rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-muted/50 border border-border rounded-lg text-[11px] text-muted-foreground hover:text-foreground/80 transition-all"
+                    >
+                      <ExternalLink size={11} />Drive
+                    </a>
+                  )}
                   <button
-                    key={t}
-                    onClick={() => setFilterType(t)}
+                    onClick={() => setRightPanelOpen((v) => !v)}
                     className={cn(
-                      "px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors",
-                      filterType === t
-                        ? "bg-primary text-primary-foreground"
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] transition-all border",
+                      rightPanelOpen
+                        ? "bg-muted border-border text-foreground/70"
+                        : "border-border bg-muted/50 text-muted-foreground/80 hover:text-foreground/70"
                     )}
                   >
-                    {t}
+                    <Activity size={11} />Details
                   </button>
+                </div>
+              </div>
+
+              {/* Viewer body + right panel side by side (FIX 6) */}
+              <div className="flex-1 flex overflow-hidden">
+
+                {/* ── Viewer content ── */}
+                <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+
+                  {/* Doc (TipTap) — includes notes, .txt, .md, and text documents */}
+                  {activeViewer === "doc" && (
+                    <div className="flex-1 flex overflow-hidden">
+                      <NoteEditor
+                        title={docTitle}
+                        content={docContent}
+                        onTitleChange={setDocTitle}
+                        onContentChange={setDocContent}
+                        onSave={saveNote}
+                        isSaving={isSaving}
+                        projectName={selectedProject?.name}
+                        createdAt={activeItem?.created_at}
+                        className="flex-1"
+                        onAIWrite={() => setAiWriterOpen(true)}
+                        editorInsertRef={noteEditorInsertRef}
+                      />
+                      {aiWriterOpen && (
+                        <AIWriterPanel
+                          prompt={aiWriterPrompt}
+                          setPrompt={setAiWriterPrompt}
+                          response={aiWriterResponse}
+                          loading={aiWriterLoading}
+                          sources={aiWriterSources}
+                          onRun={runAIWriter}
+                          onInsert={insertAIResponse}
+                          onDiscard={() => { setAiWriterResponse(""); setAiWriterPrompt(""); setAiWriterSources([]) }}
+                          onClose={() => setAiWriterOpen(false)}
+                        />
+                      )}
+                    </div>
+                  )}
+
+                  {/* Link viewer */}
+                  {activeViewer === "link" && (
+                    <div className="flex-1 flex flex-col items-center justify-center gap-4">
+                      <div className="w-14 h-14 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-center justify-center">
+                        <Link2 size={24} className="text-emerald-400" />
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[13px] font-semibold text-foreground/80 mb-1">{activeItem?.title}</p>
+                        <p className="text-[11px] text-muted-foreground/60">{activeItem?.link_url}</p>
+                      </div>
+                      {activeItem?.link_url && (
+                        <a href={activeItem.link_url} target="_blank" rel="noopener noreferrer"
+                          className="flex items-center gap-2 px-4 py-2 bg-white text-black rounded-lg text-[12px] font-semibold hover:bg-white/90 transition-colors"
+                        >
+                          <ExternalLink size={13} />Open link
+                        </a>
+                      )}
+                    </div>
+                  )}
+
+                  {/* PDF */}
+                  {activeViewer === "pdf" && (
+                    <div className="flex-1 flex flex-col overflow-hidden">
+                      {fileLoading ? (
+                        <div className="flex-1 flex items-center justify-center">
+                          <Loader2 size={20} className="animate-spin text-muted-foreground/60" />
+                        </div>
+                      ) : signedUrl ? (
+                        <iframe src={signedUrl} className="flex-1 border-0" title={activeItem?.title} />
+                      ) : (
+                        <div className="flex-1 flex flex-col items-center justify-center gap-4">
+                          <FileText size={40} className="text-white/15" />
+                          <p className="text-[12px] text-muted-foreground/60">PDF preview unavailable</p>
+                        </div>
+                      )}
+                      <DeliverableApprovalStrip item={activeItem!} folders={folders} approvalStatus={approvalStatus} onApprove={() => setApprovalStatus("approved")} onRequestChanges={() => setApprovalStatus("changes_requested")} onReset={() => setApprovalStatus("none")} />
+                    </div>
+                  )}
+
+                  {/* Code — Monaco */}
+                  {activeViewer === "code" && (
+                    <div className="flex-1 flex flex-col overflow-hidden">
+                      <CodeViewerComponent
+                        content={activeItem?.extracted_text || fileContent}
+                        filename={activeItem?.title || ""}
+                        fileUrl={signedUrl}
+                        onSave={(c) => saveFileContent(c, "code")}
+                        aiWriterOpen={codeAiWriterOpen}
+                        onAIWriterToggle={() => setCodeAiWriterOpen((v) => !v)}
+                        saveRef={codeViewerSaveRef}
+                        className="flex-1"
+                      />
+                      <DeliverableApprovalStrip item={activeItem!} folders={folders} approvalStatus={approvalStatus} onApprove={() => setApprovalStatus("approved")} onRequestChanges={() => setApprovalStatus("changes_requested")} onReset={() => setApprovalStatus("none")} />
+                    </div>
+                  )}
+
+                  {/* DOCX — Mammoth + TipTap edit */}
+                  {activeViewer === "docx" && (
+                    <div className="flex-1 flex flex-col overflow-hidden">
+                      {fileLoading ? (
+                        <div className="flex-1 flex items-center justify-center gap-2">
+                          <Loader2 size={14} className="animate-spin text-muted-foreground/60" />
+                          <span className="text-[11px] text-muted-foreground/60">Loading document…</span>
+                        </div>
+                      ) : (
+                        <DocxViewerComponent
+                          fileUrl={signedUrl}
+                          filename={activeItem?.title || "document.docx"}
+                          existingHtml={activeItem?.extracted_text || null}
+                          editMode={docxEditMode}
+                          onEditModeChange={setDocxEditMode}
+                          onSave={(html) => saveFileContent(html, "docx")}
+                          saveRef={docxViewerSaveRef}
+                          aiWriterOpen={docxAiWriterOpen}
+                          onAIWriterToggle={() => setDocxAiWriterOpen((v) => !v)}
+                          className="flex-1"
+                        />
+                      )}
+                      <DeliverableApprovalStrip item={activeItem!} folders={folders} approvalStatus={approvalStatus} onApprove={() => setApprovalStatus("approved")} onRequestChanges={() => setApprovalStatus("changes_requested")} onReset={() => setApprovalStatus("none")} />
+                    </div>
+                  )}
+
+                  {/* Spreadsheet — XLSX/CSV */}
+                  {activeViewer === "spreadsheet" && (
+                    <div className="flex-1 flex flex-col overflow-hidden">
+                      {fileLoading ? (
+                        <div className="flex-1 flex items-center justify-center gap-2">
+                          <Loader2 size={14} className="animate-spin text-muted-foreground/60" />
+                          <span className="text-[11px] text-muted-foreground/60">Loading spreadsheet…</span>
+                        </div>
+                      ) : (
+                        <SpreadsheetViewerComponent
+                          fileUrl={signedUrl}
+                          filename={activeItem?.title || "spreadsheet.xlsx"}
+                          onSave={(csv) => saveFileContent(csv, "spreadsheet")}
+                          saveRef={spreadsheetSaveRef}
+                          className="flex-1"
+                        />
+                      )}
+                      <DeliverableApprovalStrip item={activeItem!} folders={folders} approvalStatus={approvalStatus} onApprove={() => setApprovalStatus("approved")} onRequestChanges={() => setApprovalStatus("changes_requested")} onReset={() => setApprovalStatus("none")} />
+                    </div>
+                  )}
+
+                  {/* Image */}
+                  {activeViewer === "image" && (
+                    <div className="flex-1 flex flex-col overflow-hidden">
+                      <div className="flex-1 flex items-center justify-center p-8 bg-background">
+                        {fileLoading ? (
+                          <Loader2 size={20} className="animate-spin text-muted-foreground/60" />
+                        ) : signedUrl ? (
+                          <img src={signedUrl} alt={activeItem?.title} className="max-w-full max-h-[560px] rounded-xl object-contain shadow-2xl" />
+                        ) : (
+                          <div className="w-24 h-24 rounded-2xl bg-muted/50 border border-border flex items-center justify-center">
+                            <Image size={32} className="text-muted-foreground/40" />
+                          </div>
+                        )}
+                      </div>
+                      <DeliverableApprovalStrip item={activeItem!} folders={folders} approvalStatus={approvalStatus} onApprove={() => setApprovalStatus("approved")} onRequestChanges={() => setApprovalStatus("changes_requested")} onReset={() => setApprovalStatus("none")} />
+                    </div>
+                  )}
+
+                  {/* Generic file — no native preview */}
+                  {activeViewer === "file" && activeItem && (
+                    <div className="flex-1 flex flex-col overflow-hidden">
+                      <div className="flex-1 flex flex-col items-center justify-center gap-6 p-8">
+                        {(() => {
+                          const tc = getTypeConfig(activeItem)
+                          return (
+                            <>
+                              <div className={cn("w-20 h-20 rounded-2xl flex items-center justify-center border", tc.color.split(" ")[0], tc.color.split(" ")[2])}>
+                                <span className={tc.color.split(" ")[1]}>{tc.icon}</span>
+                              </div>
+                              <div className="text-center">
+                                <p className="text-[14px] font-semibold text-foreground/70">{activeItem.title}</p>
+                                <p className="text-[11px] text-muted-foreground/60 mt-1">{activeItem.document_type} · {formatDate(activeItem.created_at)}</p>
+                              </div>
+                              <div className="flex gap-3">
+                                {signedUrl && (
+                                  <a href={signedUrl} download className="flex items-center gap-2 px-4 py-2 bg-white text-black rounded-lg text-[12px] font-semibold hover:bg-white/90 transition-colors">
+                                    <Download size={13} />Download
+                                  </a>
+                                )}
+                                {activeItem.drive_file_url && (
+                                  <a href={activeItem.drive_file_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-4 py-2 bg-muted/50 border border-border text-muted-foreground rounded-lg text-[12px] hover:bg-muted transition-colors">
+                                    <ExternalLink size={13} />Open in Drive
+                                  </a>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-muted-foreground/40">No preview available for this file type</p>
+                            </>
+                          )
+                        })()}
+                      </div>
+                      <DeliverableApprovalStrip item={activeItem} folders={folders} approvalStatus={approvalStatus} onApprove={() => setApprovalStatus("approved")} onRequestChanges={() => setApprovalStatus("changes_requested")} onReset={() => setApprovalStatus("none")} />
+                    </div>
+                  )}
+                </div>
+
+                {/* ── FIX 6: Right panel — proper side column ── */}
+                {rightPanelOpen && activeItem && (
+                  <RightPanel
+                    item={activeItem}
+                    tab={rightPanelTab}
+                    onTabChange={setRightPanelTab}
+                    onClose={() => setRightPanelOpen(false)}
+                    relatedItems={relatedItems}
+                    loadingRelated={loadingRelated}
+                    approvalStatus={approvalStatus}
+                    approvalNote={approvalNote}
+                    signedUrl={signedUrl}
+                    onSetNote={setApprovalNote}
+                    onApprove={() => setApprovalStatus("approved")}
+                    onRequestChanges={() => setApprovalStatus("changes_requested")}
+                    onOpenRelated={(item) => openItem(item)}
+                  />
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Search overlay ── */}
+      {searchOverlayOpen && (
+        <div
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-start justify-center pt-24"
+          onClick={(e) => { if (e.target === e.currentTarget) setSearchOverlayOpen(false) }}
+        >
+          <div className="w-[560px] bg-card border border-border rounded-2xl overflow-hidden shadow-2xl">
+            <div className="flex items-center gap-3 px-4 py-3.5 border-b border-border">
+              <Search size={14} className="text-muted-foreground/60 shrink-0" />
+              <input
+                ref={searchInputRef}
+                className="flex-1 bg-transparent text-[13px] text-foreground/80 outline-none placeholder:text-muted-foreground/50"
+                placeholder="Search or ask anything about your vault…"
+                value={searchOverlayQuery}
+                onChange={(e) => handleSearchOverlayQuery(e.target.value)}
+              />
+              <div className="flex items-center gap-1.5 px-2 py-1 bg-violet-500/15 border border-violet-500/25 rounded text-[9px] font-bold text-violet-400">
+                <Sparkles size={8} />AI Search
+              </div>
+            </div>
+            <div className="max-h-80 overflow-y-auto p-2">
+              {searchLoading && (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 size={16} className="animate-spin text-muted-foreground/60" />
+                </div>
+              )}
+              {!searchLoading && searchResults.length === 0 && searchOverlayQuery && (
+                <p className="text-[11px] text-muted-foreground/50 text-center py-6">No results found</p>
+              )}
+              {!searchLoading && searchResults.length === 0 && !searchOverlayQuery && (
+                <p className="text-[11px] text-muted-foreground/40 text-center py-6">Start typing to search your vault semantically</p>
+              )}
+              {searchResults.map((result) => {
+                const tc = getTypeConfig(result)
+                return (
+                  <button
+                    key={result.id}
+                    onClick={() => openSearchResult(result)}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-muted/50 transition-colors text-left group"
+                  >
+                    <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center shrink-0", tc.color.split(" ")[0])}>
+                      <span className={tc.color.split(" ")[1]}>{tc.icon}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12px] font-medium text-foreground/80 truncate">{result.title}</p>
+                      <p className="text-[10px] text-muted-foreground/60 truncate">
+                        {result.project_name && `${result.project_name} · `}
+                        {result.description?.slice(0, 60)}
+                      </p>
+                    </div>
+                    <div className="text-[9px] text-violet-400/60 shrink-0">
+                      {(result.similarity * 100).toFixed(0)}%
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+            <div className="px-4 py-2.5 border-t border-border/50 flex items-center justify-between">
+              <span className="text-[9px] text-muted-foreground/40">Semantic search powered by pgvector</span>
+              <div className="flex gap-3">
+                {[["↵", "open"], ["Esc", "close"]].map(([key, label]) => (
+                  <span key={key} className="text-[9px] text-muted-foreground/40 flex items-center gap-1">
+                    <span className="font-mono border border-border rounded px-1">{key}</span>{label}
+                  </span>
                 ))}
               </div>
             </div>
+          </div>
+        </div>
+      )}
 
-            {/* Items grid */}
-            <div className="flex-1 overflow-y-auto p-6">
-              {filteredItems.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-48 gap-3 text-center">
-                  <div className="size-12 rounded-xl bg-muted flex items-center justify-center">
-                    <Plus size={20} className="text-muted-foreground/40" />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-foreground/70">Empty folder</p>
-                    <p className="text-sm text-muted-foreground mt-0.5">Add files, links, or notes to this folder</p>
-                  </div>
-                  <Button size="sm" variant="outline" onClick={() => setAddDialogOpen(true)}>
-                    <Plus size={14} className="mr-1.5" />
-                    Add to Vault
-                  </Button>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                  {filteredItems.map((item) => (
-                    <VaultItemCard
-                      key={item.id}
-                      item={item}
-                      menuOpen={menuItemId === item.id}
-                      onMenuToggle={() => setMenuItemId(menuItemId === item.id ? null : item.id)}
-                      onDelete={() => handleDeleteItem(item.id)}
-                      onMenuClose={() => setMenuItemId(null)}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* ── Add item dialog ── */}
-      <Dialog open={addDialogOpen} onOpenChange={(open) => { if (!open) { setAddDialogOpen(false); resetAddForm() } }}>
-        <DialogContent className="max-w-lg">
+      {/* ── Add item dialog (FIX 3: no inputs when AI labeling is ON) ── */}
+      <Dialog
+        open={addDialogOpen}
+        onOpenChange={(open) => { if (!open) { setAddDialogOpen(false); resetAddForm() } }}
+      >
+        <DialogContent className="max-w-lg bg-card border-border text-white" aria-describedby="vault-add-description">
           <DialogHeader>
-            <DialogTitle>Add to Vault</DialogTitle>
+            <DialogTitle className="text-white/90">Add to Vault</DialogTitle>
+            <p id="vault-add-description" className="text-[11px] text-white/35 mt-0.5">
+              Add files, links, or notes to the selected folder
+            </p>
           </DialogHeader>
 
-          {/* Step 1: Choose type */}
           {!addItemType ? (
             <div className="space-y-3 py-2">
-              <p className="text-sm text-muted-foreground">What would you like to add?</p>
+              <p className="text-[12px] text-muted-foreground/80">What would you like to add?</p>
               <div className="grid grid-cols-3 gap-3">
                 {([
-                  { type: "file", label: "File Upload", icon: <Upload size={20} /> },
-                  { type: "link", label: "Link", icon: <Link2 size={20} /> },
-                  { type: "note", label: "Note", icon: <StickyNote size={20} /> },
-                ] as const).map(({ type, label, icon }) => (
+                  { type: "file" as ItemType, label: "File Upload", icon: <Upload size={20} />, color: "text-blue-400" },
+                  { type: "link" as ItemType, label: "Link", icon: <Link2 size={20} />, color: "text-emerald-400" },
+                  { type: "note" as ItemType, label: "Note", icon: <StickyNote size={20} />, color: "text-amber-400" },
+                ]).map(({ type, label, icon, color }) => (
                   <button
                     key={type}
                     onClick={() => setAddItemType(type)}
-                    className="flex flex-col items-center gap-2 p-4 rounded-xl border border-border hover:border-primary/50 hover:bg-primary/5 transition-colors group"
+                    className="flex flex-col items-center gap-2 p-4 rounded-xl border border-border hover:border-violet-500/40 hover:bg-violet-500/5 transition-all group"
                   >
-                    <span className="text-muted-foreground group-hover:text-primary transition-colors">{icon}</span>
-                    <span className="text-xs font-semibold text-muted-foreground group-hover:text-foreground">{label}</span>
+                    <span className={cn(color, "group-hover:scale-110 transition-transform")}>{icon}</span>
+                    <span className="text-[11px] font-semibold text-muted-foreground/80 group-hover:text-foreground/80">{label}</span>
                   </button>
                 ))}
               </div>
             </div>
           ) : (
-            /* Step 2: Form */
             <div className="space-y-4 py-2">
               <div className="flex items-center gap-2">
-                <button onClick={() => setAddItemType(null)} className="text-muted-foreground hover:text-foreground">
-                  <X size={14} />
+                <button onClick={() => setAddItemType(null)} className="text-muted-foreground/60 hover:text-foreground/60">
+                  <X size={13} />
                 </button>
-                <span className="text-sm font-semibold capitalize">{addItemType === "file" ? "File Upload" : addItemType}</span>
+                <span className="text-[12px] font-semibold text-foreground/70 capitalize">
+                  {addItemType === "file" ? "File Upload" : addItemType}
+                </span>
               </div>
 
               <div className="space-y-3">
-                <div>
-                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-1.5 block">Title *</label>
-                  <Input
-                    placeholder="Enter a clear title…"
-                    value={addForm.title}
-                    onChange={(e) => setAddForm((f) => ({ ...f, title: e.target.value }))}
-                  />
-                </div>
 
-                <div>
-                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-1.5 block">Description *</label>
-                  <textarea
-                    placeholder="What is this? Add context so your team knows what it's for…"
-                    value={addForm.description}
-                    onChange={(e) => setAddForm((f) => ({ ...f, description: e.target.value }))}
-                    rows={2}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-1.5 block">Document Type</label>
-                  <Select value={addForm.document_type} onValueChange={(v) => setAddForm((f) => ({ ...f, document_type: v }))}>
-                    <SelectTrigger className="h-9 text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {DOCUMENT_TYPES.map((t) => (
-                        <SelectItem key={t} value={t}>{t}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Type-specific fields */}
+                {/* ── FILE type ── FIX 3: hide all inputs when AI label is ON ── */}
                 {addItemType === "file" && (
-                  <div>
-                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-1.5 block">File *</label>
-                    <div
-                      onClick={() => fileInputRef.current?.click()}
-                      className={cn(
-                        "border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-colors",
-                        uploadFile ? "border-primary/40 bg-primary/5" : "border-border hover:border-primary/30 hover:bg-muted/40"
-                      )}
-                    >
-                      {uploadFile ? (
-                        <div className="flex items-center justify-center gap-2 text-sm">
-                          <FileText size={14} className="text-primary" />
-                          <span className="font-medium truncate max-w-[200px]">{uploadFile.name}</span>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setUploadFile(null) }}
-                            className="text-muted-foreground hover:text-foreground ml-1"
-                          >
-                            <X size={12} />
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="space-y-1">
-                          <Upload size={20} className="mx-auto text-muted-foreground/50" />
-                          <p className="text-xs text-muted-foreground">Click to select a file</p>
-                        </div>
-                      )}
+                  <div className="space-y-3">
+                    {/* File drop zone */}
+                    <div>
+                      <label className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60 mb-1.5 block">File *</label>
+                      <div
+                        onClick={() => fileInputRef.current?.click()}
+                        className={cn(
+                          "border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all",
+                          uploadFile ? "border-violet-500/40 bg-violet-500/5" : "border-border hover:border-violet-500/30 hover:bg-muted/30"
+                        )}
+                      >
+                        {uploadFile ? (
+                          <div className="flex items-center justify-center gap-2 text-[12px]">
+                            <FileText size={13} className="text-violet-400" />
+                            <span className="text-foreground/60 truncate max-w-[180px]">{uploadFile.name}</span>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleFileSelect(null) }}
+                              className="text-muted-foreground/60 hover:text-foreground/60 ml-1"
+                            >
+                              <X size={11} />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="space-y-1">
+                            <Upload size={18} className="mx-auto text-white/15" />
+                            <p className="text-[11px] text-muted-foreground/50">Click to select · any format</p>
+                          </div>
+                        )}
+                      </div>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        className="hidden"
+                        onChange={(e) => handleFileSelect(e.target.files?.[0] || null)}
+                      />
                     </div>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      className="hidden"
-                      onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
-                    />
+
+                    {/* AI label toggle */}
+                    <div className="flex items-center justify-between px-1">
+                      <div className="flex items-center gap-2">
+                        <Sparkles size={11} className={aiLabelMode ? "text-violet-400" : "text-muted-foreground/40"} />
+                        <span className="text-[10px] text-muted-foreground/80">AI auto-label</span>
+                        {isAiLabeling && (
+                          <div className="flex items-center gap-1.5">
+                            <Loader2 size={10} className="animate-spin text-violet-400" />
+                            <span className="text-[9px] text-violet-400/70">Analyzing…</span>
+                          </div>
+                        )}
+                        {!isAiLabeling && uploadFile && aiLabelMode && addForm.title && (
+                          <span className="text-[9px] text-emerald-400/70 flex items-center gap-1">
+                            <Check size={8} />Labeled
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => setAiLabelMode(v => !v)}
+                        className={cn("w-8 h-4 rounded-full transition-colors relative flex-shrink-0", aiLabelMode ? "bg-violet-500" : "bg-muted")}
+                      >
+                        <span className={cn("absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all", aiLabelMode ? "left-4" : "left-0.5")} />
+                      </button>
+                    </div>
+
+                    {/*
+                     * FIX 3: When AI labeling is ON, NO manual input fields are shown.
+                     * The AI fills everything. User just picks file → clicks Upload.
+                     * When AI labeling is OFF, show the full manual form.
+                     */}
+                    {!aiLabelMode && (
+                      <>
+                        <div>
+                          <label className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60 mb-1.5 block">Title *</label>
+                          <Input
+                            placeholder="Enter a clear title…"
+                            value={addForm.title}
+                            onChange={(e) => setAddForm((f) => ({ ...f, title: e.target.value }))}
+                            className="bg-muted/50 border-border text-foreground/80 placeholder:text-muted-foreground/40 focus:border-violet-500/40 h-9 text-[12px]"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60 mb-1.5 block">Description *</label>
+                          <textarea
+                            placeholder="What is this? Add context…"
+                            value={addForm.description}
+                            onChange={(e) => setAddForm((f) => ({ ...f, description: e.target.value }))}
+                            rows={2}
+                            className="w-full rounded-lg border border-border bg-muted/50 px-3 py-2 text-[12px] text-foreground/80 placeholder:text-muted-foreground/40 outline-none focus:border-violet-500/30 resize-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60 mb-1.5 block">Document Type</label>
+                          <Select value={addForm.document_type} onValueChange={(v) => setAddForm((f) => ({ ...f, document_type: v }))}>
+                            <SelectTrigger className="h-9 text-[12px] bg-muted/50 border-border text-foreground/70">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="bg-card border-border">
+                              {DOCUMENT_TYPES.map((t) => (
+                                <SelectItem key={t} value={t} className="text-foreground/70 text-[12px]">{t}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </>
+                    )}
+
+                    {/* When AI labeling ON + file picked + labeled — show labeled preview */}
+                    {aiLabelMode && uploadFile && !isAiLabeling && addForm.title && (
+                      <div className="px-3 py-2.5 bg-violet-500/8 border border-violet-500/20 rounded-lg">
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          <Sparkles size={9} className="text-violet-400" />
+                          <span className="text-[9px] font-bold uppercase tracking-widest text-violet-400/70">AI generated metadata</span>
+                        </div>
+                        <p className="text-[11px] font-semibold text-foreground/70 truncate">{addForm.title}</p>
+                        <p className="text-[10px] text-white/35 mt-0.5 line-clamp-2">{addForm.description}</p>
+                        <div className="mt-1.5 flex items-center gap-1.5">
+                          <span className="text-[9px] px-1.5 py-0.5 bg-muted/60 rounded text-white/35">{addForm.document_type}</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
+                {/* ── LINK type ── */}
                 {addItemType === "link" && (
-                  <div>
-                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-1.5 block">URL *</label>
-                    <Input
-                      placeholder="https://…"
-                      value={addForm.link_url}
-                      onChange={(e) => setAddForm((f) => ({ ...f, link_url: e.target.value }))}
-                    />
-                  </div>
+                  <>
+                    <div>
+                      <label className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60 mb-1.5 block">Title *</label>
+                      <Input placeholder="Enter a clear title…" value={addForm.title} onChange={(e) => setAddForm((f) => ({ ...f, title: e.target.value }))} className="bg-muted/50 border-border text-foreground/80 placeholder:text-muted-foreground/40 focus:border-violet-500/40 h-9 text-[12px]" />
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60 mb-1.5 block">Description *</label>
+                      <textarea placeholder="What is this link?" value={addForm.description} onChange={(e) => setAddForm((f) => ({ ...f, description: e.target.value }))} rows={2} className="w-full rounded-lg border border-border bg-muted/50 px-3 py-2 text-[12px] text-foreground/80 placeholder:text-muted-foreground/40 outline-none focus:border-violet-500/30 resize-none" />
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60 mb-1.5 block">URL *</label>
+                      <Input placeholder="https://…" value={addForm.link_url} onChange={(e) => setAddForm((f) => ({ ...f, link_url: e.target.value }))} className="bg-muted/50 border-border text-foreground/80 placeholder:text-muted-foreground/40 focus:border-violet-500/40 h-9 text-[12px]" />
+                    </div>
+                  </>
                 )}
 
+                {/* ── NOTE type ── */}
                 {addItemType === "note" && (
-                  <div>
-                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-1.5 block">Content</label>
-                    <textarea
-                      placeholder="Write your note…"
-                      value={addForm.note_content}
-                      onChange={(e) => setAddForm((f) => ({ ...f, note_content: e.target.value }))}
-                      rows={5}
-                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-none"
-                    />
-                  </div>
+                  <>
+                    <div>
+                      <label className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60 mb-1.5 block">Title *</label>
+                      <Input placeholder="Note title…" value={addForm.title} onChange={(e) => setAddForm((f) => ({ ...f, title: e.target.value }))} className="bg-muted/50 border-border text-foreground/80 placeholder:text-muted-foreground/40 focus:border-violet-500/40 h-9 text-[12px]" />
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60 mb-1.5 block">Description *</label>
+                      <Input placeholder="One sentence summary…" value={addForm.description} onChange={(e) => setAddForm((f) => ({ ...f, description: e.target.value }))} className="bg-muted/50 border-border text-foreground/80 placeholder:text-muted-foreground/40 focus:border-violet-500/40 h-9 text-[12px]" />
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60 mb-1.5 block">Content</label>
+                      <textarea
+                        placeholder="Write your note…"
+                        value={addForm.note_content}
+                        onChange={(e) => setAddForm((f) => ({ ...f, note_content: e.target.value }))}
+                        rows={5}
+                        className="w-full rounded-lg border border-border bg-muted/50 px-3 py-2 text-[12px] text-foreground/80 placeholder:text-muted-foreground/40 outline-none focus:border-violet-500/40 resize-none"
+                      />
+                    </div>
+                  </>
                 )}
               </div>
 
-              <div className="flex justify-end gap-2 pt-1">
-                <Button variant="outline" onClick={() => { setAddDialogOpen(false); resetAddForm() }}>
-                  Cancel
-                </Button>
-                <Button onClick={handleAddItem} disabled={uploading}>
-                  {uploading ? <Loader2 size={14} className="animate-spin mr-1.5" /> : null}
-                  Add to Vault
-                </Button>
+              <div className="flex justify-between items-center pt-1">
+                <p className="text-[9px] text-muted-foreground/40">Auto-vectorised · indexed by Kobin AI</p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline" size="sm"
+                    onClick={() => { setAddDialogOpen(false); resetAddForm() }}
+                    className="border-border text-muted-foreground hover:text-foreground/80 bg-transparent text-[11px]"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleAddItem}
+                    disabled={!canSubmitAdd}
+                    className="bg-violet-500 hover:bg-violet-600 text-white text-[11px] disabled:opacity-50"
+                  >
+                    {uploading ? <Loader2 size={12} className="animate-spin mr-1" /> : null}
+                    {isAiLabeling ? "Analyzing…" : "Add to Vault"}
+                  </Button>
+                </div>
               </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
+    </>
+  )
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SUB-COMPONENTS
+// ═════════════════════════════════════════════════════════════════════════════
+
+function EmptyState({ icon, title, desc, action }: {
+  icon: React.ReactNode; title: string; desc: string; action?: React.ReactNode
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center h-48 gap-3 text-center">
+      <div className="w-14 h-14 rounded-2xl bg-muted/30 border border-border/50 flex items-center justify-center">{icon}</div>
+      <div>
+        <p className="text-[13px] font-medium text-muted-foreground/80">{title}</p>
+        <p className="text-[11px] text-muted-foreground/40 mt-0.5">{desc}</p>
+      </div>
+      {action}
     </div>
   )
 }
 
-// ── Vault Item Card ────────────────────────────────────────────────────────────
+// ── VaultCard ─────────────────────────────────────────────────────────────────
 
-function VaultItemCard({
-  item,
-  menuOpen,
-  onMenuToggle,
-  onDelete,
-  onMenuClose,
+function VaultCard({
+  item, active, menuOpen, onOpen, onMenuToggle, onDelete, onMenuClose,
 }: {
-  item: VaultItem
-  menuOpen: boolean
-  onMenuToggle: () => void
-  onDelete: () => void
-  onMenuClose: () => void
+  item: VaultItem; active: boolean; menuOpen: boolean
+  onOpen: () => void; onMenuToggle: () => void; onDelete: () => void; onMenuClose: () => void
 }) {
   const menuRef = useRef<HTMLDivElement>(null)
+  const tc = getTypeConfig(item)
 
   useEffect(() => {
     if (!menuOpen) return
-    const handler = (e: MouseEvent) => {
-      if (!menuRef.current?.contains(e.target as Node)) onMenuClose()
-    }
+    const handler = (e: MouseEvent) => { if (!menuRef.current?.contains(e.target as Node)) onMenuClose() }
     document.addEventListener("mousedown", handler)
     return () => document.removeEventListener("mousedown", handler)
   }, [menuOpen])
 
-  const typeConfig = {
-    file: { icon: <FileText size={16} />, color: "bg-blue-50 text-blue-600 border-blue-100" },
-    link: { icon: <Link2 size={16} />, color: "bg-violet-50 text-violet-600 border-violet-100" },
-    note: { icon: <StickyNote size={16} />, color: "bg-amber-50 text-amber-600 border-amber-100" },
-  }[item.item_type]
-
-  const addedByColor = {
-    founder: "bg-primary/10 text-primary",
-    team: "bg-blue-50 text-blue-700",
-    client: "bg-emerald-50 text-emerald-700",
-  }[item.added_by_type]
+  const accentGradient =
+    item.item_type === "file" ? "bg-gradient-to-r from-blue-500 to-cyan-500" :
+      item.item_type === "link" ? "bg-gradient-to-r from-violet-500 to-purple-500" :
+        "bg-gradient-to-r from-amber-500 to-orange-500"
 
   return (
-    <Card className="group hover:border-primary/30 transition-all overflow-hidden">
-      <CardContent className="p-4 space-y-3">
-        {/* Type badge + menu */}
-        <div className="flex items-start justify-between gap-2">
-          <div className={cn("flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs font-semibold", typeConfig.color)}>
-            {typeConfig.icon}
-            <span className="capitalize">{item.item_type}</span>
-          </div>
+    <div
+      onClick={onOpen}
+      className={cn(
+        "group relative bg-card border rounded-xl p-3.5 cursor-pointer transition-all hover:-translate-y-0.5",
+        active
+          ? "border-violet-500/40 bg-violet-500/5 shadow-lg shadow-violet-500/10"
+          : "border-white/6 hover:border-white/12 hover:bg-accent"
+      )}
+    >
+      <div className={cn("absolute top-0 left-0 right-0 h-0.5 rounded-t-xl opacity-0 transition-opacity group-hover:opacity-100", active && "opacity-100", accentGradient)} />
+
+      <div className="flex items-start justify-between mb-2.5">
+        <div className={cn("flex items-center gap-1.5 px-2 py-1 rounded-md border text-[9px] font-bold uppercase tracking-wider", tc.color)}>
+          {tc.icon}
+          <span>{tc.badge}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          {item.embedding_status === "embedded" && (
+            <div title="Vectorised" className="w-1.5 h-1.5 rounded-full bg-violet-500/50" />
+          )}
           <div className="relative" ref={menuRef}>
             <button
-              onClick={onMenuToggle}
-              className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-muted"
+              onClick={(e) => { e.stopPropagation(); onMenuToggle() }}
+              className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-muted/60"
             >
-              <MoreHorizontal size={14} />
+              <MoreHorizontal size={12} className="text-muted-foreground/80" />
             </button>
             {menuOpen && (
-              <div className="absolute right-0 top-6 w-36 bg-background border border-border rounded-xl shadow-lg overflow-hidden z-10">
-                {item.item_type === "file" && item.drive_file_url && (
-                  <a
-                    href={item.drive_file_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted transition-colors"
-                  >
-                    <ExternalLink size={12} />
-                    Open in Drive
+              <div className="absolute right-0 top-6 w-36 bg-popover border border-border rounded-xl shadow-xl overflow-hidden z-20">
+                {item.drive_file_url && (
+                  <a href={item.drive_file_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="flex items-center gap-2 px-3 py-2 text-[11px] text-foreground/60 hover:bg-muted/50 transition-colors">
+                    <ExternalLink size={11} />Open in Drive
                   </a>
                 )}
-                {item.item_type === "link" && item.link_url && (
-                  <a
-                    href={item.link_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted transition-colors"
-                  >
-                    <ExternalLink size={12} />
-                    Open link
+                {item.link_url && (
+                  <a href={item.link_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="flex items-center gap-2 px-3 py-2 text-[11px] text-foreground/60 hover:bg-muted/50 transition-colors">
+                    <ExternalLink size={11} />Open link
                   </a>
                 )}
-                <button
-                  onClick={onDelete}
-                  className="flex items-center gap-2 px-3 py-2 text-xs text-destructive hover:bg-destructive/10 transition-colors w-full text-left"
-                >
-                  <Trash2 size={12} />
-                  Delete
+                <button onClick={(e) => { e.stopPropagation(); onDelete() }} className="flex items-center gap-2 px-3 py-2 text-[11px] text-red-400 hover:bg-red-500/10 transition-colors w-full text-left">
+                  <Trash2 size={11} />Delete
                 </button>
               </div>
             )}
           </div>
         </div>
+      </div>
 
-        {/* Title + description */}
-        <div className="space-y-1">
-          <h4 className="font-semibold text-sm leading-snug line-clamp-1">{item.title}</h4>
-          <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">{item.description}</p>
+      <h4 className="text-[12px] font-semibold text-foreground/80 leading-snug line-clamp-1 mb-1">{item.title}</h4>
+      <p className="text-[10px] text-muted-foreground/60 line-clamp-2 leading-relaxed mb-3">{item.description}</p>
+
+      {item.item_type === "link" && item.link_url && (
+        <div className="flex items-center gap-1.5 mb-2.5 text-[10px] text-violet-400/70">
+          <ExternalLink size={9} />
+          <span className="truncate">{item.link_url}</span>
         </div>
+      )}
 
-        {/* Link preview */}
-        {item.item_type === "link" && item.link_url && (
-          <a
-            href={item.link_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 text-xs text-primary hover:underline truncate"
+      <div className="flex items-center justify-between pt-2 border-t border-border/50">
+        <span className={cn("text-[9px] font-semibold px-1.5 py-0.5 rounded capitalize", ADDED_BY_COLOR[item.added_by_type])}>
+          {item.added_by_type}
+        </span>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="text-[8px] h-4 px-1 border-border text-muted-foreground/50">{item.document_type}</Badge>
+          <span className="text-[9px] text-muted-foreground/40">{formatDate(item.created_at)}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Deliverable approval strip (only renders for deliverables folder) ──────────
+
+function DeliverableApprovalStrip({
+  item, folders, approvalStatus, onApprove, onRequestChanges, onReset,
+}: {
+  item: VaultItem
+  folders: VaultFolder[]
+  approvalStatus: ApprovalStatus
+  onApprove: () => void
+  onRequestChanges: () => void
+  onReset: () => void
+}) {
+  const folder = folders.find(f => f.id === item?.folder_id)
+  if (!item || folder?.folder_type !== "deliverables") return null
+
+  return (
+    <div className="flex-shrink-0 border-t border-border/50 px-4 py-3 bg-card flex items-center justify-between gap-4">
+      <div className="flex items-center gap-2">
+        {approvalStatus === "none" && <Clock size={13} className="text-amber-400" />}
+        {approvalStatus === "approved" && <Check size={13} className="text-emerald-400" />}
+        {approvalStatus === "changes_requested" && <AlertCircle size={13} className="text-red-400" />}
+        <span className={cn("text-[11px] font-semibold",
+          approvalStatus === "none" ? "text-muted-foreground/80" :
+            approvalStatus === "approved" ? "text-emerald-400" : "text-red-400"
+        )}>
+          {approvalStatus === "none" ? "Awaiting approval" : approvalStatus === "approved" ? "Approved" : "Changes requested"}
+        </span>
+        {approvalStatus !== "none" && (
+          <button onClick={onReset} className="text-[9px] text-muted-foreground/40 hover:text-muted-foreground/80 transition-colors ml-2">Reset</button>
+        )}
+      </div>
+      {approvalStatus === "none" && (
+        <div className="flex gap-2">
+          <button onClick={onRequestChanges} className="flex items-center gap-1.5 px-3 py-1.5 border border-red-500/25 text-red-400 rounded-lg text-[11px] font-semibold hover:bg-red-500/10 transition-colors">
+            <AlertCircle size={11} />Request Changes
+          </button>
+          <button onClick={onApprove} className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 rounded-lg text-[11px] font-semibold hover:bg-emerald-500/20 transition-colors">
+            <Check size={11} />Mark Approved
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── AI Writer Panel ──────────────────────────────────────────────────────────
+
+function AIWriterPanel({
+  prompt, setPrompt, response, loading, sources, onRun, onInsert, onDiscard, onClose,
+}: {
+  prompt: string; setPrompt: (v: string) => void; response: string; loading: boolean
+  sources: Array<{ id: string; title: string; document_type: string; similarity: number; chunk_preview?: string }>
+  onRun: () => void; onInsert: () => void; onDiscard: () => void; onClose: () => void
+}) {
+  return (
+    <div className="w-64 border-l border-border/50 flex flex-col bg-card">
+      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border/50">
+        <div className="w-5 h-5 bg-gradient-to-br from-violet-500 to-purple-600 rounded flex items-center justify-center">
+          <Sparkles size={9} className="text-white" />
+        </div>
+        <span className="flex-1 text-[11px] font-semibold text-foreground/70">Kobin AI Writer</span>
+        <button onClick={onClose} className="text-muted-foreground/50 hover:text-foreground/60"><X size={11} /></button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+        {!response && (
+          <>
+            <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50">Suggestions</p>
+            {["Expand timeline with linked tasks", "Draft client-facing summary", "Convert todos into action items"].map((s) => (
+              <button key={s} onClick={() => setPrompt(s)} className="flex items-start gap-2 w-full text-left p-2 bg-muted/30 border border-border/50 rounded-lg hover:border-violet-500/30 transition-all">
+                <Sparkles size={8} className="text-violet-400 mt-1 shrink-0" />
+                <span className="text-[10px] text-muted-foreground">{s}</span>
+              </button>
+            ))}
+          </>
+        )}
+        {response && (
+          <>
+            <div className="p-2.5 bg-muted/30 border border-border rounded-lg text-[10px] text-foreground/60 leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto">{response}</div>
+
+            {/* Source attribution */}
+            {sources.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground/40">Sources used</p>
+                {sources.map((src) => (
+                  <div key={src.id} className="flex items-start gap-2 p-1.5 bg-violet-500/5 border border-violet-500/15 rounded-lg">
+                    <div className="w-1.5 h-1.5 rounded-full bg-violet-500/50 mt-1 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-semibold text-violet-300/80 truncate">{src.title}</span>
+                        <span className="text-[8px] text-violet-400/40 shrink-0">{(src.similarity * 100).toFixed(0)}%</span>
+                      </div>
+                      {src.chunk_preview && (
+                        <p className="text-[9px] text-muted-foreground/50 mt-0.5 line-clamp-2 leading-relaxed">{src.chunk_preview}</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <button onClick={onInsert} className="flex-1 py-1.5 bg-violet-500/15 border border-violet-500/30 rounded text-[10px] font-semibold text-violet-400 hover:bg-violet-500/25 transition-colors">Insert into doc</button>
+              <button onClick={onDiscard} className="flex-1 py-1.5 bg-muted/50 border border-border rounded text-[10px] text-muted-foreground/80 hover:bg-muted transition-colors">Discard</button>
+            </div>
+          </>
+        )}
+        {loading && (
+          <div className="flex items-center gap-2 py-2">
+            <Loader2 size={12} className="animate-spin text-violet-400" />
+            <span className="text-[10px] text-muted-foreground/60">Writing…</span>
+          </div>
+        )}
+      </div>
+      <div className="p-3 border-t border-border/50">
+        <div className="flex gap-2">
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onRun() } }}
+            placeholder="Ask AI to write, edit, summarise…"
+            rows={2}
+            className="flex-1 bg-muted/50 border border-border rounded-lg px-2.5 py-2 text-[11px] text-foreground/70 placeholder:text-muted-foreground/40 outline-none focus:border-violet-500/30 resize-none"
+          />
+          <button onClick={onRun} disabled={loading} className="w-8 h-8 bg-violet-500 hover:bg-violet-600 rounded-lg flex items-center justify-center self-end transition-colors disabled:opacity-50">
+            <Send size={11} className="text-white" />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Comments panel ────────────────────────────────────────────────────────────
+
+function CommentsPanel({ itemId }: { itemId: string }) {
+  const supabase = createClient()
+  const [comments, setComments] = useState<Array<{ id: string; content: string; user_name: string; created_at: string }>>([])
+  const [newComment, setNewComment] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+  const [userId, setUserId] = useState<string | null>(null)
+  const [userName, setUserName] = useState("You")
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) {
+        setUserId(data.user.id)
+        supabase.from("profiles").select("full_name").eq("id", data.user.id).single()
+          .then(({ data: p }) => { if (p?.full_name) setUserName(p.full_name) })
+      }
+    })
+    loadComments()
+  }, [itemId])
+
+  const loadComments = async () => {
+    console.log(`[Vault/Comments] Loading comments for item=${itemId}`)
+    // Step 1: fetch comments without join (avoids FK naming issues)
+    const { data, error } = await supabase
+      .from("vault_comments")
+      .select("id, content, created_at, user_id")
+      .eq("vault_item_id", itemId)
+      .order("created_at", { ascending: true })
+
+    if (error) {
+      console.error("[Vault/Comments] Load error:", error)
+      return
+    }
+    if (!data || data.length === 0) {
+      setComments([])
+      return
+    }
+
+    // Step 2: resolve profile names for unique user_ids
+    const userIds = [...new Set(data.map((c: any) => c.user_id))]
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, full_name")
+      .in("id", userIds)
+
+    const nameMap = Object.fromEntries((profiles || []).map((p: any) => [p.id, p.full_name]))
+
+    setComments(data.map((c: any) => ({
+      id: c.id,
+      content: c.content,
+      user_name: nameMap[c.user_id] || "Team",
+      created_at: c.created_at,
+    })))
+  }
+
+  const handleSubmit = async () => {
+    if (!newComment.trim() || !userId) return
+    console.log(`[Vault/Comments] Submitting comment for item=${itemId}`)
+    setSubmitting(true)
+    const { data, error } = await supabase.from("vault_comments").insert({
+      vault_item_id: itemId,
+      user_id: userId,
+      content: newComment.trim(),
+    }).select("id, content, created_at").single()
+    if (error) {
+      console.error("[Vault/Comments] Insert error:", error)
+    } else if (data) {
+      setComments(prev => [...prev, { id: data.id, content: data.content, user_name: userName, created_at: data.created_at }])
+      setNewComment("")
+    }
+    setSubmitting(false)
+  }
+
+  const initials = (name: string) => name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase()
+
+  return (
+    <div className="flex flex-col gap-3 h-full">
+      <div className="flex-1 space-y-3 overflow-y-auto">
+        {comments.length === 0 && (
+          <p className="text-[10px] text-muted-foreground/40 text-center py-4">No comments yet</p>
+        )}
+        {comments.map((c) => (
+          <div key={c.id} className="flex gap-2.5">
+            <div className="w-6 h-6 rounded-full bg-violet-500/80 flex items-center justify-center text-[8px] font-bold text-white shrink-0">
+              {initials(c.user_name)}
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[11px] font-semibold text-foreground/70">{c.user_name}</span>
+                <span className="text-[9px] text-muted-foreground/40">{formatDate(c.created_at)}</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">{c.content}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="border-t border-border/50 pt-3 flex gap-2">
+        <textarea
+          value={newComment}
+          onChange={e => setNewComment(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit() } }}
+          placeholder="Add a comment…"
+          rows={2}
+          className="flex-1 bg-muted/50 border border-border rounded-lg px-2.5 py-2 text-[11px] text-foreground/70 placeholder:text-muted-foreground/40 outline-none focus:border-violet-500/30 resize-none"
+        />
+        <button
+          onClick={handleSubmit}
+          disabled={submitting || !newComment.trim()}
+          className="w-8 h-8 bg-violet-500 hover:bg-violet-600 rounded-lg flex items-center justify-center self-end transition-colors disabled:opacity-40"
+        >
+          <Send size={11} className="text-white" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Activity Panel ────────────────────────────────────────────────────────────
+
+const ACTION_LABELS: Record<string, { text: string; dot: string }> = {
+  created:         { text: "Added to vault",      dot: "bg-violet-500" },
+  content_updated: { text: "Content edited",       dot: "bg-blue-400" },
+  title_changed:   { text: "Title changed",        dot: "bg-amber-400" },
+  file_edited:     { text: "File edited",          dot: "bg-blue-400" },
+  deleted:         { text: "Deleted",              dot: "bg-red-500" },
+  embedded:        { text: "Vectorised by AI",     dot: "bg-emerald-500" },
+  comment_added:   { text: "Comment added",        dot: "bg-sky-400" },
+  viewed:          { text: "Viewed",               dot: "bg-white/20" },
+}
+
+function ActivityPanel({ item }: { item: VaultItem }) {
+  const [logs, setLogs] = useState<Array<{
+    id: string; action: string; user_name: string; details: any; created_at: string
+  }>>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchLogs()
+  }, [item.id])
+
+  const fetchLogs = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/vault/activity?item_id=${item.id}`)
+      const json = await res.json()
+      setLogs(json.logs || [])
+    } catch (err) {
+      console.error("[ActivityPanel]", err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Always prepend the creation entry (guaranteed to exist even if logs table is empty)
+  const syntheticCreate = {
+    id: "create",
+    action: "created",
+    user_name: item.added_by_type,
+    details: {},
+    created_at: item.created_at,
+  }
+  const syntheticEmbed = item.embedding_status === "embedded"
+    ? [{
+        id: "embed",
+        action: "embedded",
+        user_name: "Kobin AI",
+        details: {},
+        created_at: item.created_at,
+      }]
+    : []
+
+  const allLogs = [
+    ...logs,
+    syntheticEmbed[0],
+    syntheticCreate,
+  ].filter(Boolean)
+
+  const initials = (name: string) =>
+    name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-6">
+        <Loader2 size={13} className="animate-spin text-muted-foreground/40" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      {allLogs.map((log) => {
+        const meta = ACTION_LABELS[log.action] || { text: log.action, dot: "bg-white/20" }
+        const detailText = (() => {
+          if (log.details?.title_changed && log.details.title) return `→ "${log.details.title}"`
+          if (log.details?.filename) return log.details.filename
+          return null
+        })()
+        return (
+          <div key={log.id} className="flex gap-3">
+            <div className="flex flex-col items-center gap-0.5 shrink-0">
+              <div className={cn("w-1.5 h-1.5 rounded-full mt-1.5", meta.dot)} />
+              <div className="w-px flex-1 bg-muted/50" />
+            </div>
+            <div className="pb-3">
+              <div className="flex items-baseline gap-1.5 flex-wrap">
+                <span className="text-[11px] font-semibold text-foreground/60">{log.user_name}</span>
+                <span className="text-[10px] text-muted-foreground/60">{meta.text}</span>
+              </div>
+              {detailText && (
+                <p className="text-[9px] text-muted-foreground/40 mt-0.5 font-mono truncate max-w-[180px]">{detailText}</p>
+              )}
+              <p className="text-[9px] text-white/15 mt-0.5">
+                {new Date(log.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+              </p>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Right Panel ───────────────────────────────────────────────────────────────
+
+function RightPanel({
+  item, tab, onTabChange, onClose, relatedItems, loadingRelated,
+  approvalStatus, approvalNote, signedUrl, onSetNote, onApprove, onRequestChanges, onOpenRelated,
+}: {
+  item: VaultItem; tab: RightPanelTab; onTabChange: (t: RightPanelTab) => void; onClose: () => void
+  relatedItems: RelatedItem[]; loadingRelated: boolean
+  approvalStatus: ApprovalStatus; approvalNote: string; signedUrl: string | null
+  onSetNote: (v: string) => void; onApprove: () => void; onRequestChanges: () => void
+  onOpenRelated: (item: VaultItem) => void
+}) {
+  const TABS: { key: RightPanelTab; label: string }[] = [
+    { key: "context", label: "Context" },
+    { key: "approval", label: "Approval" },
+    { key: "comments", label: "Comments" },
+    { key: "activity", label: "Activity" },
+  ]
+
+  return (
+    <div className="w-72 shrink-0 border-l border-border/50 flex flex-col bg-background overflow-hidden">
+      {/* Header */}
+      <div className="px-3 py-2.5 border-b border-border/50 flex items-center gap-2">
+        <button onClick={onClose} className="w-6 h-6 flex items-center justify-center rounded hover:bg-muted/50 text-muted-foreground/50 hover:text-foreground/60 transition-colors">
+          <X size={11} />
+        </button>
+        <p className="flex-1 text-[11px] font-semibold text-foreground/70 truncate min-w-0">{item.title}</p>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex border-b border-border/50">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => onTabChange(t.key)}
+            className={cn(
+              "flex-1 px-2 py-2.5 text-[10px] font-semibold transition-all border-b-2 -mb-px",
+              tab === t.key ? "text-violet-400 border-violet-500" : "text-muted-foreground/50 border-transparent hover:text-muted-foreground"
+            )}
           >
-            <ExternalLink size={11} />
-            <span className="truncate">{item.link_url}</span>
-          </a>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto p-3 space-y-4">
+
+        {tab === "context" && (
+          <>
+            <div className="flex items-center gap-2 px-2.5 py-2 bg-violet-500/8 border border-violet-500/15 rounded-lg">
+              <Sparkles size={9} className="text-violet-400 shrink-0" />
+              <span className="text-[10px] text-muted-foreground/80">
+                {item.embedding_status === "embedded"
+                  ? <><span className="text-violet-400 font-semibold">Vectorised</span> · pgvector indexed</>
+                  : item.embedding_status === "pending" ? "Embedding in progress…"
+                    : "Not yet vectorised"}
+              </span>
+            </div>
+
+            <div>
+              <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/40 mb-2">AI Memory — Related</p>
+              {loadingRelated && (
+                <div className="flex items-center gap-2 py-2">
+                  <Loader2 size={11} className="animate-spin text-violet-400/50" />
+                  <span className="text-[10px] text-muted-foreground/50">Searching vault…</span>
+                </div>
+              )}
+              {!loadingRelated && relatedItems.length === 0 && (
+                <p className="text-[10px] text-muted-foreground/40">No related items found yet.</p>
+              )}
+              {relatedItems.map((rel) => {
+                const tc = TYPE_CONFIG[rel.item.item_type as ItemType]
+                return (
+                  <button
+                    key={rel.item.id}
+                    onClick={() => onOpenRelated(rel.item)}
+                    className="w-full flex items-center gap-2.5 p-2 bg-muted/30 border border-border/50 rounded-lg hover:border-violet-500/25 transition-all mb-2 text-left"
+                  >
+                    <div className={cn("w-7 h-7 rounded-lg flex items-center justify-center shrink-0", tc.color.split(" ")[0])}>
+                      <span className={tc.color.split(" ")[1]}>{tc.icon}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[11px] font-medium text-foreground/70 truncate">{rel.item.title}</p>
+                      <p className="text-[9px] text-muted-foreground/50 truncate">{rel.reason}</p>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+
+            <div>
+              <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/40 mb-2">Quick Actions</p>
+              {[
+                { icon: <MessageSquare size={11} />, label: "Draft follow-up email" },
+                { icon: <Check size={11} />, label: "Create delivery task" },
+                { icon: <Search size={11} />, label: "Find similar across projects" },
+              ].map((action) => (
+                <button key={action.label} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[11px] text-muted-foreground/80 hover:text-foreground/70 hover:bg-muted/50 transition-all mb-1 text-left">
+                  <span className="text-muted-foreground/50">{action.icon}</span>
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          </>
         )}
 
-        {/* Footer */}
-        <div className="flex items-center justify-between pt-1 border-t border-border/40">
-          <div className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded-md capitalize", addedByColor)}>
-            {item.added_by_type}
+        {tab === "approval" && (
+          <div className="space-y-4">
+            {/* Approval status */}
+            <div className="p-3 bg-muted/30 border border-border rounded-xl space-y-3">
+              <div className="flex items-center gap-2 text-[11px] font-semibold text-foreground/70">
+                <Clock size={13} className="text-amber-400" />Deliverable Approval
+              </div>
+              {approvalStatus === "none" && (
+                <div className="flex items-center gap-3 p-2.5 bg-amber-500/8 border border-amber-500/20 rounded-lg">
+                  <Clock size={13} className="text-amber-400 shrink-0" />
+                  <span className="text-[11px] text-muted-foreground">Awaiting approval</span>
+                </div>
+              )}
+              {approvalStatus === "approved" && (
+                <div className="flex items-center gap-2 p-2.5 bg-emerald-500/10 border border-emerald-500/25 rounded-lg">
+                  <Check size={13} className="text-emerald-400" />
+                  <span className="text-[11px] text-emerald-400 font-semibold">Approved</span>
+                </div>
+              )}
+              {approvalStatus === "changes_requested" && (
+                <div className="flex items-center gap-2 p-2.5 bg-red-500/10 border border-red-500/20 rounded-lg">
+                  <AlertCircle size={13} className="text-red-400" />
+                  <span className="text-[11px] text-red-400">Changes requested</span>
+                </div>
+              )}
+              {approvalStatus === "none" && (
+                <div className="flex gap-2">
+                  <button onClick={onApprove} className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-emerald-500/10 border border-emerald-500/25 rounded-lg text-[11px] font-semibold text-emerald-400 hover:bg-emerald-500/20 transition-colors">
+                    <Check size={12} />Approve
+                  </button>
+                  <button onClick={onRequestChanges} className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-red-500/8 border border-red-500/20 rounded-lg text-[11px] font-semibold text-red-400 hover:bg-red-500/15 transition-colors">
+                    <AlertCircle size={12} />Changes
+                  </button>
+                </div>
+              )}
+              <textarea
+                value={approvalNote}
+                onChange={(e) => onSetNote(e.target.value)}
+                placeholder="Add a note for the client (optional)…"
+                rows={2}
+                className="w-full bg-muted/40 border border-border rounded-lg px-3 py-2 text-[11px] text-foreground/60 placeholder:text-muted-foreground/40 outline-none focus:border-violet-500/30 resize-none"
+              />
+            </div>
+
+            {/* File preview — ONLY for types that render inline (PDF, images) */}
+            {(() => {
+              const storagePath = item.storage_path || ""
+              const ext = (storagePath.split(".").pop() || "").toLowerCase()
+              const inlinePreviewable = ["pdf", "jpg", "jpeg", "png", "gif", "webp", "svg", "bmp"].includes(ext)
+
+              if (signedUrl && inlinePreviewable) {
+                return (
+                  <div className="w-full rounded-xl overflow-hidden border border-border bg-muted/30" style={{ height: 240 }}>
+                    <iframe src={signedUrl} className="w-full h-full border-0" title={item.title} />
+                  </div>
+                )
+              }
+
+              if (signedUrl) {
+                return (
+                  <div className="p-3 bg-muted/30 border border-border rounded-xl flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-muted/50 flex items-center justify-center text-muted-foreground/60 text-[10px] font-bold uppercase">
+                      {ext || "?"}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[11px] font-medium text-foreground/70 truncate">{item.title}</p>
+                      <p className="text-[9px] text-muted-foreground/60 mt-0.5">Preview not available for this file type</p>
+                    </div>
+                    <a
+
+                      href={signedUrl}
+                      download
+                      onClick={(e) => e.stopPropagation()}
+                      className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 bg-muted/50 border border-border rounded-lg text-[10px] text-muted-foreground hover:text-foreground/80 transition-colors"
+                    >
+                      <Download size={10} />Download
+                    </a>
+                  </div>
+                )
+              }
+
+              return null
+            })()}
           </div>
-          <div className="flex items-center gap-2">
-            <Badge variant="outline" className="text-[9px] h-4 px-1.5 font-medium">
-              {item.document_type}
-            </Badge>
-            <span className="text-[10px] text-muted-foreground">
-              {new Date(item.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-            </span>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+        )}
+
+        {tab === "comments" && <CommentsPanel itemId={item.id} />}
+
+        {tab === "activity" && (
+          <ActivityPanel item={item} />
+        )}
+      </div>
+    </div>
   )
 }

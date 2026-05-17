@@ -1,7 +1,7 @@
 /**
  * FILE LOCATION: app/api/google/disconnect/route.ts
  *
- * PURPOSE: Disconnects the user's Google account from Command Center.
+ * PURPOSE: Disconnects the user's Google account from Kobin Ai.
  * Called when user clicks "Disconnect" in Settings.
  *
  * URL it handles: POST /api/google/disconnect

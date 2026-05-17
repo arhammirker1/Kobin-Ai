@@ -18,6 +18,13 @@ export function PushProvider() {
   const registerPush = async () => {
     console.log("[Push] Starting registration...")
 
+    // Skip web push entirely when running inside Electron desktop app —
+    // DesktopNotificationProvider handles native notifications there.
+    if ((window as any).electron?.isDesktop) {
+      console.log("[Push] ❌ Desktop app detected — skipping web push (native notifications active)")
+      return
+    }
+
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
       console.log("[Push] ❌ Not supported in this browser")
       return

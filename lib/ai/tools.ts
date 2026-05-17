@@ -27,6 +27,7 @@ OPTIONAL parameters (use EXACT names):
 RULES: Call ONCE per task. Use read tools first to resolve team member names and project names.`,
       parameters: {
         type: "object",
+        additionalProperties: false,
         properties: {
           title: { type: "string", description: "The task title. REQUIRED. Use ONLY 'title', never 'task_name' or 'name'." },
           notes: { type: "string", description: "Additional context or description. Use ONLY 'notes', never 'description'." },
@@ -78,7 +79,8 @@ RULES: Call ONCE per task. Use read tools first to resolve team member names and
                 url: { type: "string" },
                 label: { type: "string" },
               },
-              required: ["url", "label"],
+              additionalProperties: false,
+              required: ["url"],
             },
             description: "External URLs to attach. Each item must have 'url' and 'label'.",
           },
@@ -92,9 +94,10 @@ RULES: Call ONCE per task. Use read tools first to resolve team member names and
     type: "function" as const,
     function: {
       name: "update_task",
-      description: `Update an existing task by title (fuzzy match). Only include fields to change. Same name resolution as create_task.`,
+      description: `Update an existing task by title (fuzzy match). Only include fields to change. IMPORTANT: use primitive JSON values only (no nested object wrappers for scalar fields). Same name resolution as create_task.`,
       parameters: {
         type: "object",
+        additionalProperties: false,
         properties: {
           task_title: { type: "string", description: "Task title to find (fuzzy match)" },
           new_title: { type: "string", description: "New title if renaming" },
@@ -118,7 +121,8 @@ RULES: Call ONCE per task. Use read tools first to resolve team member names and
                 url: { type: "string" },
                 label: { type: "string" },
               },
-              required: ["url", "label"],
+              additionalProperties: false,
+              required: ["url"],
             },
           },
         },
@@ -133,11 +137,18 @@ RULES: Call ONCE per task. Use read tools first to resolve team member names and
       description: `Delete a task by title (fuzzy match). Always set needs_confirmation=true.`,
       parameters: {
         type: "object",
+        additionalProperties: false,
         properties: {
           task_title: { type: "string", description: "Task title to find" },
-          needs_confirmation: { type: "boolean", description: "Must be true" },
+          needs_confirmation: {
+            anyOf: [
+              { type: "boolean" },
+              { type: "string", enum: ["true", "false"] },
+            ],
+            description: "Must resolve to true. String values are accepted and normalized.",
+          },
         },
-        required: ["task_title", "needs_confirmation"],
+        required: ["task_title"],
       },
     },
   },
@@ -152,11 +163,78 @@ RULES: Call ONCE per task. Use read tools first to resolve team member names and
           name: { type: "string", description: "Project name" },
           description: { type: "string" },
           priority: { type: "string", enum: ["low", "medium", "high", "urgent"] },
-          status: { type: "string", enum: ["active", "on-hold", "completed", "cancelled"] },
+          status: { type: "string", enum: ["active", "on-hold", "completed", "archived"] },
           start_date: { type: "string", description: "ISO date (YYYY-MM-DD)" },
           end_date: { type: "string", description: "ISO date (YYYY-MM-DD)" },
         },
         required: ["name"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "search_messages",
+      description: "Search across ALL chat rooms and DMs for messages matching a query. Use this when user asks what someone said, or to find context from past conversations.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Search query" },
+          person_name: { type: "string", description: "Optional — filter by sender name" },
+          project_name: { type: "string", description: "Optional — filter by project room" },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "update_deal_stage",
+      description: "Move a CRM deal/lead to a new pipeline stage.",
+      parameters: {
+        type: "object",
+        properties: {
+          contact_name: { type: "string", description: "Contact name (fuzzy match)" },
+          new_stage: {
+            type: "string",
+            enum: ["new_lead", "contacted", "meeting_booked", "proposal", "negotiating", "closed_won", "closed_lost"],
+          },
+        },
+        required: ["contact_name", "new_stage"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "send_message_to_room",
+      description: "Send a message to a project channel or DM. Use when user says 'tell Ahmed' or 'post in Reelix channel'.",
+      parameters: {
+        type: "object",
+        properties: {
+          recipient_name: { type: "string", description: "Person name for DM, or project name for channel" },
+          message: { type: "string", description: "The message to send" },
+          needs_confirmation: { type: "boolean", description: "Always true — confirm before sending" },
+        },
+        required: ["recipient_name", "message"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "analyze_workspace",
+      description: "Run full workspace intelligence analysis — risk detection, bottleneck detection, priority ranking, team load. Use for 'what should I focus on', 'what's at risk', 'give me a status report'.",
+      parameters: {
+        type: "object",
+        properties: {
+          focus: {
+            type: "string",
+            enum: ["all", "risks", "team", "pipeline", "projects"],
+            description: "What to focus on. Default: all",
+          },
+        },
       },
     },
   },
@@ -172,7 +250,7 @@ RULES: Call ONCE per task. Use read tools first to resolve team member names and
           new_name: { type: "string" },
           description: { type: "string" },
           priority: { type: "string", enum: ["low", "medium", "high", "urgent"] },
-          status: { type: "string", enum: ["active", "on-hold", "completed", "cancelled"] },
+          status: { type: "string", enum: ["active", "on-hold", "completed", "archived"] },
           start_date: { type: "string" },
           end_date: { type: "string" },
         },
@@ -194,6 +272,10 @@ export type AIToolName =
   | "delete_task"
   | "create_project"
   | "update_project"
+  | "search_messages"
+  | "update_deal_stage"
+  | "send_message_to_room"
+  | "analyze_workspace"
 
 export type AnyToolName = ReadToolName | AIToolName
 
@@ -205,5 +287,10 @@ export const READ_TOOL_NAMES = new Set<string>([
   "get_crm_pipeline",
   "get_calendar",
   "get_vault_files",
+  "get_task_creation_context",
   "search_contacts",
+  "get_meeting_notes",
+  "vault_semantic_search",  // ← was missing; caused 4-step loop + Unknown tool errors
+  // analyze_workspace is read-like but returns synthesized data
+  "analyze_workspace",
 ])

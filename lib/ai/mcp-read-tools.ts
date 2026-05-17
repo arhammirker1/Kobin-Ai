@@ -3,6 +3,7 @@
 // to fetch exactly what it needs, when it needs it.
 
 import { supabaseAdmin } from "@/lib/supabase/admin"
+import { withCache, CK } from "@/lib/redis"
 import type { TeamMemberContext, ProjectContext } from "./action-executor"
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -73,7 +74,7 @@ export const READ_TOOLS = [
         properties: {
           status: {
             type: "string",
-            enum: ["active", "on-hold", "completed", "cancelled", "all"],
+            enum: ["active", "on-hold", "completed", "archived", "all"],
             description: "Filter by status. Default: all",
           },
           name: {
@@ -89,8 +90,16 @@ export const READ_TOOLS = [
     function: {
       name: "get_team_workload",
       description:
-        "Get all team members with their active task counts and workload level (FREE/LIGHT/MODERATE/HEAVY). Use before assigning tasks.",
-      parameters: { type: "object", properties: {}, required: [] },
+        "Get team members with active/overdue/blocked counts and workload level (FREE/LIGHT/MODERATE/HEAVY). Use before assigning tasks. Optional name filter to inspect one person.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            description: "Optional team member name filter (fuzzy match).",
+          },
+        },
+      },
     },
   },
   {
@@ -167,6 +176,23 @@ export const READ_TOOLS = [
   {
     type: "function" as const,
     function: {
+      name: "get_task_creation_context",
+      description:
+        "Call this ONCE before creating or updating a task. Returns team members with workload, all active projects with IDs, and vault files for the specified project. Use the exact names returned here in create_task/update_task calls.",
+      parameters: {
+        type: "object",
+        properties: {
+          project_name: {
+            type: "string",
+            description: "Optional. If provided, also returns vault files for this project.",
+          },
+        },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
       name: "search_contacts",
       description:
         "Look up a specific contact/lead/investor by name. Returns full profile, pipeline stage, deal details, upcoming meetings, and recent email threads. Use this when the user asks about a specific person.",
@@ -182,6 +208,53 @@ export const READ_TOOLS = [
       },
     },
   },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_meeting_notes",
+      description:
+        "Query past meeting recordings and AI analyses. Search by contact name, topic, or date. Returns summaries, decisions, action items, and CRM updates from meetings.",
+      parameters: {
+        type: "object",
+        properties: {
+          contact_name: {
+            type: "string",
+            description: "Filter by participant/contact name (fuzzy match)",
+          },
+          topic: {
+            type: "string",
+            description: "Search for a keyword or topic in meeting transcripts",
+          },
+          range: {
+            type: "string",
+            enum: ["last_7_days", "last_30_days", "last_90_days", "all"],
+            description: "Time range to search. Default: last_30_days",
+          },
+          limit: {
+            type: "number",
+            description: "Max results (default 5, max 10)",
+          },
+        },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "vault_semantic_search",
+      description:
+        "Semantically search the founder's vault by meaning, not just keywords. Use when the user asks to 'find documents about X', 'what files do we have on Y', or needs vault context.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Natural language search query" },
+          project_name: { type: "string", description: "Optional: limit to a project" },
+          limit: { type: "number", description: "Max results (default 5)" },
+        },
+        required: ["query"],
+      },
+    },
+  },
 ] as const
 
 export type ReadToolName =
@@ -192,7 +265,10 @@ export type ReadToolName =
   | "get_crm_pipeline"
   | "get_calendar"
   | "get_vault_files"
+  | "get_task_creation_context"
   | "search_contacts"
+  | "get_meeting_notes"
+  | "vault_semantic_search"
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -219,15 +295,21 @@ export async function executeReadTool(
     case "get_projects":
       return execGetProjects(args, founderId)
     case "get_team_workload":
-      return execTeamWorkload(founderId)
+      return execTeamWorkload(args, founderId)
     case "get_crm_pipeline":
       return execCRM(args, founderId)
     case "get_calendar":
       return execCalendar(args, founderId)
     case "get_vault_files":
       return execVault(args, founderId)
+    case "get_task_creation_context":
+      return execTaskCreationContext(args, founderId)
     case "search_contacts":
       return execSearchContacts(args, founderId)
+    case "get_meeting_notes":
+      return execMeetingNotes(args, founderId)
+    case "vault_semantic_search":
+      return execVaultSemanticSearch(args, founderId)
     default:
       return { content: `Unknown read tool: ${toolName}` }
   }
@@ -243,7 +325,7 @@ async function execOverview(founderId: string): Promise<ReadToolResult> {
   const [tasksRes, projectsRes, teamRes, dealsRes, eventsRes] = await Promise.all([
     supabaseAdmin
       .from("tasks")
-      .select("id, status, priority, due_date, is_completed")
+      .select("id, title, status, priority, due_date, project_id, is_completed")
       .eq("user_id", founderId)
       .eq("is_completed", false),
     supabaseAdmin
@@ -286,6 +368,7 @@ async function execOverview(founderId: string): Promise<ReadToolResult> {
   const today = tasks.filter((t) => t.due_date && new Date(t.due_date) <= todayEnd).length
   const byPriority = { urgent: 0, high: 0, medium: 0, low: 0 } as Record<string, number>
   tasks.forEach((t) => { if (t.priority && byPriority[t.priority] !== undefined) byPriority[t.priority]++ })
+  const projectMap = Object.fromEntries(projects.map((p) => [p.id, p.name]))
 
   const lines: string[] = []
   lines.push(`## Task Overview`)
@@ -317,6 +400,37 @@ async function execOverview(founderId: string): Promise<ReadToolResult> {
   )
 
   lines.push(`\n## Calendar: ${eventsRes.data?.length || 0} events this week`)
+
+  const topOverdue = tasks
+    .filter((t) => t.due_date && new Date(t.due_date) < now)
+    .sort((a, b) => new Date(a.due_date!).getTime() - new Date(b.due_date!).getTime())
+    .slice(0, 5)
+  if (topOverdue.length > 0) {
+    lines.push(`\n## Critical Overdue Tasks`)
+    topOverdue.forEach((t) => {
+      const projectName = t.project_id ? projectMap[t.project_id] || "Unlinked" : "Unlinked"
+      lines.push(`- [${PRI[t.priority] || "M"}] ${t.title} | ${projectName} | due ${shortDate(t.due_date)}`)
+    })
+  }
+
+  const upcomingDeadlines = tasks
+    .filter((t) => t.due_date && new Date(t.due_date) >= now)
+    .sort((a, b) => new Date(a.due_date!).getTime() - new Date(b.due_date!).getTime())
+    .slice(0, 5)
+  if (upcomingDeadlines.length > 0) {
+    lines.push(`\n## Upcoming Task Deadlines`)
+    upcomingDeadlines.forEach((t) => {
+      const projectName = t.project_id ? projectMap[t.project_id] || "Unlinked" : "Unlinked"
+      lines.push(`- ${t.title} | ${projectName} | due ${shortDate(t.due_date)}`)
+    })
+  }
+
+  if (staleDeals.length > 0) {
+    lines.push(`\n## Stale Deals (14+ days in stage)`)
+    staleDeals.slice(0, 5).forEach((d) => {
+      lines.push(`- ${d.pipeline_stage} | $${(d.deal_value || 0).toLocaleString()} | entered ${shortDate(d.stage_entered_at)}`)
+    })
+  }
 
   return { content: lines.join("\n") }
 }
@@ -444,17 +558,31 @@ async function execGetProjects(
 ): Promise<ReadToolResult> {
   const { status = "all", name } = args
 
-  let query = supabaseAdmin
-    .from("projects")
-    .select("id, name, description, status, priority, start_date, end_date")
-    .eq("founder_id", founderId)
-    .order("updated_at", { ascending: false })
+  // Use cache only for unfiltered full list (used by task creation context)
+  const fetchProjects = async () => {
+    let query = supabaseAdmin
+      .from("projects")
+      .select("id, name, description, status, priority, start_date, end_date")
+      .eq("founder_id", founderId)
+      .order("updated_at", { ascending: false })
 
-  if (status && status !== "all") query = query.eq("status", status)
-  if (name) query = query.ilike("name", `%${name}%`)
+    if (status && status !== "all") query = query.eq("status", status)
+    if (name) query = query.ilike("name", `%${name}%`)
 
-  const { data: projects, error } = await query
-  if (error) return { content: `Error: ${error.message}`, projectData: [] }
+    const { data, error } = await query
+    if (error) return { data: null, error }
+    return { data, error: null }
+  }
+
+  const useCache = (!status || status === "all") && !name
+  const { data: projects, error } = useCache
+    ? await withCache(CK.projects(founderId), 60, async () => {
+      const result = await fetchProjects()
+      return result.data
+    }).then(data => ({ data, error: null }))
+    : await fetchProjects()
+
+  if (error) return { content: `Error: ${(error as any).message}`, projectData: [] }
   if (!projects || projects.length === 0) return { content: "No projects found.", projectData: [] }
 
   // Get task counts per project
@@ -496,39 +624,55 @@ async function execGetProjects(
   return { content: lines.join("\n"), projectData }
 }
 
-async function execTeamWorkload(founderId: string): Promise<ReadToolResult> {
-  const { data: members } = await supabaseAdmin
-    .from("team_members")
-    .select(
-      "user_id, position, is_active, profile:profiles!team_members_user_id_profiles_fkey(full_name, email)"
-    )
-    .eq("founder_id", founderId)
-    .eq("is_active", true)
+async function execTeamWorkload(args: Record<string, any>, founderId: string): Promise<ReadToolResult> {
+  const nameFilter = (args.name || "").toString().trim().toLowerCase()
+  const members = await withCache(CK.teamWorkload(founderId), 30, async () => {
+    const { data } = await supabaseAdmin
+      .from("team_members")
+      .select(
+        "user_id, position, is_active, profile:profiles!team_members_user_id_profiles_fkey(full_name, email)"
+      )
+      .eq("founder_id", founderId)
+      .eq("is_active", true)
+    return data || []
+  })
 
   if (!members || members.length === 0) return { content: "No active team members.", teamData: [] }
 
-  // Count active tasks per member
+  // Count active/overdue/blocked tasks per member
   const { data: tasks } = await supabaseAdmin
     .from("tasks")
-    .select("assigned_to")
+    .select("assigned_to, status, due_date")
     .eq("user_id", founderId)
     .eq("is_completed", false)
 
-  const counts: Record<string, number> = {}
+  const counts: Record<string, { active: number; overdue: number; blocked: number }> = {}
+  const now = new Date()
   for (const t of tasks || []) {
-    if (t.assigned_to) counts[t.assigned_to] = (counts[t.assigned_to] || 0) + 1
+    if (!t.assigned_to) continue
+    if (!counts[t.assigned_to]) counts[t.assigned_to] = { active: 0, overdue: 0, blocked: 0 }
+    counts[t.assigned_to].active += 1
+    if (t.status === "blocked") counts[t.assigned_to].blocked += 1
+    if (t.due_date && new Date(t.due_date) < now) counts[t.assigned_to].overdue += 1
   }
 
-  const teamData: TeamMemberContext[] = members.map((m: any) => ({
+  let teamData: TeamMemberContext[] = members.map((m: any) => ({
     user_id: m.user_id,
     full_name: m.profile?.full_name || "Unknown",
     position: m.position || "",
-    active_task_count: counts[m.user_id] || 0,
+    active_task_count: counts[m.user_id]?.active || 0,
   }))
+
+  if (nameFilter) {
+    teamData = teamData.filter((m) => m.full_name.toLowerCase().includes(nameFilter))
+  }
 
   const sorted = [...teamData].sort((a, b) => a.active_task_count - b.active_task_count)
 
-  const lines = [`Team (${sorted.length} members):`]
+  const lines = [nameFilter ? `Team workload (filtered: ${nameFilter})` : `Team (${sorted.length} members):`]
+  if (sorted.length === 0) {
+    return { content: `No team members found for "${nameFilter}".`, teamData: [] }
+  }
   for (const m of sorted) {
     const load =
       m.active_task_count === 0
@@ -539,7 +683,7 @@ async function execTeamWorkload(founderId: string): Promise<ReadToolResult> {
             ? "MODERATE"
             : "HEAVY"
     lines.push(
-      `- ${m.full_name} | ${m.position} | ${m.active_task_count} tasks [${load}]`
+      `- ${m.full_name} | ${m.position} | ${m.active_task_count} active | ${counts[m.user_id]?.overdue || 0} overdue | ${counts[m.user_id]?.blocked || 0} blocked [${load}]`
     )
   }
 
@@ -612,8 +756,8 @@ async function execCRM(
     for (const d of inStage) {
       const days = d.stage_entered_at
         ? Math.floor(
-            (now.getTime() - new Date(d.stage_entered_at).getTime()) / (1000 * 60 * 60 * 24)
-          )
+          (now.getTime() - new Date(d.stage_entered_at).getTime()) / (1000 * 60 * 60 * 24)
+        )
         : 0
       const val = d.deal_value ? ` | $${d.deal_value.toLocaleString()}` : ""
       const prob = d.close_probability != null ? ` @ ${d.close_probability}%` : ""
@@ -649,83 +793,86 @@ async function execCalendar(
   founderId: string
 ): Promise<ReadToolResult> {
   const { range = "next_7_days" } = args
-  const now = new Date()
 
-  let gte: string
-  let lte: string
-  let ascending = true
-  let label = ""
+  return withCache(CK.calendar(founderId, range), 300, async () => {
+    const now = new Date()
 
-  switch (range) {
-    case "today": {
-      gte = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
-      lte = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).toISOString()
-      label = "Today's events"
-      break
+    let gte: string
+    let lte: string
+    let ascending = true
+    let label = ""
+
+    switch (range) {
+      case "today": {
+        gte = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
+        lte = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).toISOString()
+        label = "Today's events"
+        break
+      }
+      case "this_week": {
+        const dayOfWeek = now.getDay()
+        const weekStart = new Date(now.getTime() - dayOfWeek * 24 * 60 * 60 * 1000)
+        weekStart.setHours(0, 0, 0, 0)
+        const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000 - 1)
+        gte = weekStart.toISOString()
+        lte = weekEnd.toISOString()
+        label = "This week"
+        break
+      }
+      case "next_14_days":
+        gte = now.toISOString()
+        lte = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString()
+        label = "Next 14 days"
+        break
+      case "past_7_days":
+        gte = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+        lte = now.toISOString()
+        ascending = false
+        label = "Past 7 days"
+        break
+      case "past_30_days":
+        gte = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+        lte = now.toISOString()
+        ascending = false
+        label = "Past 30 days"
+        break
+      default:
+        gte = now.toISOString()
+        lte = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+        label = "Next 7 days"
     }
-    case "this_week": {
-      const dayOfWeek = now.getDay()
-      const weekStart = new Date(now.getTime() - dayOfWeek * 24 * 60 * 60 * 1000)
-      weekStart.setHours(0, 0, 0, 0)
-      const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000 - 1)
-      gte = weekStart.toISOString()
-      lte = weekEnd.toISOString()
-      label = "This week"
-      break
+
+    const { data: events, error } = await supabaseAdmin
+      .from("events")
+      .select("id, title, start_time, end_time, type, purpose, meeting_link, outcome")
+      .eq("user_id", founderId)
+      .gte("start_time", gte)
+      .lte("start_time", lte)
+      .order("start_time", { ascending })
+      .limit(15)
+
+    if (error) return { content: `Error: ${error.message}` }
+    if (!events || events.length === 0)
+      return { content: `No events found (${label}).` }
+
+    const lines = [`${label} (${events.length}):`]
+    for (const e of events) {
+      const date = new Date(e.start_time).toLocaleString("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      })
+      let line = `- ${date} | ${e.title} | ${e.type}`
+      if (e.purpose) line += ` | ${e.purpose}`
+      if (e.meeting_link) line += ` | has link`
+      if (e.outcome) line += ` | outcome: ${e.outcome.slice(0, 60)}`
+      lines.push(line)
     }
-    case "next_14_days":
-      gte = now.toISOString()
-      lte = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString()
-      label = "Next 14 days"
-      break
-    case "past_7_days":
-      gte = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-      lte = now.toISOString()
-      ascending = false
-      label = "Past 7 days"
-      break
-    case "past_30_days":
-      gte = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-      lte = now.toISOString()
-      ascending = false
-      label = "Past 30 days"
-      break
-    default:
-      gte = now.toISOString()
-      lte = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
-      label = "Next 7 days"
-  }
 
-  const { data: events, error } = await supabaseAdmin
-    .from("events")
-    .select("id, title, start_time, end_time, type, purpose, meeting_link, outcome")
-    .eq("user_id", founderId)
-    .gte("start_time", gte)
-    .lte("start_time", lte)
-    .order("start_time", { ascending })
-    .limit(15)
-
-  if (error) return { content: `Error: ${error.message}` }
-  if (!events || events.length === 0)
-    return { content: `No events found (${label}).` }
-
-  const lines = [`${label} (${events.length}):`]
-  for (const e of events) {
-    const date = new Date(e.start_time).toLocaleString("en-US", {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    })
-    let line = `- ${date} | ${e.title} | ${e.type}`
-    if (e.purpose) line += ` | ${e.purpose}`
-    if (e.meeting_link) line += ` | has link`
-    if (e.outcome) line += ` | outcome: ${e.outcome.slice(0, 60)}`
-    lines.push(line)
-  }
-
-  return { content: lines.join("\n") }
+    return { content: lines.join("\n") }
+  })
 }
 
 async function execVault(
@@ -733,16 +880,38 @@ async function execVault(
   founderId: string
 ): Promise<ReadToolResult> {
   const { project_name, search } = args
+  const normalizedProjectName =
+    typeof project_name === "string" ? project_name.replace(/^project\s+/i, "").trim() : project_name
+
+  // Create cache key from args (only cache if no search term)
+  const cacheKey = `vault:${founderId}:${normalizedProjectName || "all"}:${search || "none"}`
+
+  // Only use cache for unfiltered queries (search queries are unique)
+  const useCache = !search
+
+  if (useCache) {
+    return withCache(cacheKey, 600, async () => _execVault(args, founderId, normalizedProjectName))
+  }
+
+  return _execVault(args, founderId, normalizedProjectName)
+}
+
+async function _execVault(
+  args: Record<string, any>,
+  founderId: string,
+  normalizedProjectName: string | null
+): Promise<ReadToolResult> {
+  const { project_name, search } = args
 
   // Resolve project
   let projectId: string | null = null
   let projectLabel = "All projects"
-  if (project_name) {
+  if (normalizedProjectName) {
     const { data } = await supabaseAdmin
       .from("projects")
       .select("id, name")
       .eq("founder_id", founderId)
-      .ilike("name", `%${project_name}%`)
+      .ilike("name", `%${normalizedProjectName}%`)
       .limit(1)
     if (data?.[0]) {
       projectId = data[0].id
@@ -788,6 +957,119 @@ async function execVault(
   }
 
   return { content: lines.join("\n") }
+}
+
+async function execTaskCreationContext(
+  args: Record<string, any>,
+  founderId: string
+): Promise<ReadToolResult> {
+  const { project_name } = args
+  const now = new Date()
+  // Run team + projects in parallel (both Redis-cached)
+  const [members, projects] = await Promise.all([
+    withCache(CK.teamWorkload(founderId), 30, async () => {
+      const { data } = await supabaseAdmin
+        .from("team_members")
+        .select(
+          "user_id, position, is_active, profile:profiles!team_members_user_id_profiles_fkey(full_name, email)"
+        )
+        .eq("founder_id", founderId)
+        .eq("is_active", true)
+      return data || []
+    }),
+    withCache(CK.projects(founderId), 60, async () => {
+      const { data } = await supabaseAdmin
+        .from("projects")
+        .select("id, name, status, priority")
+        .eq("founder_id", founderId)
+        .in("status", ["active", "on-hold"])
+        .order("name")
+      return data || []
+    }),
+  ])
+
+  // (members and projects already resolved above)
+
+  // Task counts per member
+  const { data: tasks } = await supabaseAdmin
+    .from("tasks")
+    .select("assigned_to, status, due_date")
+    .eq("user_id", founderId)
+    .eq("is_completed", false)
+
+  const counts: Record<string, { active: number; overdue: number; blocked: number }> = {}
+  for (const t of tasks || []) {
+    if (!t.assigned_to) continue
+    if (!counts[t.assigned_to]) counts[t.assigned_to] = { active: 0, overdue: 0, blocked: 0 }
+    counts[t.assigned_to].active++
+    if (t.status === "blocked") counts[t.assigned_to].blocked++
+    if (t.due_date && new Date(t.due_date) < now) counts[t.assigned_to].overdue++
+  }
+
+  const teamData: TeamMemberContext[] = members.map((m: any) => ({
+    user_id: m.user_id,
+    full_name: m.profile?.full_name || "Unknown",
+    position: m.position || "",
+    active_task_count: counts[m.user_id]?.active || 0,
+  }))
+
+  const projectData: ProjectContext[] = projects.map(p => ({ id: p.id, name: p.name, status: p.status }))
+
+  const lines: string[] = []
+
+  lines.push("## Team Members (use exact names in assigned_to_name)")
+  const sorted = [...teamData].sort((a, b) => a.active_task_count - b.active_task_count)
+  for (const m of sorted) {
+    const load = m.active_task_count === 0 ? "FREE" : m.active_task_count <= 3 ? "LIGHT" : m.active_task_count <= 6 ? "MODERATE" : "HEAVY"
+    lines.push(`- ${m.full_name} | ${m.position} | ${m.active_task_count} tasks [${load}]`)
+  }
+
+  lines.push("\n## Active Projects (use exact names in project_name)")
+  for (const p of projects) {
+    lines.push(`- ${p.name} | ${p.status} | ${p.priority}`)
+  }
+
+  // Vault files for specified project
+  if (project_name) {
+    const normalizedName = project_name.replace(/^project\s+/i, "").trim()
+    const matched = projects.find(p =>
+      p.name.toLowerCase().includes(normalizedName.toLowerCase())
+    )
+    if (matched) {
+      const { data: folders } = await supabaseAdmin
+        .from("vault_folders")
+        .select("id")
+        .eq("project_id", matched.id)
+        .eq("founder_id", founderId)
+
+      if (folders && folders.length > 0) {
+        const folderIds = folders.map(f => f.id)
+        const { data: items } = await supabaseAdmin
+          .from("vault_items")
+          .select("title, item_type, document_type")
+          .in("folder_id", folderIds)
+          .in("item_type", ["file", "link"])
+          .order("created_at", { ascending: false })
+          .limit(20)
+
+        if (items && items.length > 0) {
+          lines.push(`\n## Vault Files for "${matched.name}" (use exact titles in vault_file_names)`)
+          for (const v of items) {
+            lines.push(`- "${v.title}" | ${v.document_type} | ${v.item_type}`)
+          }
+        }
+      }
+    } else {
+      lines.push(`\n## Vault Files\nNo project found matching "${project_name}". Available projects listed above.`)
+    }
+  } else {
+    lines.push("\n## Vault Files\nNo project_name specified — vault files not loaded. If the task needs vault attachments, re-call with project_name.")
+  }
+
+  lines.push("\n## Instructions")
+  lines.push("Use ONLY the exact names from this output in create_task or update_task. Do NOT invent project names or team member names. If the user did not mention a project, do NOT set project_name.")
+
+  return { content: lines.join("\n"), teamData, projectData }
 }
 
 async function execSearchContacts(
@@ -920,5 +1202,308 @@ async function execSearchContacts(
     lines.push("") // spacer between contacts
   }
 
+  return { content: lines.join("\n") }
+}
+
+async function execMeetingNotes(
+  args: Record<string, any>,
+  founderId: string
+): Promise<ReadToolResult> {
+  const { contact_name, topic, range = "last_30_days", limit = 5 } = args
+  const cap = Math.min(limit, 10)
+  const now = new Date()
+
+  // Determine date filter
+  let since: string
+  switch (range) {
+    case "last_7_days":
+      since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+      break
+    case "last_90_days":
+      since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
+      break
+    case "all":
+      since = "1970-01-01T00:00:00.000Z"
+      break
+    default: // last_30_days
+      since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+  }
+
+  // Fetch analyses with their recordings
+  let query = supabaseAdmin
+    .from("meeting_analyses")
+    .select(`
+      id, summary, key_decisions, action_items, sentiment, topics,
+      crm_matches, tasks_created, notes_created, analyzed_at,
+      recording:meeting_recordings_raw!inner(
+        meeting_title, duration_seconds, started_at, participant_emails, combined_transcript
+      )
+    `)
+    .eq("user_id", founderId)
+    .gte("analyzed_at", since)
+    .order("analyzed_at", { ascending: false })
+    .limit(cap)
+
+  const { data: analyses, error } = await query
+  if (error) return { content: `Error fetching meeting notes: ${error.message}` }
+  if (!analyses || analyses.length === 0) {
+    return { content: `No meeting recordings found in the ${range.replace(/_/g, " ")} range.` }
+  }
+
+  // Filter by contact name if provided
+  let filtered = analyses
+  if (contact_name) {
+    const searchLower = contact_name.toLowerCase()
+    filtered = analyses.filter((a: any) => {
+      // Check CRM matches
+      const matchesContact = (a.crm_matches || []).some(
+        (m: any) => (m.name || "").toLowerCase().includes(searchLower)
+      )
+      // Check participant emails
+      const recording = Array.isArray(a.recording) ? a.recording[0] : a.recording
+      const matchesEmail = (recording?.participant_emails || []).some(
+        (e: string) => e.toLowerCase().includes(searchLower)
+      )
+      // Check meeting title
+      const matchesTitle = (recording?.meeting_title || "").toLowerCase().includes(searchLower)
+      return matchesContact || matchesEmail || matchesTitle
+    })
+  }
+
+  // Filter by topic if provided
+  if (topic) {
+    const topicLower = topic.toLowerCase()
+    filtered = filtered.filter((a: any) => {
+      const matchesTopic = (a.topics || []).some(
+        (t: string) => t.toLowerCase().includes(topicLower)
+      )
+      const recording = Array.isArray(a.recording) ? a.recording[0] : a.recording
+      const matchesTranscript = (recording?.combined_transcript || "")
+        .toLowerCase()
+        .includes(topicLower)
+      const matchesSummary = (a.summary || "").toLowerCase().includes(topicLower)
+      return matchesTopic || matchesTranscript || matchesSummary
+    })
+  }
+
+  if (filtered.length === 0) {
+    const filterDesc = [
+      contact_name ? `contact "${contact_name}"` : "",
+      topic ? `topic "${topic}"` : "",
+    ].filter(Boolean).join(" and ")
+    return { content: `No meetings found matching ${filterDesc}.` }
+  }
+
+  const lines: string[] = [`${filtered.length} meeting(s) found:`]
+
+  for (const a of filtered) {
+    const recording = Array.isArray(a.recording) ? a.recording[0] : a.recording
+    const title = recording?.meeting_title || "Untitled"
+    const duration = recording?.duration_seconds
+      ? `${Math.round(recording.duration_seconds / 60)}min`
+      : ""
+    const date = a.analyzed_at
+      ? new Date(a.analyzed_at).toLocaleDateString("en-US", {
+        month: "short", day: "numeric", year: "numeric",
+      })
+      : ""
+
+    lines.push(`\n## ${title} (${date}${duration ? ` · ${duration}` : ""})`)
+    lines.push(`Sentiment: ${a.sentiment || "neutral"} | Topics: ${(a.topics || []).join(", ") || "none"}`)
+
+    if (a.summary) lines.push(`Summary: ${a.summary}`)
+
+    // Decisions
+    const decisions = a.key_decisions || []
+    if (decisions.length > 0) {
+      lines.push(`Decisions (${decisions.length}):`)
+      for (const d of decisions) {
+        lines.push(`- ${d.decision}${d.decided_by ? ` (by ${d.decided_by})` : ""}`)
+      }
+    }
+
+    // Action items
+    const actions = a.action_items || []
+    if (actions.length > 0) {
+      lines.push(`Action items (${actions.length}):`)
+      for (const item of actions) {
+        lines.push(`- [${item.priority || "M"}] ${item.action}${item.assignee ? ` → ${item.assignee}` : ""}`)
+      }
+    }
+
+    // CRM changes
+    const crmChanges = (a.crm_matches || []).filter(
+      (m: any) => m.stage_before !== m.stage_after
+    )
+    if (crmChanges.length > 0) {
+      lines.push(`CRM updates:`)
+      for (const m of crmChanges) {
+        lines.push(`- ${m.name}: ${(m.stage_before || "").replace(/_/g, " ")} → ${(m.stage_after || "").replace(/_/g, " ")}`)
+      }
+    }
+  }
+
+  return { content: lines.join("\n") }
+}
+
+/**
+ * execVaultSemanticSearch
+ *
+ * Delegates to vaultSemanticSearch() from vault-rag.ts which already does:
+ *   - Chunk-level vector search (vault_chunk_search RPC) with item-level fallback
+ *   - Groups all matching chunks per document so multi-section docs surface fully
+ *   - MMR deduplication (balances relevance vs diversity)
+ *
+ * Then fetches ALL top chunks per matched document (not just the best one),
+ * so the model can compile a complete answer from a long document in one shot.
+ * This is the primary fix for "model searches 3 times because first result
+ * was incomplete" — it gets enough content the first time.
+ */
+export async function execVaultSemanticSearch(
+  args: Record<string, any>,
+  founderId: string
+): Promise<ReadToolResult> {
+  const { query, project_name, limit = 5 } = args
+  // Default 5 items, cap at 10 — each item surfaces up to 3 chunks so
+  // 5 items × 3 chunks × ~400 chars = ~6k chars, well within context budget
+  const cap = Math.min(limit, 10)
+
+  if (!query?.trim()) return { content: "No search query provided." }
+
+  // Resolve optional project filter
+  let projectId: string | null = null
+  if (project_name) {
+    const { data } = await supabaseAdmin
+      .from("projects")
+      .select("id")
+      .eq("founder_id", founderId)
+      .ilike("name", `%${project_name}%`)
+      .limit(1)
+    if (data?.[0]) projectId = data[0].id
+    else return { content: `No project found matching "${project_name}".` }
+  }
+
+  try {
+    // ── Primary: chunk-aware search via vault-rag (MMR + dedup) ───────────────
+    const { vaultSemanticSearch } = await import("@/lib/ai/vault-rag")
+    const results = await vaultSemanticSearch(founderId, query, {
+      limit: cap,
+      threshold: 0.15,
+      projectId: projectId ?? undefined,
+    })
+
+    console.log(`[VaultSearch/MCP] ${results.length} items via chunk-aware search for "${query}"`)
+
+    if (results.length === 0) {
+      // Keyword fallback — zero vector candidates
+      return execVaultKeyword(args, founderId)
+    }
+
+    // ── Fetch top-3 chunks per matched document ───────────────────────────────
+    // The vault-rag layer already identified the BEST chunk per item.
+    // Here we pull up to 3 additional ranked chunks from each document so the
+    // model can compile a complete picture of long documents without needing
+    // a second search call.
+    const itemIds = results.map((r) => r.id)
+
+    const { data: topChunks } = await supabaseAdmin
+      .from("vault_chunks")
+      .select("vault_item_id, chunk_text, chunk_index")
+      .in("vault_item_id", itemIds)
+      .order("chunk_index", { ascending: true })
+
+    // Doc-first budget: top-ranked document gets more chunks for complete context.
+    // Secondary documents get fewer — they're supporting evidence only.
+    // Rank: results[0] = best doc, results[1..] = secondary
+    const primaryDocId = results[0]?.id
+    const chunksByItem: Record<string, string[]> = {}
+
+    for (const chunk of topChunks || []) {
+      if (!chunksByItem[chunk.vault_item_id]) chunksByItem[chunk.vault_item_id] = []
+      const isPrimary = chunk.vault_item_id === primaryDocId
+      // Primary: all chunks (complete document). Secondary: 3 chunks (supporting evidence).
+      if (isPrimary || chunksByItem[chunk.vault_item_id].length < 3) {
+        chunksByItem[chunk.vault_item_id].push(chunk.chunk_text)
+      }
+    }
+
+    // Resolve project names for display
+    const pIds = [...new Set(results.map((r) => r.project_id).filter(Boolean))] as string[]
+    let pMap: Record<string, string> = {}
+    if (pIds.length > 0) {
+      const { data } = await supabaseAdmin.from("projects").select("id, name").in("id", pIds)
+      if (data) pMap = Object.fromEntries(data.map((p) => [p.id, p.name]))
+    }
+
+    const lines: string[] = [
+      `Vault semantic search — "${query}" (${results.length} documents):`,
+      `NOTE: Attribute all facts to their source document title when answering.`,
+    ]
+
+    for (const item of results) {
+      const sim = (item.similarity * 100).toFixed(0)
+      const proj = item.project_id ? (pMap[item.project_id] || "Unknown project") : "No project"
+      const matchedChunks = item.matched_chunks ?? 1
+
+      lines.push(`\n### [${sim}% match] "${item.title}" | ${item.document_type} | ${item.item_type} | ${proj}`)
+      if (item.description) lines.push(`Description: ${item.description.slice(0, 120)}`)
+      if (matchedChunks > 1) lines.push(`(${matchedChunks} sections of this document matched your query)`)
+
+      // ── Content assembly: prefer chunks, fall back to full-text fields ────────
+      const chunks = chunksByItem[item.id]
+
+      if (chunks && chunks.length > 0) {
+        // Chunks exist — stitch them with clear section separators
+        lines.push(`Document content (${chunks.length} section${chunks.length > 1 ? "s" : ""}):`)
+        for (let i = 0; i < chunks.length; i++) {
+          lines.push(chunks[i])
+          if (i < chunks.length - 1) lines.push(`---`)
+        }
+      } else {
+        // No chunks stored yet — fall back to note_content or extracted_text
+        // These come from vaultSemanticSearch results directly
+        const fallbackContent = (item.note_content || item.best_chunk_text || "").trim()
+        if (fallbackContent) {
+          lines.push(`Content:`)
+          lines.push(fallbackContent.slice(0, 1200))
+          if (fallbackContent.length > 1200) {
+            lines.push(`… [document has ${fallbackContent.length} total chars — re-search with higher limit for more sections]`)
+          }
+        } else if (item.description) {
+          lines.push(`Summary: ${item.description}`)
+        }
+      }
+    }
+
+    return { content: lines.join("\n") }
+
+  } catch (err: any) {
+    console.error("[VaultSearch/MCP] Error:", err)
+    // Graceful degradation — keyword search still returns something useful
+    return execVaultKeyword(args, founderId)
+  }
+}
+
+// Keyword fallback
+async function execVaultKeyword(
+  args: Record<string, any>,
+  founderId: string
+): Promise<ReadToolResult> {
+  const { query, limit = 5 } = args
+  const { data: items } = await supabaseAdmin
+    .from("vault_items")
+    .select("id, title, description, item_type, document_type, project_id")
+    .eq("founder_id", founderId)
+    .or(`title.ilike.%${query}%,description.ilike.%${query}%`)
+    .limit(limit)
+
+  if (!items || items.length === 0) {
+    return { content: `No vault items found matching "${query}".` }
+  }
+
+  const lines = [`Vault keyword search — "${query}" (${items.length} results):`]
+  for (const item of items) {
+    lines.push(`- "${item.title}" | ${item.document_type} | ${item.item_type}`)
+  }
   return { content: lines.join("\n") }
 }

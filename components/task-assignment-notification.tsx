@@ -93,24 +93,24 @@ export function TaskAssignmentNotification() {
   }
 
   const sendTaskPush = async (task: Task) => {
-    try {
-      await fetch("/api/push/send-self", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          payload: {
-            type: "task_assigned",
-            title: "📋 New Task Assigned",
-            body: task.title,
-            task_id: task.id,
-            priority: task.priority,
-          },
-        }),
-      })
-    } catch {
-      // non-fatal
+  const priorityEmoji = task.priority === "urgent" ? "🔴" : task.priority === "high" ? "🟠" : "📋"
+  const title = `New task assigned`
+
+  if ((window as any).electron?.isDesktop) {
+    const electron = (window as any).electron
+    if (electron?.showNotification) {
+      await electron.showNotification({
+        title,
+        body: task.title,
+        tab: "Tasks",
+        type: "task",
+        priority: task.priority,
+        priorityEmoji,
+      }).catch(() => {})
     }
   }
+  // Web push removed — desktop only
+}
 
   // No UI — all notifications are web push only
   return null

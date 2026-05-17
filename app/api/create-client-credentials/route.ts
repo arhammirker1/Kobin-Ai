@@ -36,6 +36,26 @@ export async function POST(request: Request) {
       }
     }
 
+    // ── Plan enforcement — check client limit ───────────────────────────────
+    // Resolve the founder_id: if team member, get their founder
+    let founderId = user.id
+    if (!isFounder) {
+      const { data: tm } = await supabase
+        .from("team_members")
+        .select("founder_id")
+        .eq("user_id", user.id)
+        .single()
+      if (tm?.founder_id) founderId = tm.founder_id
+    }
+    const { count: clientCount } = await supabaseAdmin
+      .from("clients")
+      .select("id", { count: "exact", head: true })
+      .eq("founder_id", founderId)
+      .eq("status", "active")
+    const { requireWithinLimit } = await import("@/lib/plan-guard")
+    const limitGuard = await requireWithinLimit(founderId, "max_clients", clientCount ?? 0)
+    if (limitGuard) return limitGuard
+
     const { data: createdUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,

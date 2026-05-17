@@ -96,7 +96,7 @@ export async function GET(
       }
     ).catch(() => {})
 
-    return NextResponse.json({ messages, threadId: id })
+    return NextResponse.json({ messages, threadId: id, googleEmail: integration.google_email })
   } catch (err) {
     const message = err instanceof Error ? err.message : "Server error"
     return NextResponse.json({ error: message }, { status: 500 })

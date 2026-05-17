@@ -1,0 +1,89 @@
+{
+  "name": "kobin-ai-desktop",
+  "version": "1.0.0",
+  "description": "Kobin AI — Your agency's operating system",
+  "main": "main.js",
+  "author": "Kobin AI <hello@kobin.team>",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "cross-env NODE_ENV=development electron .",
+    "build:win": "electron-builder --win --x64",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux",
+    "build": "electron-builder"
+  },
+  "dependencies": {
+    "electron-is-dev": "^2.0.0",
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "electron": "33.3.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "ai.kobin.desktop",
+    "productName": "Kobin AI",
+    "copyright": "Copyright © 2025 Kobin AI",
+    "directories": {
+      "output": "dist",
+      "buildResources": "../build-resources"
+    },
+"files": [
+  "main.js",
+  "preload.js",
+  "widget-preload.js",
+  "notif-preload.js",
+  "recorder-widget.html",
+  "node_modules/**/*"
+],
+    "extraResources": [
+      {
+        "from": "../build-resources/tray-icon.png",
+        "to": "tray-icon.png"
+      },
+      {
+        "from": "../build-resources/source-icon.png",
+        "to": "source-icon.png"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "../build-resources/icon.ico",
+      "artifactName": "Kobin-AI-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "deleteAppDataOnUninstall": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Kobin AI",
+      "include": "../build-resources/installer.nsh"
+    },
+    "mac": {
+      "target": ["dmg"],
+      "icon": "../build-resources/icon.icns",
+      "category": "public.app-category.productivity",
+      "entitlements": "../build-resources/entitlements.mac.plist",
+      "entitlementsInherit": "../build-resources/entitlements.mac.plist",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "artifactName": "Kobin-AI-${version}.${ext}"
+    },
+    "linux": {
+      "target": ["AppImage"],
+      "icon": "../build-resources/source-icon.png",
+      "category": "Office",
+      "artifactName": "Kobin-AI-${version}.${ext}"
+    }
+  }
+}

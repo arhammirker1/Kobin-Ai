@@ -7,32 +7,19 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/sonner"
 import { MeetingReminder } from "@/components/meeting-reminder"
 import { TaskAssignmentNotification } from "@/components/task-assignment-notification"
-import { PushProvider } from "@/components/push-provider"
+import { DesktopNotificationProvider } from "@/components/desktop-notification-provider"
 import "./globals.css"
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist" })
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" })
 
 export const metadata: Metadata = {
-  title: "Command Center",
-  description: "Your personal assistant",
+  title: "Kobin Ai",
+  description: "Your AI-powered agency operating system",
   generator: "Arham Mirkar",
   icons: {
-    icon: [
-      {
-        url: "/icon-light-32x32.png",
-        media: "(prefers-color-scheme: light)",
-      },
-      {
-        url: "/icon-dark-32x32.png",
-        media: "(prefers-color-scheme: dark)",
-      },
-      {
-        url: "/icon.svg",
-        type: "image/svg+xml",
-      },
-    ],
-    apple: "/apple-icon.png",
+    icon: "/favicon.ico",
+    apple: "/favicon.ico",
   },
 }
 
@@ -47,8 +34,8 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
           {children}
           <MeetingReminder />
-          <PushProvider />
           <TaskAssignmentNotification />
+          <DesktopNotificationProvider />
           <Toaster />
           <Analytics />
           <SpeedInsights />

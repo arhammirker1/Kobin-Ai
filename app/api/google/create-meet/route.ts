@@ -3,7 +3,7 @@
  *
  * PURPOSE: Creates a Google Calendar event with an auto-generated
  * Google Meet link. Called when a user schedules a meeting inside
- * Command Center (from Calendar, Clients, or CRM views).
+ * Kobin Ai (from Calendar, Clients, or CRM views).
  *
  * URL it handles: POST /api/google/create-meet
  *
@@ -147,7 +147,7 @@ export async function POST(request: Request) {
 
     const googleEventId = googleEvent.id
 
-    // Save the event into Command Center's events table
+    // Save the event into Kobin Ai's events table
     const { data: ccEvent, error: insertError } = await supabaseAdmin
       .from("events")
       .insert({
@@ -162,6 +162,7 @@ export async function POST(request: Request) {
         relationship_id: relationship_id || null,
         google_event_id: googleEventId,
         google_meet_link: meetLink,
+        attendee_emails: attendee_emails.filter(Boolean),
       })
       .select()
       .single()
