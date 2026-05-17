@@ -1,0 +1,32 @@
+components/VaultView.tsx (or wherever it currently lives — the graph shows comp-vault)
+
+API Routes
+
+app/api/ai/command/route.ts — for AI writer / slash commands in the vault
+app/api/ai/chat/route.ts — for the AI Q&A panel on files
+
+Lib / Infrastructure
+
+lib/google/drive.ts — vault folder creation, file listing from Google Drive
+lib/google/token.ts — OAuth token refresh (needed for Drive API calls)
+lib/supabase/admin.ts — for all DB reads/writes
+lib/redis.ts — for caching vault context
+
+Database tables being touched (I already have the schema, so no file needed for these):
+
+vault_folders, vault_items, vault_notes, google_integrations, profiles, tasks, relationships
+
+Optional but helpful
+
+lib/ai/mini-context.ts — if vault context feeds into the AI strip
+lib/ai/tools.ts or lib/ai/mcp-read-tools.ts — if vault read tools are already defined there (to avoid duplicating)
+
+
+So the files to paste in are:
+
+VaultView.tsx (the current component, even if mostly empty)
+lib/google/drive.ts
+lib/google/token.ts
+lib/supabase/admin.ts
+lib/redis.ts
+app/api/ai/command/route.ts

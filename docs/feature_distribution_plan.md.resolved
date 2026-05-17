@@ -1,0 +1,232 @@
+# Kobin AI — Feature Distribution Plan
+> Based on full codebase exploration across all 50+ source files
+
+---
+
+## What's Actually In This Product
+
+Before the tiers, here's every real feature mapped from the code:
+
+| Module | Features Found in Code |
+|---|---|
+| **Tasks** | Buckets (today/this-week/delegated/backlog), priorities, statuses, due dates, deliverable requirements, vault file attachments, external link attachments, fuzzy assignment |
+| **Projects** | Status (active/on-hold/completed/archived), priority, start/end dates, task counts, at-risk detection |
+| **Calendar** | Full Google Calendar sync, Meet link generation, event invites, upcoming deadlines |
+| **CRM** | 7-stage pipeline, deal values, lead scores (0–100), close probability %, stale deal detection (14+ days), weighted pipeline value |
+| **Team** | Member management, workload scoring (FREE/LIGHT/MODERATE/HEAVY), active/overdue/blocked task counts, smart task delegation |
+| **Client Portal** | Separate auth flow, client home, client task view, client vault (`client_uploads` + `deliverables` folders), client sidebar, approval/review flow on deliverables |
+| **Inbox/Chat** | Real-time chat rooms (per project), DMs, AI room (dedicated AI ↔ founder thread), push notifications |
+| **Vault** | Files, notes (TipTap editor), links; auto AI-labeling on upload; Google Drive storage backend; approval workflow; activity logs; comments |
+| **Vault Viewers** | Monaco code editor (30+ languages), TipTap doc editor, DOCX viewer, spreadsheet viewer (XLSX/CSV), PDF viewer, image viewer |
+| **Vault Search** | Chunk-level semantic search (HuggingFace BGE + pgvector), item-level vector search, hybrid search (semantic + keyword), MMR re-ranking, related items panel |
+| **Vault RAG** | Injects top-k vault chunks as context into AI prompts, entity grounding, source attribution with chunk previews |
+| **AI Command Bar** | MCP-style agentic loop, streaming SSE, 8 action tools + 11 read tools, persistent chat sessions, model routing (fast/std/strong), live tool activity display, confirmation flow |
+| **AI Writer (Notes)** | TipTap-integrated AI writer, uses vault RAG context, streams response, inserts directly into editor |
+| **AI Code Assistant** | Monaco-integrated AI panel, vault RAG context for code, suggestions (add types, error handling, JSDoc, refactor), append/replace modes |
+| **AI Workspace Intelligence** | Risk detection (overdue, blocked, stale deals, overloaded members, at-risk projects), priority engine, bottleneck detection, team load analysis |
+| **AI Proactive Mode** | Morning briefing, EOD summary, real-time risk alerts, configurable mode (quiet/balanced/aggressive), push notifications |
+| **AI Memory** | Learns patterns (preferred assignee per project, preferred bucket), stores preferences/workflows, injects into AI context |
+| **Gmail Integration** | Full thread view, AI analysis (intent, sentiment, urgency, signals), lead score auto-update, CRM stage auto-advancement, auto task creation from email action items, auto lead detection from inbox |
+| **Meeting Recorder** | Desktop (Electron) audio capture (mic + system), Groq Whisper transcription, AI meeting analysis, auto task creation, decision vault notes, CRM stage updates from participants, AI inbox notification |
+| **LinkedIn View** | LinkedIn integration panel |
+| **Push Notifications** | Web push for inbox messages, meeting reminders, AI briefings |
+
+---
+
+## Pricing Tiers
+
+### 🆓 Free — "Get Started"
+*Target: Solo founders and freelancers testing the product*
+*Seats: 1 founder + up to 2 team members*
+
+#### ✅ Included
+**Productivity Core**
+- Task management with all 4 buckets (Today / This Week / Delegated / Backlog)
+- Up to 3 active projects
+- Basic calendar (manual events only, no Google Sync)
+- Today View & Dashboard
+
+**Teams** *(limited)*
+- Up to 2 team member seats
+- Task assignment and delegation
+- Basic team workload view
+
+**Client Portal** *(limited)*
+- Up to 3 active clients
+- Client task view + client home
+- Client file uploads folder
+- Deliverables sharing with approval flow
+- "Powered by Kobin AI" badge on portal
+
+**Vault** *(limited)*
+- Up to 2GB storage
+- File uploads (all types), notes, link saving
+- Basic AI auto-labeling on upload
+- No semantic search
+
+**Inbox/Chat**
+- Project chat rooms (up to 3 rooms matching project limit)
+- Direct messages
+
+#### ❌ Not Included
+- AI Command Bar
+- Vault semantic/RAG search
+- AI Writer & Code Assistant
+- Gmail integration
+- Meeting Recorder
+- Proactive AI (briefings, EOD, alerts)
+- AI Memory
+- CRM Pipeline
+- Google Calendar sync + Meet links
+- LinkedIn View
+- Push Notifications
+
+---
+
+### 🚀 Pro — "Scale Your Practice"
+*Target: Growing agencies and teams actively selling and delivering*
+*Price: ~$29 / seat / month (billed annually)*
+*Seats: Unlimited (billed per seat)*
+
+#### Everything in Free, plus:
+
+**Unlimited**
+- Unlimited projects and active clients
+- Unlimited team seats
+- 50GB Vault storage
+- No "Powered by Kobin AI" badge — use your own logo
+
+**Google Integration**
+- Full Google Calendar sync
+- Auto-generated Google Meet links on every scheduled meeting
+- Google Drive as Vault backend (files stored in your Drive)
+
+**CRM Pipeline**
+- Full 7-stage sales pipeline
+- Lead scores (0–100) and deal values
+- Close probability % and weighted pipeline
+- Stale deal detection (14+ days in stage)
+
+**Gmail Intelligence**
+- Gmail thread viewing
+- AI email analysis: intent, sentiment, urgency
+- Lead score auto-update from emails
+- Auto CRM stage advancement
+- Auto task creation from email action items
+
+**AI Command Bar** *(standard tools only)*
+- All 8 action tools: create/update/delete tasks, create/update projects, update CRM deal stage, send messages, analyze workspace
+- All 11 read tools: workspace overview, tasks, projects, team workload, CRM pipeline, calendar, vault files, contacts search, meeting notes
+- Persistent sessions
+- Standard model tier
+
+**Vault AI Search**
+- Hybrid semantic + keyword search
+- Item-level vector similarity
+- Related documents panel
+
+**AI Workspace Intelligence**
+- Risk detection dashboard (overdue, blocked, stale)
+- Team load analysis
+- Priority engine
+- Bottleneck alerts
+
+**Push Notifications**
+- Inbox message notifications
+- Meeting reminders
+- Risk alerts
+
+#### ❌ Still Locked (Agency tier)
+- Vault RAG (AI with vault context)
+- AI Writer (notes + code assistant)
+- Chunk-level semantic search with MMR
+- AI Proactive Mode (morning briefings, EOD summaries)
+- AI Memory system
+- Meeting Recorder (Whisper transcription + AI analysis)
+- Auto lead detection from Gmail
+- White-label client portal (custom domain)
+
+---
+
+### 🏢 Agency — "Your AI-Powered Ops Layer"
+*Target: Established agencies running 10+ clients, with complex delivery workflows*
+*Price: ~$79 / seat / month (billed annually)*
+*Seats: Unlimited (billed per seat)*
+
+#### Everything in Pro, plus:
+
+**The AI Core — The Big Differentiators**
+
+| Feature | What it Does |
+|---|---|
+| **Vault RAG** | AI answers questions using your actual vault documents as context. Chunk-level retrieval, entity grounding, MMR re-ranking, source attribution. NotebookLM-level for your agency. |
+| **AI Writer (Notes)** | Write SOPs, proposals, briefs with AI assistance — context-aware using your vault. Streams directly into the TipTap editor. |
+| **AI Code Assistant** | Monaco editor with AI panel inside your code files. Vault-aware: AI uses your codebase as context. Suggest types, refactors, error handling, docs. |
+| **Vault Semantic Search** | Chunk-level pgvector search across ALL document content (not just titles/descriptions). Full document text indexed and searchable. |
+| **AI Proactive Mode** | Morning briefing delivered to inbox daily. EOD summary auto-generated. Real-time risk alerts pushed to phone. Configurable: Quiet / Balanced / Aggressive. |
+| **AI Memory** | AI learns your patterns — who you usually assign to which project, what bucket you prefer. Gets smarter over time. |
+| **Meeting Recorder** | Desktop app captures mic + system audio. Groq Whisper transcription. AI creates tasks, logs decisions to vault, updates CRM, notifies you in inbox. Auto-record toggle. |
+| **Auto Lead Detection** | Gmail webhook detects new emails from unknown senders. AI classifies: is this a business lead? If yes, auto-adds to CRM pipeline. Filters out newsletters, spam, SaaS notifications. |
+| **Strong AI Model Routing** | Complex commands (plan, roadmap, analyze, multi-step) automatically routed to strongest model tier. |
+
+**White-Label Client Portal**
+- Custom domain (`portal.yourclientcompany.com`)
+- Remove all Kobin branding
+- Custom logo, colors
+- Fully branded experience for each client
+
+**Vault Storage**
+- Up to 500GB (or discuss custom)
+
+**AI Command Bar — Full Power**
+- Vault semantic search as a tool (`vault_semantic_search`)
+- Meeting notes lookup by contact/date/topic
+- All model tiers (fast / std / strong) automatically selected
+
+**Priority Support**
+- Dedicated onboarding call
+- Priority Slack/email support queue
+
+---
+
+## Why This Structure Works
+
+### Free → Hooks whole teams
+Client portal + team seats for free means clients experience the product too. Switching cost builds immediately as files, tasks, and chat live inside Kobin.
+
+### Pro → Driven by integrations
+Once a team hits the seat limit or needs their Gmail/CRM/calendar connected, the upgrade is a no-brainer. The CRM + Gmail combo alone is worth the price.
+
+### Agency → Driven by AI depth
+The Vault RAG + AI Writer + Meeting Recorder combo is your real moat. No other PM tool has this. A NotebookLM-level knowledge base combined with a code assistant, meeting intelligence, and proactive briefings — that's a category unto itself. Larger agencies will pay premium to run their entire ops layer through Kobin.
+
+---
+
+## What to Gate Carefully
+
+> [!IMPORTANT]
+> These three features are the most technically impressive and should be **Agency-only anchors**. Do not include them in Pro.
+> 1. **Vault RAG** — This is what makes Kobin "NotebookLM for agencies." Giving it free kills the upsell.
+> 2. **AI Proactive Mode** — Morning briefings feel magical. Save it. Tease it in Pro UI ("Upgrade to enable AI briefings").
+> 3. **Meeting Recorder** — A complete differentiator. Only Agency should get Whisper transcription + AI meeting analysis.
+
+> [!TIP]
+> **Teaser tactic:** On Pro, show the AI Writer button in the vault but disable it with an "Agency feature" tooltip. Users who discover it will convert.
+
+---
+
+## Vault Storage Summary
+
+| Plan | Storage |
+|---|---|
+| Free | 2 GB |
+| Pro | 50 GB |
+| Agency | 500 GB (custom available) |
+
+## Seat Limits Summary
+
+| Plan | Team Seats | Active Clients |
+|---|---|---|
+| Free | 2 | 3 |
+| Pro | Unlimited | Unlimited |
+| Agency | Unlimited | Unlimited |

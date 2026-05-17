@@ -1,0 +1,326 @@
+# Founder-Assistant Repository Deep Analysis
+
+## 1) Product Intent and Scope
+Founder-Assistant (branded in-repo as **Kobin Ai / Comm Center**) is a full-stack operating system for founders. It combines:
+- execution management (tasks/projects),
+- relationship and revenue management (CRM),
+- collaboration (team + inbox),
+- client-facing delivery (client portal + vault), and
+- AI-assisted operations (chat, tools, proactive summaries, risk alerts).
+
+The architecture centers around a Next.js App Router frontend/server, Supabase data/auth/realtime, and Groq-powered AI orchestration. Most domain logic is server-driven through API routes under `app/api/*`.
+
+---
+
+## 2) Module-by-Module Feature Breakdown
+
+> Note: This section groups files into functional modules (not just directories) so every module in the product surface is covered without duplicating 50+ low-level UI primitive wrappers.
+
+### A. App Shell, Routing, and Role-Based Entrypoints
+**Primary files:** `app/layout.tsx`, `app/page.tsx`, `app/login/page.tsx`, `app/team-dashboard/page.tsx`, `app/client-portal/page.tsx`, `proxy.ts`.
+
+**Features:**
+- Global app shell and theme/container setup.
+- Founder main dashboard at `/` with keyboard AI command trigger (Cmd/Ctrl + K), floating AI entrypoint, auth timeout handling, and role redirect logic.
+- Dedicated login flow and split route experience for founder/team/client.
+- Team dashboard route specialized for team-member role.
+- Client portal route specialized for client role.
+- Request/session middleware plumbing via Supabase middleware adapter.
+
+### B. Dashboard Composition Module
+**Primary files:** `components/dashboard-content.tsx`, `components/header.tsx`.
+
+**Features:**
+- Sidebar-driven multi-tab workspace navigation.
+- Two nav clusters: Workspace (Home, Calendar, Tasks, Projects, LinkedIn, Relationships, Vault, Inbox) + Management (Team, Clients, Settings).
+- Dynamic profile rendering (name/email initials), unread counts, team counts.
+- Theme switcher (light/dark) and responsive sidebar collapse behavior.
+- Dynamic view rendering for each top-level workspace module.
+
+### C. Today/Home Intelligence Module
+**Primary files:** `components/today-view.tsx`.
+
+**Features:**
+- Founder daily command center with time-aware greeting.
+- KPI/pulse cards (task pressure, meetings, pipeline, stale follow-ups).
+- “What needs attention now” prioritization blocks.
+- Quick navigation actions into Task/Calendar/CRM workflows.
+
+### D. Task Execution Module
+**Primary files:** `components/task-view.tsx`, `components/task-form.tsx`, `components/task-comments.tsx`, `components/client-task-form.tsx`, `components/client-task-view.tsx`, `components/task-assignment-notification.tsx`, API `app/api/tasks/*`.
+
+**Features:**
+- Full task lifecycle (create, edit, status change, complete, delete).
+- Bucketed planning (`today`, `this-week`, `delegated`, `backlog`).
+- Priority + status taxonomy and visual urgency cues.
+- Team assignment, project linkage, due-date planning.
+- Deliverable-required workflow and client deliverable submission handling.
+- Inline comments and collaboration context on task records.
+- Attachments from vault/client uploads.
+
+### E. Calendar and Meetings Module
+**Primary files:** `components/calendar-view.tsx`, `components/event-form-dialog.tsx`, `components/meeting-form-dialog.tsx`, `components/meeting-reminder.tsx`, `components/team-meetings-dialog.tsx`, API `app/api/google/create-meet/route.ts`, `app/api/event-invites/respond/route.ts`.
+
+**Features:**
+- Calendar viewing for day/week/month planning.
+- Event CRUD dialogs with typed event intent.
+- Google Meet creation and link integration.
+- Meeting reminder mechanics and event response endpoints.
+
+### F. Projects Module
+**Primary files:** `components/projects-view.tsx`, `lib/create-project-room.ts`.
+
+**Features:**
+- Project CRUD with status/priority/date tracking.
+- Project-linked workload visibility.
+- Automatic project chat-room provisioning so each project has collaboration context.
+
+### G. CRM / Relationships / Revenue Module
+**Primary files:** `components/crm-view.tsx`, `components/pipeline-view.tsx`, `components/leads-import-dialog.tsx`, API `app/api/crm/import-leads/route.ts`, Gmail CRM sync route.
+
+**Features:**
+- Contact/relationship lifecycle management (lead/investor/partner/talent).
+- Pipeline-stage tracking from new lead through won/lost.
+- Revenue/deal signal fields (value, close probability, stage age).
+- Kanban + list-style pipeline visibility.
+- CSV lead import + import history.
+- Gmail contact sync support into CRM context.
+
+### H. Team Management and Permissions Module
+**Primary files:** `components/team-view.tsx`, `components/team-member-dashboard.tsx`, API `app/api/create-team-member/route.ts`, `app/api/delete-team-member/route.ts`.
+
+**Features:**
+- Team-member creation/deletion with role scaffolding.
+- Fine-grained permission flags for each operational area.
+- Team-member dashboard for execution-oriented users.
+- Per-user capability gating tied to profile/team records.
+
+### I. Clients and Client Portal Module
+**Primary files:** `components/clients-view.tsx`, `components/client-portal-content.tsx`, `components/client-portal-sidebar.tsx`, `components/client-home-view.tsx`, API `app/api/create-client-credentials/route.ts`.
+
+**Features:**
+- Client record management and association to projects.
+- Credential generation for client portal access.
+- Segregated portal UX for non-internal users.
+- Client-facing visibility of tasks/calendar/vault/settings.
+
+### J. Inbox and Communication Module
+**Primary files:** `components/inbox-view.tsx`, `components/gmail-thread-view.tsx`, API `app/api/inbox/delete-room/route.ts`, `app/api/gmail/*`, `lib/ai/inbox-dm.ts`.
+
+**Features:**
+- Internal direct messages + group/project chat rooms.
+- Gmail thread read/reply from inside the product.
+- Room lifecycle operations (delete room endpoint).
+- AI room support and DM analysis helpers.
+
+### K. Vault and Knowledge Module
+**Primary files:** `components/vault-view.tsx`, `components/client-vault-view.tsx`, `components/vault/*`, API `app/api/vault/*`, `lib/vault/extraction.ts`, `lib/google/drive.ts`.
+
+**Features:**
+- Google Drive-connected document vault with folder semantics.
+- Multiple item types: files/links/notes.
+- Project-scoped organization + client-facing deliverables workflow.
+- Search, embedding, semantic retrieval, AI writing/label assistance.
+- Uploads, signed URLs, activity tracking, and project-folder bootstrap endpoints.
+
+### L. LinkedIn and External Publishing Module
+**Primary files:** `components/linkedin-view.tsx`.
+
+**Features:**
+- Draft/publish flow and post analytics surfaces.
+- Founder branding support integrated into operating dashboard.
+
+### M. Settings and Integrations Module
+**Primary files:** `components/settings-view.tsx`, `components/google-integration-card.tsx`, API auth/google routes, google disconnect route.
+
+**Features:**
+- Google account connect/disconnect lifecycle.
+- Integration state management for Drive/Gmail/Calendar capabilities.
+- Workspace-level operational toggles.
+
+### N. Notification and Push Module
+**Primary files:** `components/push-provider.tsx`, `components/desktop-notification-provider.tsx`, API `app/api/push/*`, `lib/web-push/*`.
+
+**Features:**
+- Web push subscription management.
+- Internal/user-targeted push event dispatch.
+- Notification bridges for AI and inbox events.
+
+### O. Meeting Bot Module
+**Primary files:** `app/api/meeting-bot/*`, `lib/meeting-bot/audio-recorder.ts`, `lib/meeting-bot/process-meeting.ts`.
+
+**Features:**
+- Meeting ingestion pipeline (upload/transcribe/process/lookup).
+- Structured meeting outputs for downstream AI analysis and CRM/task extraction.
+
+### P. AI API Surface Module
+**Primary files:** `app/api/ai/*`.
+
+**Features:**
+- Multi-endpoint AI orchestration for chat, command execution, proactive generation, email analysis, task extraction, draft reply generation, and warmup.
+- Route-level entrypoints for distinct AI jobs instead of one monolith.
+
+### Q. AI Core Runtime Module
+**Primary files:** `lib/ai/tools.ts`, `lib/ai/mcp-read-tools.ts`, `lib/ai/action-executor.ts`, `lib/ai/intelligence.ts`, `lib/ai/proactive.ts`, `lib/ai/modes.ts`, `lib/ai/model-router.ts`, `lib/ai/groq.ts`, `lib/ai/memory.ts`, `lib/ai/mini-context.ts`, `lib/ai/embeddings.ts`, `lib/ai/chunking.ts`, `lib/ai/vault-rag.ts`.
+
+**Features:**
+- MCP-style tool runtime with explicit read tools + action tools.
+- Context-efficient retrieval (fetch only what model needs at call time).
+- Workspace intelligence engine (risk detection, bottleneck finding, team load synthesis, priorities).
+- Proactive AI messaging (morning brief, risk alert, end-of-day recap) posted into dedicated AI room and pushed as notifications.
+- Multi-mode AI behavior control (`quiet`, `balanced`, `aggressive`) with tunable proactive behavior thresholds.
+- Vector/embedding + chunking pipeline for semantic vault search and RAG.
+- Model routing and Groq client integration.
+
+### R. Data Access and Infra Adapter Module
+**Primary files:** `lib/supabase/*`, `lib/redis.ts`, `lib/cache/app-cache.ts`, `lib/utils.ts`, `utils/cn.ts`.
+
+**Features:**
+- Supabase clients for browser/server/admin and middleware-bound auth refresh.
+- Cache and rate/perf helpers (Redis-backed where configured).
+- Shared utility layer for UI and server logic.
+
+### S. Database Schema and Migration Module
+**Primary files:** `scripts/*.sql`.
+
+**Features:**
+- Initial schema, table evolution, relationship model additions.
+- Team workspace and meeting recording schema extensions.
+- CRM import history and event attendee email support.
+
+### T. Electron Desktop Companion Module
+**Primary files:** `electron/main.js`, preload files, widget html.
+
+**Features:**
+- Desktop process wrapper and preload channels.
+- Notification and recorder widget support for desktop usage mode.
+
+### U. UI Primitive System Module
+**Primary files:** `components/ui/*`.
+
+**Features:**
+- Design system primitives for forms, dialogs, overlays, navigation, data display, interactions.
+- Shared reusable UI contract enabling consistent styling/behavior across founder/team/client views.
+
+### V. Documentation and Planning Module
+**Primary files:** `ARCHITECTURE.md`, `FEATURES.md`, `INTEGRATION_GUIDE.md`, `plans/*`, `docs/*`.
+
+**Features:**
+- Architecture blueprints and feature inventories.
+- RAG implementation planning artifacts.
+- Vault visualization prototypes and integration docs.
+
+---
+
+## 3) AI Capabilities — Full Detailed Breakdown
+
+### 3.1 AI Modes (Behavior Profiles)
+Defined in `lib/ai/modes.ts`:
+- **quiet**: suppresses morning/EOD chatter, only critical-risk style behavior.
+- **balanced**: default operating mode, enables regular summaries + proactive reminders with higher risk threshold than aggressive.
+- **aggressive**: maximum proactive behavior with lower threshold for risk alerts.
+
+Each mode controls:
+- morning briefing behavior,
+- EOD summary behavior,
+- risk alerting and threshold,
+- inbox intelligence behavior,
+- proactive follow-up reminders.
+
+### 3.2 AI Read Tooling (Context Retrieval)
+Defined in `lib/ai/mcp-read-tools.ts`:
+- `get_workspace_overview`
+- `get_tasks`
+- `get_projects`
+- `get_team_workload`
+- `get_crm_pipeline`
+- `get_calendar`
+- `get_vault_files`
+- `get_task_creation_context`
+- `search_contacts`
+- `get_meeting_notes`
+- `vault_semantic_search`
+
+**Why this matters:** the AI avoids huge static prompts and instead performs selective retrieval to reduce hallucination and keep responses current.
+
+### 3.3 AI Action Tooling (Execution Layer)
+Defined in `lib/ai/tools.ts`, executed via `lib/ai/action-executor.ts`:
+- `create_task`
+- `update_task`
+- `delete_task`
+- `create_project`
+- `update_project`
+- `search_messages`
+- `update_deal_stage`
+- `send_message_to_room`
+- `analyze_workspace`
+
+Execution engine capabilities include:
+- fuzzy resolution of human names/project names,
+- due-date-aware smart bucket inference,
+- vault attachment resolution by fuzzy title,
+- normalization of enum and boolean-like inputs,
+- confirmation handshakes for destructive/sensitive actions.
+
+### 3.4 Workspace Intelligence Engine
+Defined in `lib/ai/intelligence.ts`:
+- Detects **overdue tasks**, **blocked tasks**, **stale deals**, **overloaded team members**, and **at-risk projects**.
+- Assigns severity (`critical`, `high`, `medium`) based on timing, value, and load.
+- Produces ranked priorities and bottleneck narrative statements.
+- Produces team-load snapshots (FREE/LIGHT/MODERATE/HEAVY).
+- Returns structured intelligence payload with generation timestamp.
+
+### 3.5 Proactive AI Communication Layer
+Defined in `lib/ai/proactive.ts`:
+- Ensures dedicated AI chat room existence per founder.
+- Posts AI-originated messages with model metadata and AI message typing.
+- Sends web-push notifications alongside inbox insertion.
+- Generates:
+  - **Morning Brief** (top priorities/focus),
+  - **Risk Alert** (event-driven warning),
+  - **End-of-Day Summary** (progress + next-priority guidance).
+
+### 3.6 RAG / Semantic Vault Intelligence
+Supporting files: `lib/ai/vault-rag.ts`, `lib/ai/embeddings.ts`, `lib/ai/chunking.ts`, vault API endpoints.
+
+Capabilities:
+- document chunking for embedding pipelines,
+- semantic similarity retrieval across vault corpus,
+- vault-aware contextual grounding for AI responses,
+- project-scoped document retrieval for precise operational answers.
+
+### 3.7 AI Endpoint Capabilities (Operational Surface)
+Under `app/api/ai/*`:
+- analysis endpoints (generic and email-specific),
+- conversational chat endpoint,
+- command-oriented endpoint,
+- proactive trigger endpoint,
+- task extraction endpoint,
+- draft reply endpoint,
+- warmup endpoint for readiness/performance.
+
+### 3.8 AI + Meeting Intelligence
+Meeting bot pipeline feeds AI workflows:
+- audio/transcript processing,
+- post-meeting structuring,
+- retrieval of meeting notes/decisions/action items,
+- CRM/task follow-through opportunities.
+
+### 3.9 AI Safety and Reliability Patterns Present in Code
+- Explicit tool schemas + typed argument constraints.
+- Separation of read vs write tooling.
+- Name resolution and normalization before writes.
+- Confirmation flags for destructive/high-impact actions.
+- Caching around expensive intelligence queries.
+
+---
+
+## 4) Summary: What This Repo Delivers
+This repo is not a single-feature app; it is a **multi-role operating platform** with:
+1. founder operations cockpit,
+2. team execution workspace,
+3. client-facing portal,
+4. integrated communications + CRM + knowledge vault,
+5. embedded AI chief-of-staff system with both reactive and proactive behavior.
+
+The AI layer is substantive: it includes retrieval tools, mutation tools, intelligence scoring, proactive briefs, and semantic vault search — not just prompt wrappers.
