@@ -535,16 +535,6 @@ export async function POST(request: Request) {
 
   const systemPrompt = `You are the AI manager for Kobin Ai — an agency OS. You execute actions and answer questions about the workspace.
 
-## CRITICAL: Tool Parameter Names
-When calling create_task, you MUST use EXACT parameter names:
-- Task title → use "title" (NEVER "task_name", "name", "task_title")  
-- Description/context → use "notes" (NEVER "description", "details", "content")
-- Who to assign → use "assigned_to_name" (NEVER "assignee", "assigned_to", "assignee_name")
-- Which project → use "project_name" (NEVER "project", "project_id")
-- What to submit → use "deliverable_description" (NEVER "deliverable", "submission")
-- Files to attach → use "vault_file_names" as array of strings
-Wrong parameter names cause the tool call to fail entirely.
-
 ${miniContext}
 ${memoryContext ? `\n${memoryContext}` : ""}
 
@@ -655,48 +645,49 @@ ${historyWarningBlock}`
       const SEARCH_TOOLS = new Set(["vault_semantic_search", "search_messages"])
 
       try {
-        response = await groq.chat.completions.create({
-          model: GROQ_MODEL,
-          messages,
-          tools: ALL_TOOLS as any,
-          tool_choice: "auto",
-          max_tokens: 1024,
-          temperature: 0.2,
-        })
-      } catch (apiError: any) {
-        const errorMessage = apiError?.message || apiError?.error?.message || ""
-        const isSchemaError = apiError?.status === 400 && errorMessage.includes("tool_use_failed")
+        // ── Agentic loop (max 6 steps) ────────────────────────────────────
+        for (let step = 0; step < 6; step++) {
 
-        if (isSchemaError) {
-          // Model used wrong param names — retry with ALL tools at very low temperature
-          // so it follows the schema strictly
-          console.log(`[AI-CMD] Step ${step + 1} | Groq schema error — retrying with all tools @ low temperature`)
+          // ── Pre-step synthesis check ──────────────────────────────────────
+          // If we already have comprehensive data, skip the Groq tool-decision
+          // call entirely and go straight to synthesis. Prevents the model from
+          // even having the chance to call analyze_workspace a second time.
+          if (step > 0 && toolResultsThisRequest.size > 0) {
+            const preCheck = shouldForceSynthesis(step, toolResultsThisRequest, [])
+            if (preCheck.force) {
+              console.log(`[${reqId}] step=${step} PRE-CHECK forcing synthesis: ${preCheck.reason}`)
+              for (const ev of actionEvents) enqueue({ type: "action_executed", ...ev })
+              for await (const delta of streamFinalText(
+                groq, effectiveModel, messages,
+                { max_tokens: 1024, temperature: 0.2 }, reqId
+              )) {
+                enqueue({ type: "delta", content: delta })
+              }
+              enqueue({ type: "done" })
+              ctrl.close()
+              return
+            }
+          }
+
+          // ── Non-streaming call to get tool decisions ───────────────────
+          let response: any
           try {
             response = await groqCall(groq, effectiveModel, {
               messages,
-              tools: ALL_TOOLS as any,
+              tools: planFilteredTools as any,
               tool_choice: "auto",
               max_tokens: 1024,
-              temperature: 0.0,
+              temperature: 0.2,
             })
-          } catch (retryError: any) {
-            // Both attempts failed — respond with a helpful error message
-            console.log(`[AI-CMD] Step ${step + 1} | All-tools retry failed — returning error response`)
-            const encoder = new TextEncoder()
-            const errMsg = "I had trouble executing that action. Please try rephrasing — for example: \"Create a task called X, assign to Y, due Friday\"."
-            const readable = new ReadableStream({
-              start(controller) {
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "delta", content: errMsg })}\n\n`))
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`))
-                controller.close()
-              },
-            })
-            return new Response(readable, { headers: SSE_HEADERS })
+          } catch (apiErr: any) {
+            const msg = apiErr?.message || ""
+            if (apiErr?.status === 400 && msg.includes("tool_use_failed")) {
+              console.warn(`[CMD] step=${step} schema error — retrying no-tools`)
+              response = await groqCall(groq, effectiveModel, { messages, max_tokens: 800, temperature: 0 })
+            } else {
+              throw apiErr
+            }
           }
-        } else {
-          throw apiError
-        }
-      }
 
           const choice = response.choices[0]
           const toolCalls = choice?.message?.tool_calls
