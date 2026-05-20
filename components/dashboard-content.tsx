@@ -3,7 +3,6 @@ import {
   Home,
   Calendar,
   CheckSquare,
-  Linkedin,
   Users,
   FileText,
   Users2,
@@ -39,7 +38,6 @@ import { TodayView } from "@/components/today-view"
 import { CalendarView } from "@/components/calendar-view"
 import { TaskView } from "@/components/task-view"
 import { ProjectsView } from "@/components/projects-view"
-import { LinkedinView } from "@/components/linkedin-view"
 import { CrmView } from "@/components/crm-view"
 import { VaultView } from "@/components/vault-view"
 import { InboxView } from "@/components/inbox-view"
@@ -53,7 +51,6 @@ const mainNav = [
   { title: "Calendar", icon: Calendar },
   { title: "Tasks", icon: CheckSquare },
   { title: "Projects", icon: FolderOpen },
-  { title: "LinkedIn", icon: Linkedin },
   { title: "Relationships", icon: Users },
   { title: "Vault", icon: FileText },
   { title: "Inbox", icon: Inbox },
@@ -406,7 +403,7 @@ export function DashboardSidebar({
 
 
 export function DashboardContent({ activeTab, userType }: { activeTab: string; userType: string }) {
-  const isFullBleed = ["Inbox", "Vault", "Relationships", "LinkedIn"].includes(activeTab)
+  const isFullBleed = ["Inbox", "Vault", "Relationships"].includes(activeTab)
 
   return (
     <main className="flex-1 min-h-0 flex flex-col">
@@ -421,7 +418,6 @@ export function DashboardContent({ activeTab, userType }: { activeTab: string; u
         {activeTab === "Calendar" && <CalendarView />}
         {activeTab === "Tasks" && <TaskView userType={userType} />}
         {activeTab === "Projects" && <ProjectsView />}
-        {activeTab === "LinkedIn" && <LinkedinView />}
         {activeTab === "Relationships" && <CrmView />}
         {activeTab === "Vault" && <VaultView />}
         {activeTab === "Inbox" && (

@@ -10,7 +10,6 @@ import {
   Home,
   Calendar,
   CheckSquare,
-  Linkedin,
   Users,
   FileText,
   Settings,
@@ -34,7 +33,6 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar"
 import { CalendarView } from "@/components/calendar-view"
-import { LinkedinView } from "@/components/linkedin-view"
 import { CrmView } from "@/components/crm-view"
 import { VaultView } from "@/components/vault-view"
 import { SettingsView } from "@/components/settings-view"
@@ -172,7 +170,6 @@ export function TeamMemberDashboard({ permissions }: { permissions: TeamMemberPe
     { title: "Calendar", icon: Calendar, show: permissions.can_view_calendar },
     { title: "Tasks", icon: CheckSquare, show: permissions.can_view_tasks },
     { title: "Projects", icon: FolderOpen, show: permissions.can_view_projects },
-    { title: "LinkedIn", icon: Linkedin, show: permissions.can_view_linkedin },
     { title: "Relationships", icon: Users, show: permissions.can_view_relationships },
     { title: "Vault", icon: FileText, show: permissions.can_view_vault },
     { title: "Clients", icon: UserCircle, show: permissions.can_access_clients }, // Added Clients navigation item
@@ -304,7 +301,6 @@ export function TeamMemberDashboard({ permissions }: { permissions: TeamMemberPe
             )}
             {/* Dynamic rendering for other views if permissions allow */}
             {activeTab === "Calendar" && permissions.can_view_calendar && <CalendarView />}
-            {activeTab === "LinkedIn" && permissions.can_view_linkedin && <LinkedinView />}
             {activeTab === "Relationships" && permissions.can_view_relationships && <CrmView />}
             {activeTab === "Vault" && permissions.can_view_vault && <VaultView />}
             {activeTab === "Clients" && permissions.can_access_clients && (

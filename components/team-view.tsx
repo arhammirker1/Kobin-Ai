@@ -94,7 +94,7 @@ const ROLE_PRESETS: Record<Exclude<PresetKey, "custom">, Partial<TeamMemberFormD
   admin: {
     can_view_tasks: true, can_perform_tasks: true, can_update_task_status: true,
     can_create_tasks: true, can_view_projects: true, can_create_projects: true,
-    can_view_calendar: true, can_view_linkedin: true, can_view_relationships: true,
+    can_view_calendar: true, can_view_relationships: true,
     can_view_vault: true, can_view_analytics: true, can_access_clients: true,
     can_access_inbox: true,
   },
@@ -111,7 +111,7 @@ const ROLE_PRESETS: Record<Exclude<PresetKey, "custom">, Partial<TeamMemberFormD
   },
   sales: {
     can_view_tasks: true, can_perform_tasks: true, can_update_task_status: true,
-    can_view_calendar: true, can_view_linkedin: true, can_view_relationships: true,
+    can_view_calendar: true, can_view_relationships: true,
     can_access_inbox: true, can_view_vault: true,
   },
   analyst: {
@@ -154,7 +154,6 @@ const PERM_GROUPS = [
       { key: "can_view_vault",         label: "Vault",          desc: "Access project files and deliverables" },
       { key: "can_access_inbox",       label: "Inbox",          desc: "Send and receive messages" },
       { key: "can_view_relationships", label: "Relationships",  desc: "CRM and contact management" },
-      { key: "can_view_linkedin",      label: "LinkedIn",       desc: "Draft and schedule posts" },
       { key: "can_view_analytics",     label: "Analytics",      desc: "View workspace metrics" },
     ],
   },
@@ -164,7 +163,7 @@ const PERM_LABELS: Record<string, string> = {
   can_view_tasks: "View tasks", can_perform_tasks: "Perform tasks", can_create_tasks: "Manage tasks",
   can_view_projects: "View projects", can_create_projects: "Create projects",
   can_view_calendar: "Calendar", can_view_vault: "Vault", can_access_inbox: "Inbox",
-  can_view_relationships: "Relationships", can_view_linkedin: "LinkedIn",
+  can_view_relationships: "Relationships",
   can_view_analytics: "Analytics", can_access_clients: "Manage clients",
 }
 
