@@ -10,6 +10,7 @@ export async function POST(request: Request) {
       email,
       password,
       position,
+      role_preset,
       can_view_tasks,
       can_update_task_status,
       can_create_tasks,
@@ -73,7 +74,7 @@ export async function POST(request: Request) {
       id: newUserId,
       full_name,
       email,
-      user_type: "team_member",
+      user_type: role_preset === "admin" ? "founder" : "team_member",
       created_by: user.id,
     })
 

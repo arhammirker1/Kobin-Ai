@@ -271,7 +271,12 @@ export function TeamView() {
       const response = await fetch("/api/create-team-member", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...formData, can_update_task_status: formData.can_perform_tasks, founder_id: user.id }),
+        body: JSON.stringify({
+          ...formData,
+          can_update_task_status: formData.can_perform_tasks,
+          founder_id: user.id,
+          role_preset: activePreset,
+        }),
       })
 
       if (!response.ok) {
